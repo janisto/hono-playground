@@ -1,0 +1,21 @@
+autoInstallPeers: false
+nodeVersion: 24.18.0
+engineStrict: true
+strictDepBuilds: true
+minimumReleaseAge: 1440
+minimumReleaseAgeStrict: true
+minimumReleaseAgeIgnoreMissingTime: false
+trustLockfile: false
+blockExoticSubdeps: true
+overrides:
+  js-yaml@4.2.0: 4.3.0
+
+allowBuilds:
+  '@scarf/scarf': false
+  esbuild: true
+  sharp: false
+  workerd: true
+minimumReleaseAgeExclude:
+  - '@cloudflare/workers-types@5.20260722.1'
+  - jose@6.2.4
+  - swagger-ui-dist@5.32.11
