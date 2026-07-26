@@ -146,7 +146,6 @@ const workerProps = Effect.gen(function* () {
         enabled: true,
         headSamplingRate: deploymentTraceSamplingRate(stagePolicy.environment),
         persist: true,
-        propagationPolicy: "authenticated" as const,
       },
     },
     dev: {

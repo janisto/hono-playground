@@ -31,7 +31,7 @@ live state after an apply.
 | Migration ledger | `drizzle_migrations` | not created |
 | Rate limiting | public 300/min per route and actor, profile reads 120/min, profile writes 30/min | config only |
 | Secrets | distinct rate-limit and audit HMAC bindings | not uploaded |
-| Observability | persisted logs; authenticated trace propagation; 1% production traces; version metadata | config only |
+| Observability | persisted logs and traces; 1% production trace sampling; version metadata | config only |
 | Ingress | Alchemy-managed custom hostname; no direct Worker URL | not created |
 | Access | exact custom hostname and reviewed allow policy | staging application and owner-only policy created and read back 2026-07-26; edge enforcement untested until the hostname exists |
 | Alchemy state | Cloudflare-backed state | shared account-level state store bootstrapped and reused by a successful staging plan on 2026-07-26 |
@@ -224,7 +224,7 @@ Application access logs intentionally do not estimate D1 scans or writes from
 returned array lengths. Use Cloudflare's automatic D1 span attributes for
 exact rows read, rows written, changes, SQL duration, and retry attempts.
 Application logs do not copy caller-supplied `traceparent` identifiers.
-Cloudflare trace propagation accepts authenticated contexts, and production
+The Worker does not set Cloudflare's gated trace propagation policy. Production
 trace head sampling is `0.01`; staging and development retain full trace
 sampling for validation. Public rate-limit keys combine the normalized actor
 with the fixed route template, but Cloudflare's binding remains intentionally
