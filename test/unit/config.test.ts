@@ -86,9 +86,7 @@ describe("runtime configuration", () => {
       "staging request limit drift",
     ],
   ])("rejects invalid common configuration: $1", (overrides, _caseName) => {
-    expectConfigurationFailure(() =>
-      parseRuntimeConfig({ ...TEST_BINDINGS, ...overrides } as RuntimeBindings),
-    );
+    expectConfigurationFailure(() => parseRuntimeConfig({ ...TEST_BINDINGS, ...overrides } as RuntimeBindings));
   });
 
   it("requires a canonical visible-ASCII Access verifier configuration", () => {
@@ -127,9 +125,7 @@ describe("HMAC secret format", () => {
 
     expect(decoded).toBeInstanceOf(Uint8Array);
     expect(decoded).toHaveLength(32);
-    expect(Array.from(decoded, (byte) => byte.toString(16).padStart(2, "0")).join("")).toBe(
-      STRONG_KEY,
-    );
+    expect(Array.from(decoded, (byte) => byte.toString(16).padStart(2, "0")).join("")).toBe(STRONG_KEY);
   });
 
   it.each([

@@ -8,8 +8,7 @@ import {
 
 export type ProfileClock = () => Date;
 
-const profileNotFound = (): AppError =>
-  new AppError({ status: 404, code: "not_found", detail: "Profile not found" });
+const profileNotFound = (): AppError => new AppError({ status: 404, code: "not_found", detail: "Profile not found" });
 
 const profileConflict = (): AppError =>
   new AppError({
@@ -37,9 +36,7 @@ export class ProfileService {
   }
 
   async create(subject: string, input: ProfileCreate): Promise<Profile> {
-    const profile = await this.#repositoryCall(() =>
-      this.#repository.create(subject, input, this.#timestamp()),
-    );
+    const profile = await this.#repositoryCall(() => this.#repository.create(subject, input, this.#timestamp()));
     if (profile === undefined) throw profileConflict();
     return profile;
   }
@@ -53,10 +50,7 @@ export class ProfileService {
   async update(subject: string, input: ProfileUpdate): Promise<Profile> {
     if (Object.keys(input).length === 0) return this.get(subject);
 
-    const profile = await this.#repositoryCall(
-      () => this.#repository.update(subject, input, this.#timestamp()),
-      true,
-    );
+    const profile = await this.#repositoryCall(() => this.#repository.update(subject, input, this.#timestamp()), true);
     if (profile === undefined) throw profileNotFound();
     return profile;
   }

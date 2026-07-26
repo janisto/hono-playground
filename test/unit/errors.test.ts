@@ -34,12 +34,12 @@ describe("application error catalog", () => {
   });
 
   it("rejects arbitrary status/detail/issues and missing dynamic headers", () => {
-    expect(
-      () => new AppError({ status: 500, code: "not_found", detail: "private marker" }),
-    ).toThrow("must match the application error catalog");
-    expect(
-      () => new AppError({ status: 404, code: "not_found", detail: "private marker" }),
-    ).toThrow("must match the application error catalog");
+    expect(() => new AppError({ status: 500, code: "not_found", detail: "private marker" })).toThrow(
+      "must match the application error catalog",
+    );
+    expect(() => new AppError({ status: 404, code: "not_found", detail: "private marker" })).toThrow(
+      "must match the application error catalog",
+    );
     expect(
       () =>
         new AppError({
@@ -115,9 +115,7 @@ describe("application error catalog", () => {
   });
 
   it("serializes operational errors as RFC 9457 and resource errors as JSON:API", async () => {
-    const operational = problemResponse(
-      new AppError({ status: 404, code: "not_found", detail: "Not Found" }),
-    );
+    const operational = problemResponse(new AppError({ status: 404, code: "not_found", detail: "Not Found" }));
     expect(operational.headers.get("Content-Type")).toBe("application/problem+json");
     await expect(operational.json()).resolves.toEqual({
       type: "about:blank",

@@ -27,9 +27,7 @@ const result = await build({
   },
 });
 
-const outputs = Array.isArray(result)
-  ? result.flatMap((buildResult) => buildResult.output)
-  : result.output;
+const outputs = Array.isArray(result) ? result.flatMap((buildResult) => buildResult.output) : result.output;
 const entry = outputs.find((output) => output.type === "chunk" && output.isEntry);
 if (entry?.type !== "chunk") {
   throw new Error("Vite did not produce a Worker entry chunk");

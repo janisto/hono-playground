@@ -12,11 +12,7 @@ import {
   STACK_NAME,
   WORKER_BASE_NAME,
 } from "./infra/config.js";
-import {
-  deploymentHostname,
-  deploymentStagePolicy,
-  deploymentTraceSamplingRate,
-} from "./infra/stage-policy.js";
+import { deploymentHostname, deploymentStagePolicy, deploymentTraceSamplingRate } from "./infra/stage-policy.js";
 import { parseAccessVerifierConfig } from "./src/auth/access.js";
 import { isValidHmacSecret } from "./src/core/config.js";
 
@@ -54,9 +50,7 @@ const workerProps = Effect.gen(function* () {
   const stack = yield* Alchemy.Stack;
   const stage = stack.stage;
   const stagePolicy = deploymentStagePolicy(stage);
-  const domain = stagePolicy.persistent
-    ? deploymentHostname(yield* Config.string("WORKER_DOMAIN"))
-    : undefined;
+  const domain = stagePolicy.persistent ? deploymentHostname(yield* Config.string("WORKER_DOMAIN")) : undefined;
 
   const namespaceIds = yield* Config.all({
     public: rateLimitNamespaceConfig("PUBLIC_RATE_LIMIT_NAMESPACE_ID"),

@@ -4,12 +4,7 @@ import { z } from "zod";
 
 import type { OperatorCode } from "../core/errors.js";
 import { type NewProfileRow, type ProfileRow, profiles } from "../db/schema.js";
-import {
-  type Profile,
-  type ProfileCreate,
-  ProfileSchema,
-  type ProfileUpdate,
-} from "../models/profile.js";
+import { type Profile, type ProfileCreate, ProfileSchema, type ProfileUpdate } from "../models/profile.js";
 
 const MAX_PATCH_RETRIES = 2;
 const PATCH_RETRY_BASE_DELAY_MS = 25;
@@ -88,15 +83,11 @@ const removeD1ErrorPrefix = (message: string): string =>
   message.startsWith("D1_ERROR: ") ? message.slice("D1_ERROR: ".length) : message;
 
 export const isRetryableD1Error = (error: unknown): boolean =>
-  errorMessages(error).some((message) =>
-    transientD1ErrorMessages.has(removeD1ErrorPrefix(message)),
-  );
+  errorMessages(error).some((message) => transientD1ErrorMessages.has(removeD1ErrorPrefix(message)));
 
 const repositoryError = (error: unknown): ProfileRepositoryError => {
   if (error instanceof ProfileRepositoryError) return error;
-  return isRetryableD1Error(error)
-    ? new ProfileRepositoryUnavailableError()
-    : new ProfileRepositoryError();
+  return isRetryableD1Error(error) ? new ProfileRepositoryUnavailableError() : new ProfileRepositoryError();
 };
 
 const profileFromRow = (value: unknown): Profile => {
@@ -170,11 +161,7 @@ export class DrizzleProfileRepository implements ProfileRepository {
 
   async get(id: string): Promise<Profile | undefined> {
     try {
-      const selected = await this.#database
-        .select()
-        .from(profiles)
-        .where(eq(profiles.id, id))
-        .limit(2);
+      const selected = await this.#database.select().from(profiles).where(eq(profiles.id, id)).limit(2);
       if (selected.length === 0) return undefined;
       return oneProfile(selected);
     } catch (error) {
@@ -238,10 +225,7 @@ export class DrizzleProfileRepository implements ProfileRepository {
 
   async delete(id: string): Promise<boolean> {
     try {
-      const deleted = await this.#database
-        .delete(profiles)
-        .where(eq(profiles.id, id))
-        .returning({ id: profiles.id });
+      const deleted = await this.#database.delete(profiles).where(eq(profiles.id, id)).returning({ id: profiles.id });
       if (deleted.length > 1) throw new ProfileRepositoryError();
       return deleted.length === 1;
     } catch (error) {

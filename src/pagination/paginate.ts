@@ -66,9 +66,7 @@ export function paginate<T>(options: PaginateOptions<T>): PaginationResult<T> {
 
   const links = buildPaginationLinks(
     basePath,
-    category === undefined
-      ? { pageLimit: String(limit) }
-      : { filterCategory: category, pageLimit: String(limit) },
+    category === undefined ? { pageLimit: String(limit) } : { filterCategory: category, pageLimit: String(limit) },
     cursor ?? null,
     nextCursor,
     prevCursor,

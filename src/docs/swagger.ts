@@ -6,8 +6,7 @@ const SWAGGER_UI_BUNDLE_URL = `${SWAGGER_UI_CDN_BASE}/swagger-ui-bundle.js`;
 
 export const SWAGGER_UI_STYLESHEET_INTEGRITY =
   "sha384-9Q2fpS+xeS4ffJy6CagnwoUl+4ldAYhOs9pgZuEKxypVModhmZFzeMlvVsAjf7uT";
-export const SWAGGER_UI_BUNDLE_INTEGRITY =
-  "sha384-vfl/klfTFrIz5urj0HnhcXLAbzPdRHezizfy+XgFB6GqcKkhlk0lS3bIbyB39NLA";
+export const SWAGGER_UI_BUNDLE_INTEGRITY = "sha384-vfl/klfTFrIz5urj0HnhcXLAbzPdRHezizfy+XgFB6GqcKkhlk0lS3bIbyB39NLA";
 
 export const SWAGGER_UI_BOOTSTRAP = `window.onload = () => {
   window.ui = SwaggerUIBundle({
@@ -18,8 +17,7 @@ export const SWAGGER_UI_BOOTSTRAP = `window.onload = () => {
   });
 };`;
 
-export const SWAGGER_UI_BOOTSTRAP_CSP_SOURCE =
-  "'sha256-CQSRbJsH3oggTHmvhRAccynG58ANP1v1E04cYW0LG6Y='";
+export const SWAGGER_UI_BOOTSTRAP_CSP_SOURCE = "'sha256-CQSRbJsH3oggTHmvhRAccynG58ANP1v1E04cYW0LG6Y='";
 export const SWAGGER_UI_BUNDLE_CSP_SOURCE = `'${SWAGGER_UI_BUNDLE_INTEGRITY}'`;
 
 type SwaggerUiAssets = Readonly<{

@@ -141,9 +141,7 @@ describe("structured application events", () => {
 
     expect(response.status).toBe(201);
     expect(log).toHaveBeenCalledTimes(2);
-    const events = log.mock.calls.map(
-      ([event]) => event as Record<string, unknown> & { event?: unknown },
-    );
+    const events = log.mock.calls.map(([event]) => event as Record<string, unknown> & { event?: unknown });
     const audit = events.find((event) => event.event === "profile.audit");
     const access = events.find((event) => event.event === "http.access");
     expect(audit).toEqual({
@@ -177,48 +175,43 @@ describe("structured application events", () => {
   it.each([
     ["conflicting", () => Promise.resolve(undefined), 409],
     ["failed", () => Promise.reject(new Error("private-repository-failure-marker")), 500],
-  ])(
-    "never emits a success audit event for a %s profile create",
-    async (_condition, create, expectedStatus) => {
-      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-      const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
-      const application = createApp({
-        accessVerifier: () => Promise.resolve({ sub: SUBJECT }),
-        profileRepositoryFactory: () => ({ ...repository, create }),
-        now: () => new Date("2026-07-22T12:00:00.000Z"),
-      });
-      const response = await application.request(
-        new Request(`${ORIGIN}/v1/profiles`, {
-          method: "POST",
-          headers: {
-            Accept: "application/vnd.api+json",
-            "Content-Type": "application/vnd.api+json",
-          },
-          body: JSON.stringify({
-            data: {
-              type: "profiles",
-              attributes: {
-                firstName: "Ada",
-                lastName: "Lovelace",
-                email: "ada@example.com",
-                phoneNumber: "+12025550123",
-                termsAccepted: true,
-              },
+  ])("never emits a success audit event for a %s profile create", async (_condition, create, expectedStatus) => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const application = createApp({
+      accessVerifier: () => Promise.resolve({ sub: SUBJECT }),
+      profileRepositoryFactory: () => ({ ...repository, create }),
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+    const response = await application.request(
+      new Request(`${ORIGIN}/v1/profiles`, {
+        method: "POST",
+        headers: {
+          Accept: "application/vnd.api+json",
+          "Content-Type": "application/vnd.api+json",
+        },
+        body: JSON.stringify({
+          data: {
+            type: "profiles",
+            attributes: {
+              firstName: "Ada",
+              lastName: "Lovelace",
+              email: "ada@example.com",
+              phoneNumber: "+12025550123",
+              termsAccepted: true,
             },
-          }),
+          },
         }),
-        undefined,
-        TEST_BINDINGS,
-      );
+      }),
+      undefined,
+      TEST_BINDINGS,
+    );
 
-      expect(response.status).toBe(expectedStatus);
-      const events = [...log.mock.calls, ...errorLog.mock.calls].map(([event]) => event);
-      expect(events).not.toContainEqual(
-        expect.objectContaining({ event: "profile.audit", result: "success" }),
-      );
-      expect(JSON.stringify(events)).not.toContain("private-repository-failure-marker");
-    },
-  );
+    expect(response.status).toBe(expectedStatus);
+    const events = [...log.mock.calls, ...errorLog.mock.calls].map(([event]) => event);
+    expect(events).not.toContainEqual(expect.objectContaining({ event: "profile.audit", result: "success" }));
+    expect(JSON.stringify(events)).not.toContain("private-repository-failure-marker");
+  });
 
   it("does not fabricate D1 scan or write counts from returned rows", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -491,9 +484,7 @@ describe("custom span wrapper", () => {
       "response.validate",
     ] as const satisfies readonly SpanName[];
 
-    const values = spanNames.map((name) =>
-      enterSpanWith(tracer, name, (activeSpan) => activeSpan?.isTraced),
-    );
+    const values = spanNames.map((name) => enterSpanWith(tracer, name, (activeSpan) => activeSpan?.isTraced));
 
     expect(names).toEqual(spanNames);
     expect(values).toEqual([true, true, true, true]);
@@ -514,9 +505,7 @@ describe("custom span wrapper", () => {
         throw failure;
       }),
     ).toThrow(failure);
-    expect(
-      enterSpanWith(undefined, "response.validate", (activeSpan) => activeSpan),
-    ).toBeUndefined();
+    expect(enterSpanWith(undefined, "response.validate", (activeSpan) => activeSpan)).toBeUndefined();
     expect(() =>
       enterSpanWith(undefined, "response.validate", () => {
         throw failure;

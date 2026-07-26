@@ -108,11 +108,7 @@ describe("public limiter contract", () => {
     const runtimeBindings = bindings({ PUBLIC_RATE_LIMITER: publicLimiter });
     const headers = { "CF-Connecting-IP": "192.0.2.1" };
 
-    const health = await createApp().request(
-      new Request(`${ORIGIN}/health`, { headers }),
-      undefined,
-      runtimeBindings,
-    );
+    const health = await createApp().request(new Request(`${ORIGIN}/health`, { headers }), undefined, runtimeBindings);
     const items = await createApp().request(
       new Request(`${ORIGIN}/v1/items`, {
         headers: { ...headers, Accept: JSON_API_MEDIA_TYPE },

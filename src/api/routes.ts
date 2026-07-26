@@ -2,17 +2,9 @@ import { createRoute, z } from "@hono/zod-openapi";
 
 import { JsonApiErrorDocumentSchema, ProblemResponseSchema } from "../models/error.js";
 import { HealthResponseSchema } from "../models/health.js";
-import {
-  ItemCategorySchema,
-  ItemCollectionDocumentSchema,
-  ItemDocumentSchema,
-} from "../models/items.js";
+import { ItemCategorySchema, ItemCollectionDocumentSchema, ItemDocumentSchema } from "../models/items.js";
 import { JSON_API_MEDIA_TYPE } from "../models/json-api.js";
-import {
-  ProfileCreateDocumentSchema,
-  ProfileDocumentSchema,
-  ProfileUpdateDocumentSchema,
-} from "../models/profile.js";
+import { ProfileCreateDocumentSchema, ProfileDocumentSchema, ProfileUpdateDocumentSchema } from "../models/profile.js";
 
 const commonHeaders = {
   "X-Request-ID": { schema: { type: "string" as const } },
@@ -97,11 +89,7 @@ export const ItemsQuerySchema = z.strictObject({
   ),
   "page[cursor]": z.preprocess(
     singletonQueryValue,
-    z
-      .string()
-      .min(1, { error: "Cursor must not be empty" })
-      .max(2048, { error: "Cursor is too long" })
-      .optional(),
+    z.string().min(1, { error: "Cursor must not be empty" }).max(2048, { error: "Cursor is too long" }).optional(),
   ),
   "filter[category]": z.preprocess(singletonQueryValue, ItemCategorySchema.optional()),
 });

@@ -1,10 +1,6 @@
-import type { ZodError, ZodIssue } from "zod";
+import type { core, ZodError } from "zod";
 
-import {
-  type JsonApiErrorSource,
-  MAX_VALIDATION_ERRORS,
-  type ValidationErrorDetail,
-} from "../models/error.js";
+import { type JsonApiErrorSource, MAX_VALIDATION_ERRORS, type ValidationErrorDetail } from "../models/error.js";
 import { JSON_API_MEDIA_TYPE, JSON_API_OBJECT } from "../models/json-api.js";
 
 export type ErrorCode =
@@ -58,25 +54,17 @@ const catalogEntry = (
     status,
     title,
     safeDetails: Object.freeze([...safeDetails]),
-    ...(options.fixedHeaders === undefined
-      ? {}
-      : { fixedHeaders: Object.freeze({ ...options.fixedHeaders }) }),
-    ...(options.requiredHeaders === undefined
-      ? {}
-      : { requiredHeaders: Object.freeze([...options.requiredHeaders]) }),
+    ...(options.fixedHeaders === undefined ? {} : { fixedHeaders: Object.freeze({ ...options.fixedHeaders }) }),
+    ...(options.requiredHeaders === undefined ? {} : { requiredHeaders: Object.freeze([...options.requiredHeaders]) }),
   });
 
 export const APPLICATION_ERROR_CATALOG = Object.freeze({
   invalid_cursor: catalogEntry(400, "Bad Request", ["Invalid cursor"]),
   invalid_query_parameter: catalogEntry(400, "Bad Request", ["Invalid query parameter"]),
   invalid_json: catalogEntry(400, "Bad Request", ["Invalid JSON document"]),
-  access_assertion_invalid: catalogEntry(403, "Forbidden", [
-    "Access assertion is missing or invalid",
-  ]),
+  access_assertion_invalid: catalogEntry(403, "Forbidden", ["Access assertion is missing or invalid"]),
   origin_not_allowed: catalogEntry(403, "Forbidden", ["Origin not allowed"]),
-  client_generated_id_unsupported: catalogEntry(403, "Forbidden", [
-    "Client-generated profile IDs are not supported",
-  ]),
+  client_generated_id_unsupported: catalogEntry(403, "Forbidden", ["Client-generated profile IDs are not supported"]),
   not_found: catalogEntry(404, "Not Found", ["Not Found", "Item not found", "Profile not found"]),
   method_not_allowed: catalogEntry(405, "Method Not Allowed", ["Method Not Allowed"], {
     requiredHeaders: ["Allow"],
@@ -87,18 +75,14 @@ export const APPLICATION_ERROR_CATALOG = Object.freeze({
     "Supported response format: text/html",
   ]),
   resource_type_mismatch: catalogEntry(409, "Conflict", ["Resource type does not match endpoint"]),
-  resource_identity_mismatch: catalogEntry(409, "Conflict", [
-    "Resource ID does not match the current profile",
-  ]),
+  resource_identity_mismatch: catalogEntry(409, "Conflict", ["Resource ID does not match the current profile"]),
   profile_conflict: catalogEntry(409, "Conflict", ["Profile already exists"]),
   payload_too_large: catalogEntry(413, "Content Too Large", ["Request body too large"]),
   unsupported_media_type: catalogEntry(415, "Unsupported Media Type", [
     `Content-Type must be ${JSON_API_MEDIA_TYPE} without unsupported extensions`,
     "Only identity-encoded JSON:API documents are supported",
   ]),
-  validation_failed: catalogEntry(422, "Unprocessable Content", [
-    "Request document validation failed",
-  ]),
+  validation_failed: catalogEntry(422, "Unprocessable Content", ["Request document validation failed"]),
   rate_limited: catalogEntry(429, "Too Many Requests", ["Rate limit exceeded"], {
     fixedHeaders: { "Retry-After": "60" },
   }),
@@ -106,15 +90,10 @@ export const APPLICATION_ERROR_CATALOG = Object.freeze({
     fixedHeaders: { "Retry-After": "30" },
   }),
   internal_error: catalogEntry(500, "Internal Server Error", ["Internal Server Error"]),
-  jwks_unavailable: catalogEntry(
-    503,
-    "Service Unavailable",
-    ["Authentication service unavailable"],
-    { fixedHeaders: { "Retry-After": "30" } },
-  ),
-  database_unavailable: catalogEntry(503, "Service Unavailable", [
-    "Database temporarily unavailable",
-  ]),
+  jwks_unavailable: catalogEntry(503, "Service Unavailable", ["Authentication service unavailable"], {
+    fixedHeaders: { "Retry-After": "30" },
+  }),
+  database_unavailable: catalogEntry(503, "Service Unavailable", ["Database temporarily unavailable"]),
 }) satisfies Readonly<Record<ErrorCode, ErrorCatalogEntry>>;
 
 type AppErrorOptions = {
@@ -127,8 +106,7 @@ type AppErrorOptions = {
   operatorCode?: OperatorCode;
 };
 
-const allowsIssues = (code: ErrorCode): boolean =>
-  code === "validation_failed" || code === "invalid_query_parameter";
+const allowsIssues = (code: ErrorCode): boolean => code === "validation_failed" || code === "invalid_query_parameter";
 
 export class AppError extends Error {
   readonly status: number;
@@ -187,7 +165,7 @@ export class AppError extends Error {
   }
 }
 
-const issueDetail = (issue: ZodIssue): string => {
+const issueDetail = (issue: core.$ZodIssue): string => {
   switch (issue.code) {
     case "invalid_type":
       return "Invalid value type";
@@ -214,18 +192,12 @@ const bodySource = (path: readonly PropertyKey[]): ValidationErrorDetail["source
   return { pointer: `/${path.map(encodeJsonPointerSegment).join("/")}` };
 };
 
-const querySource = (
-  path: readonly PropertyKey[],
-  fallback?: string,
-): ValidationErrorDetail["source"] => {
+const querySource = (path: readonly PropertyKey[], fallback?: string): ValidationErrorDetail["source"] => {
   const parameter = path.length > 0 ? String(path[0]) : fallback;
   return parameter === undefined ? undefined : { parameter };
 };
 
-export const validationErrorsFromZod = (
-  error: ZodError,
-  target: "body" | "query",
-): ValidationErrorDetail[] => {
+export const validationErrorsFromZod = (error: ZodError, target: "body" | "query"): ValidationErrorDetail[] => {
   const details: ValidationErrorDetail[] = [];
   let truncated = false;
   const append = (detail: ValidationErrorDetail): boolean => {
@@ -256,9 +228,7 @@ export const validationErrorsFromZod = (
       }
     } else {
       const source =
-        target === "body"
-          ? bodySource(issue.path)
-          : querySource(issue.path.map((segment) => String(segment)));
+        target === "body" ? bodySource(issue.path) : querySource(issue.path.map((segment) => String(segment)));
       append({
         detail: issueDetail(issue),
         ...(source === undefined ? {} : { source }),
@@ -273,10 +243,7 @@ export const validationErrorsFromZod = (
   return details;
 };
 
-export const validationError = (
-  errors: ValidationErrorDetail[],
-  target: "body" | "query" = "body",
-): AppError =>
+export const validationError = (errors: ValidationErrorDetail[], target: "body" | "query" = "body"): AppError =>
   target === "query"
     ? new AppError({
         status: 400,

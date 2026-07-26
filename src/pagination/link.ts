@@ -10,21 +10,12 @@ export interface PaginationLinks {
 }
 
 function assertRelativePath(basePath: string): void {
-  if (
-    !basePath.startsWith("/") ||
-    basePath.startsWith("//") ||
-    basePath.includes("?") ||
-    basePath.includes("#")
-  ) {
+  if (!basePath.startsWith("/") || basePath.startsWith("//") || basePath.includes("?") || basePath.includes("#")) {
     throw new TypeError("pagination base path must be a relative absolute-path reference");
   }
 }
 
-export function buildPaginationTarget(
-  basePath: string,
-  query: PaginationLinkQuery,
-  cursor: string | null,
-): string {
+export function buildPaginationTarget(basePath: string, query: PaginationLinkQuery, cursor: string | null): string {
   assertRelativePath(basePath);
   const search = new URLSearchParams();
   if (query.filterCategory !== undefined) {

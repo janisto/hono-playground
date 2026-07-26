@@ -8,9 +8,7 @@ test("renders the pinned Swagger UI from the OpenAPI 3.1 document", async ({ pag
     failedRequests.push(`${request.method()} ${request.url()}: ${request.failure()?.errorText}`);
   });
 
-  const documentResponse = page.waitForResponse(
-    (candidate) => new URL(candidate.url()).pathname === "/openapi.json",
-  );
+  const documentResponse = page.waitForResponse((candidate) => new URL(candidate.url()).pathname === "/openapi.json");
   const navigation = await page.goto("/api-docs");
 
   expect(navigation?.status()).toBe(200);

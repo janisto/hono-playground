@@ -17,11 +17,7 @@ export const requireSameOriginForUnsafeProfile = (request: Request): void => {
     });
   }
 
-  if (
-    origin === "null" ||
-    parsed.origin !== origin ||
-    parsed.origin !== new URL(request.url).origin
-  ) {
+  if (origin === "null" || parsed.origin !== origin || parsed.origin !== new URL(request.url).origin) {
     throw new AppError({
       status: 403,
       code: "origin_not_allowed",

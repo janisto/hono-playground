@@ -1,10 +1,6 @@
 import { tracing } from "cloudflare:workers";
 
-export type SpanName =
-  | "access.verify"
-  | "profile.service"
-  | "profile.repository"
-  | "response.validate";
+export type SpanName = "access.verify" | "profile.service" | "profile.repository" | "response.validate";
 
 type MinimalSpan = {
   readonly isTraced: boolean;
@@ -22,9 +18,7 @@ export const enterSpanWith = <T>(
 ): T => (tracer === undefined ? callback(undefined) : tracer.enterSpan(name, callback));
 
 const isTracer = (candidate: unknown): candidate is Tracer =>
-  typeof candidate === "object" &&
-  candidate !== null &&
-  typeof Reflect.get(candidate, "enterSpan") === "function";
+  typeof candidate === "object" && candidate !== null && typeof Reflect.get(candidate, "enterSpan") === "function";
 
 const nativeTracer = isTracer(tracing) ? tracing : undefined;
 

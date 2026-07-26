@@ -23,11 +23,7 @@ const TEST_BINDINGS = {
 
 const app = createApp();
 
-const request = (
-  path: string,
-  init: RequestInit = {},
-  bindings: RuntimeBindings = TEST_BINDINGS,
-): Promise<Response> =>
+const request = (path: string, init: RequestInit = {}, bindings: RuntimeBindings = TEST_BINDINGS): Promise<Response> =>
   Promise.resolve(app.request(new Request(`${ORIGIN}${path}`, init), undefined, bindings));
 
 type Problem = {
@@ -177,28 +173,24 @@ describe("request IDs and common response policy", () => {
     expectCommonHeaders(misconfigured);
   });
 
-  it.each(["staging", "production"] as const)(
-    "adds short HSTS for a validated %s response",
-    async (environment) => {
-      const response = await request(
-        "/openapi.json",
-        {},
-        {
-          ...TEST_BINDINGS,
-          ENVIRONMENT: environment,
-          RATE_LIMIT_MODE: "workers-binding",
-          RATE_LIMIT_KEY_HMAC_KEY:
-            "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-          PUBLIC_RATE_LIMITER: {
-            limit: () => Promise.resolve({ success: true }),
-          } as unknown as RateLimit,
-        },
-      );
+  it.each(["staging", "production"] as const)("adds short HSTS for a validated %s response", async (environment) => {
+    const response = await request(
+      "/openapi.json",
+      {},
+      {
+        ...TEST_BINDINGS,
+        ENVIRONMENT: environment,
+        RATE_LIMIT_MODE: "workers-binding",
+        RATE_LIMIT_KEY_HMAC_KEY: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        PUBLIC_RATE_LIMITER: {
+          limit: () => Promise.resolve({ success: true }),
+        } as unknown as RateLimit,
+      },
+    );
 
-      expect(response.status, await response.clone().text()).toBe(200);
-      expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=300");
-    },
-  );
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=300");
+  });
 });
 
 describe("representation negotiation", () => {
@@ -211,10 +203,7 @@ describe("representation negotiation", () => {
     "*/*",
     "text/plain;q=1, application/json;q=0.25",
   ])("accepts a positive operational JSON range: %s", async (accept) => {
-    const response = await request(
-      "/health",
-      accept === undefined ? {} : { headers: { Accept: accept } },
-    );
+    const response = await request("/health", accept === undefined ? {} : { headers: { Accept: accept } });
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: "healthy" });
@@ -254,10 +243,7 @@ describe("representation negotiation", () => {
     "application/*",
     "*/*",
   ])("accepts a supported JSON:API range: %s", async (accept) => {
-    const response = await request(
-      "/v1/items",
-      accept === undefined ? {} : { headers: { Accept: accept } },
-    );
+    const response = await request("/v1/items", accept === undefined ? {} : { headers: { Accept: accept } });
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe(JSON_API_MEDIA_TYPE);
@@ -497,45 +483,36 @@ describe("JSON:API body preconditions and ordering", () => {
     [`${JSON_API_MEDIA_TYPE};profile=""`, undefined],
     [`${JSON_API_MEDIA_TYPE};profile="relative-profile"`, undefined],
     [`${JSON_API_MEDIA_TYPE};profile="https://example.test/%"`, undefined],
-    [
-      `${JSON_API_MEDIA_TYPE};profile="https://one.test/profile  https://two.test/profile"`,
-      undefined,
-    ],
+    [`${JSON_API_MEDIA_TYPE};profile="https://one.test/profile  https://two.test/profile"`, undefined],
     [JSON_API_MEDIA_TYPE, "gzip"],
-  ])(
-    "rejects unsupported representation metadata before JSON parsing",
-    async (contentType, contentEncoding) => {
-      const response = await profileRequest("{", {
-        "Content-Type": contentType,
-        ...(contentEncoding === undefined ? {} : { "Content-Encoding": contentEncoding }),
-      });
+  ])("rejects unsupported representation metadata before JSON parsing", async (contentType, contentEncoding) => {
+    const response = await profileRequest("{", {
+      "Content-Type": contentType,
+      ...(contentEncoding === undefined ? {} : { "Content-Encoding": contentEncoding }),
+    });
 
-      await expectJsonApiError(response, {
-        status: 415,
-        code: "unsupported_media_type",
-        detail:
-          contentEncoding === undefined
-            ? `Content-Type must be ${JSON_API_MEDIA_TYPE} without unsupported extensions`
-            : "Only identity-encoded JSON:API documents are supported",
-        source: {
-          header: contentEncoding === undefined ? "Content-Type" : "Content-Encoding",
-        },
-      });
-    },
-  );
+    await expectJsonApiError(response, {
+      status: 415,
+      code: "unsupported_media_type",
+      detail:
+        contentEncoding === undefined
+          ? `Content-Type must be ${JSON_API_MEDIA_TYPE} without unsupported extensions`
+          : "Only identity-encoded JSON:API documents are supported",
+      source: {
+        header: contentEncoding === undefined ? "Content-Type" : "Content-Encoding",
+      },
+    });
+  });
 
-  it.each(["", "   ", '{"data":'])(
-    "normalizes an empty or malformed JSON document: %j",
-    async (body) => {
-      const response = await profileRequest(body);
+  it.each(["", "   ", '{"data":'])("normalizes an empty or malformed JSON document: %j", async (body) => {
+    const response = await profileRequest(body);
 
-      await expectJsonApiError(response, {
-        status: 400,
-        code: "invalid_json",
-        detail: "Invalid JSON document",
-      });
-    },
-  );
+    await expectJsonApiError(response, {
+      status: 400,
+      code: "invalid_json",
+      detail: "Invalid JSON document",
+    });
+  });
 
   it.each([
     [
@@ -546,10 +523,7 @@ describe("JSON:API body preconditions and ordering", () => {
       "an escape-equivalent member",
       String.raw`{"data":{"type":"profiles","attributes":{"firstName":"Ada","lastName":"Lovelace","email":"ada@example.com","phoneNumber":"+12025550123","termsAccepted":false,"\u0074ermsAccepted":true}}}`,
     ],
-    [
-      "an unpaired surrogate",
-      String.raw`{"data":{"type":"profiles","attributes":{"firstName":"\uD800"}}}`,
-    ],
+    ["an unpaired surrogate", String.raw`{"data":{"type":"profiles","attributes":{"firstName":"\uD800"}}}`],
   ])("rejects ambiguous JSON containing %s", async (_case, body) => {
     const response = await profileRequest(body);
 

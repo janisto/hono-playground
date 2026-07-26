@@ -18,9 +18,7 @@ export interface VerifiedAccessIdentity {
   readonly email?: string;
 }
 
-export type AccessVerifier = (
-  assertion: string | null | undefined,
-) => Promise<VerifiedAccessIdentity>;
+export type AccessVerifier = (assertion: string | null | undefined) => Promise<VerifiedAccessIdentity>;
 
 export interface AccessVerifierDependencies {
   /** Test seam for a local JWKS. Production callers leave this undefined. */

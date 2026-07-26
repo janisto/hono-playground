@@ -58,10 +58,7 @@ export const ProfileCreateSchema = z
   })
   .openapi("ProfileCreateAttributes");
 
-export const ProfileUpdateSchema = z
-  .strictObject(mutableProfileFields)
-  .partial()
-  .openapi("ProfileUpdateAttributes");
+export const ProfileUpdateSchema = z.strictObject(mutableProfileFields).partial().openapi("ProfileUpdateAttributes");
 
 const profileFields = {
   id: z.string().min(1).max(128),

@@ -76,9 +76,7 @@ const routeFamilies = (): readonly RouteFamily[] => {
     template,
     matcher: routeMatcher(template),
     definitions,
-    allowedMethods: [
-      ...new Set(definitions.flatMap((definition) => requestMethods(definition.route.method))),
-    ],
+    allowedMethods: [...new Set(definitions.flatMap((definition) => requestMethods(definition.route.method)))],
   }));
 };
 
@@ -104,9 +102,7 @@ export const resolveRoute = (pathname: string, method: string): RouteResolution 
 
   const normalizedMethod = method.toUpperCase();
   const routedMethod = normalizedMethod === "HEAD" ? "GET" : normalizedMethod;
-  const definition = family.definitions.find(
-    (candidate) => candidate.route.method.toUpperCase() === routedMethod,
-  );
+  const definition = family.definitions.find((candidate) => candidate.route.method.toUpperCase() === routedMethod);
   if (definition !== undefined) {
     return {
       metadata: {
@@ -130,8 +126,7 @@ export const resolveRoute = (pathname: string, method: string): RouteResolution 
   };
 };
 
-export const isRepresentationBearing = (metadata: RouteMetadata): boolean =>
-  metadata.kind !== "unmatched";
+export const isRepresentationBearing = (metadata: RouteMetadata): boolean => metadata.kind !== "unmatched";
 
 export const isJsonApiRoute = (metadata: RouteMetadata): boolean =>
   metadata.kind === "resource" || metadata.kind.startsWith("profile");

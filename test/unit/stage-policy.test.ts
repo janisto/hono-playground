@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isRateLimitNamespaceId } from "../../infra/config.js";
-import {
-  deploymentHostname,
-  deploymentStagePolicy,
-  deploymentTraceSamplingRate,
-} from "../../infra/stage-policy.js";
+import { deploymentHostname, deploymentStagePolicy, deploymentTraceSamplingRate } from "../../infra/stage-policy.js";
 
 describe("deployment stage policy", () => {
   it.each([
@@ -31,12 +27,9 @@ describe("deployment stage policy", () => {
     expect(deploymentTraceSamplingRate("production")).toBe(0.01);
   });
 
-  it.each(["1", "42", "9007199254740993"])(
-    "accepts a positive decimal rate-limit namespace ID: %s",
-    (namespaceId) => {
-      expect(isRateLimitNamespaceId(namespaceId)).toBe(true);
-    },
-  );
+  it.each(["1", "42", "9007199254740993"])("accepts a positive decimal rate-limit namespace ID: %s", (namespaceId) => {
+    expect(isRateLimitNamespaceId(namespaceId)).toBe(true);
+  });
 
   it.each(["", "0", "-1", "+1", "01", "1.0", " 1", "1 "])(
     "rejects an invalid rate-limit namespace ID: %s",

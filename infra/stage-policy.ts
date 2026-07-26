@@ -19,9 +19,8 @@ export const deploymentStagePolicy = (stage: string): DeploymentStagePolicy => {
   throw new RangeError(`Unsupported deployment stage "${stage}"; use prod, staging, or dev_<name>`);
 };
 
-export const deploymentTraceSamplingRate = (
-  environment: DeploymentStagePolicy["environment"],
-): number => (environment === "production" ? 0.01 : 1);
+export const deploymentTraceSamplingRate = (environment: DeploymentStagePolicy["environment"]): number =>
+  environment === "production" ? 0.01 : 1;
 
 export const deploymentHostname = (hostname: string): string => {
   const labels = hostname.split(".");
@@ -36,9 +35,7 @@ export const deploymentHostname = (hostname: string): string => {
     !hostname.endsWith(".workers.dev");
 
   if (!valid) {
-    throw new RangeError(
-      "Invalid WORKER_DOMAIN; use a lowercase fully qualified hostname outside workers.dev",
-    );
+    throw new RangeError("Invalid WORKER_DOMAIN; use a lowercase fully qualified hostname outside workers.dev");
   }
   return hostname;
 };

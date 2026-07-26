@@ -19,10 +19,7 @@ const oneOf = <T extends string>(value: string | undefined, allowed: Set<T>): T 
   return value as T;
 };
 
-export const parseRuntimeConfig = (
-  bindings: RuntimeBindings,
-  maximumRequestBytesOverride?: number,
-): RuntimeConfig => {
+export const parseRuntimeConfig = (bindings: RuntimeBindings, maximumRequestBytesOverride?: number): RuntimeConfig => {
   const environment = oneOf(bindings.ENVIRONMENT, ENVIRONMENTS);
   const rateLimitMode = oneOf(bindings.RATE_LIMIT_MODE, RATE_LIMIT_MODES);
   const maximumRaw = maximumRequestBytesOverride ?? bindings.MAX_REQUEST_SIZE_BYTES ?? 1_000_000;

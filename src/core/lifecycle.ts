@@ -34,19 +34,11 @@ const appendVary = (headers: Headers, fieldName: string): void => {
   headers.set("Vary", [...fields].join(", "));
 };
 
-const applyFinalHeaders = (
-  response: Response,
-  bindings: RuntimeBindings,
-  pathname: string,
-  id: string,
-): void => {
+const applyFinalHeaders = (response: Response, bindings: RuntimeBindings, pathname: string, id: string): void => {
   const headers = response.headers;
   headers.set("X-Request-ID", id);
   headers.set("Cache-Control", "no-store");
-  headers.set(
-    "Content-Security-Policy",
-    pathname === apiDocumentationRoute.path ? DOCS_CSP : API_CSP,
-  );
+  headers.set("Content-Security-Policy", pathname === apiDocumentationRoute.path ? DOCS_CSP : API_CSP);
   headers.set("Cross-Origin-Opener-Policy", "same-origin");
   headers.set("Cross-Origin-Resource-Policy", "same-origin");
   headers.set(
@@ -82,10 +74,7 @@ const applyFinalHeaders = (
 
 const safeEnvironment = (bindings: RuntimeBindings): string => {
   const value = bindings.ENVIRONMENT;
-  return value === "development" ||
-    value === "staging" ||
-    value === "test" ||
-    value === "production"
+  return value === "development" || value === "staging" || value === "test" || value === "production"
     ? value
     : "unknown";
 };
@@ -128,18 +117,14 @@ export const lifecycle = (options: LifecycleOptions = {}): MiddlewareHandler<App
       outcome: c.get("outcome"),
       environment: safeEnvironment(c.env),
       ...(cfRay === undefined ? {} : { cf_ray: cfRay }),
-      ...(version === undefined
-        ? {}
-        : { worker_version_id: version.id, worker_version_tag: version.tag }),
+      ...(version === undefined ? {} : { worker_version_id: version.id, worker_version_tag: version.tag }),
     };
     if (status >= 500) console.error(event);
     else console.log(event);
   };
 };
 
-export const runtimeConfiguration = (
-  maximumRequestBytes?: number,
-): MiddlewareHandler<AppEnvironment> => {
+export const runtimeConfiguration = (maximumRequestBytes?: number): MiddlewareHandler<AppEnvironment> => {
   return async (c, next) => {
     c.set("runtimeConfig", parseRuntimeConfig(c.env, maximumRequestBytes));
     await next();

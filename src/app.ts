@@ -27,32 +27,19 @@ import {
 import { httpPolicy } from "./core/http-policy.js";
 import { lifecycle, runtimeConfiguration } from "./core/lifecycle.js";
 import { enforceProfileRateLimit } from "./core/rate-limit.js";
-import {
-  apiDocumentationRoute,
-  isJsonApiRoute,
-  openApiDocumentRoute,
-  resolveRoute,
-} from "./core/routes.js";
+import { apiDocumentationRoute, isJsonApiRoute, openApiDocumentRoute, resolveRoute } from "./core/routes.js";
 import { assertStrictJsonText } from "./core/strict-json.js";
 import { enterSpan } from "./core/tracing.js";
 import type { AppEnvironment } from "./core/types.js";
 import { ITEMS } from "./data/items.js";
 import { renderSwaggerUiBody, SWAGGER_UI_VERSION } from "./docs/swagger.js";
 import { HealthResponseSchema } from "./models/health.js";
-import {
-  type Item,
-  ItemCollectionDocumentSchema,
-  ItemDocumentSchema,
-  type ItemResource,
-} from "./models/items.js";
+import { type Item, ItemCollectionDocumentSchema, ItemDocumentSchema, type ItemResource } from "./models/items.js";
 import { JSON_API_MEDIA_TYPE, JSON_API_OBJECT } from "./models/json-api.js";
 import { type Profile, ProfileDocumentSchema, type ProfileResource } from "./models/profile.js";
 import { InvalidCursorError, MAX_CURSOR_LENGTH } from "./pagination/cursor.js";
 import { paginate } from "./pagination/paginate.js";
-import {
-  DrizzleProfileRepository,
-  type ProfileRepository,
-} from "./repositories/profile-repository.js";
+import { DrizzleProfileRepository, type ProfileRepository } from "./repositories/profile-repository.js";
 import { ProfileService } from "./services/profile-service.js";
 
 export type AppDependencies = {
@@ -62,27 +49,17 @@ export type AppDependencies = {
   maximumRequestBytes?: number;
 };
 
-const createRepository = (
-  c: Context<AppEnvironment>,
-  dependencies: AppDependencies,
-): ProfileRepository => {
+const createRepository = (c: Context<AppEnvironment>, dependencies: AppDependencies): ProfileRepository => {
   const injected = dependencies.profileRepositoryFactory?.(c);
   if (injected !== undefined) return injected;
   const database = c.env.DB;
-  if (
-    database === undefined ||
-    typeof database.prepare !== "function" ||
-    typeof database.batch !== "function"
-  ) {
+  if (database === undefined || typeof database.prepare !== "function" || typeof database.batch !== "function") {
     throw internalError("runtime_configuration_invalid");
   }
   return new DrizzleProfileRepository(database);
 };
 
-const profileService = (
-  c: Context<AppEnvironment>,
-  dependencies: AppDependencies,
-): ProfileService =>
+const profileService = (c: Context<AppEnvironment>, dependencies: AppDependencies): ProfileService =>
   dependencies.now === undefined
     ? new ProfileService(createRepository(c, dependencies))
     : new ProfileService(createRepository(c, dependencies), dependencies.now);
@@ -95,9 +72,7 @@ const accessMiddleware = (dependencies: AppDependencies): MiddlewareHandler<AppE
         teamDomain: c.env.ACCESS_TEAM_DOMAIN,
         audience: c.env.ACCESS_AUD,
       });
-    const identity = await enterSpan("access.verify", () =>
-      verifier(c.req.header(ACCESS_ASSERTION_HEADER)),
-    );
+    const identity = await enterSpan("access.verify", () => verifier(c.req.header(ACCESS_ASSERTION_HEADER)));
     c.set("identitySubject", identity.sub);
     await next();
   };
@@ -106,11 +81,7 @@ const accessMiddleware = (dependencies: AppDependencies): MiddlewareHandler<AppE
 const profileLimiter: MiddlewareHandler<AppEnvironment> = async (c, next) => {
   const subject = c.get("identitySubject");
   if (subject === undefined) throw internalError();
-  await enforceProfileRateLimit(
-    c,
-    subject,
-    c.req.method === "GET" || c.req.method === "HEAD" ? "read" : "write",
-  );
+  await enforceProfileRateLimit(c, subject, c.req.method === "GET" || c.req.method === "HEAD" ? "read" : "write");
   await next();
 };
 
@@ -129,17 +100,11 @@ const strictJsonBody: MiddlewareHandler<AppEnvironment> = async (c, next) => {
   await next();
 };
 
-const profileAuditOwner = async (
-  c: Context<AppEnvironment>,
-  subject: string,
-): Promise<string | undefined> => {
+const profileAuditOwner = async (c: Context<AppEnvironment>, subject: string): Promise<string | undefined> => {
   if (c.get("runtimeConfig").environment !== "test" && c.env.AUDIT_SUBJECT_HMAC_KEY === undefined) {
     throw internalError("runtime_configuration_invalid");
   }
-  if (
-    c.env.AUDIT_SUBJECT_HMAC_KEY !== undefined &&
-    c.env.AUDIT_SUBJECT_HMAC_KEY === c.env.RATE_LIMIT_KEY_HMAC_KEY
-  ) {
+  if (c.env.AUDIT_SUBJECT_HMAC_KEY !== undefined && c.env.AUDIT_SUBJECT_HMAC_KEY === c.env.RATE_LIMIT_KEY_HMAC_KEY) {
     throw internalError("runtime_configuration_invalid");
   }
   return auditPseudonym(c.env.AUDIT_SUBJECT_HMAC_KEY, subject);
@@ -239,8 +204,7 @@ export const createApp = (dependencies: AppDependencies = {}) => {
           pathname.startsWith("/v1/profiles") &&
           hasOwnMemberAt(document, ["data", "type"]) &&
           result.error.issues.some(
-            (issue) =>
-              issue.path.length === 2 && issue.path[0] === "data" && issue.path[1] === "type",
+            (issue) => issue.path.length === 2 && issue.path[0] === "data" && issue.path[1] === "type",
           )
         ) {
           throw new AppError({
@@ -281,9 +245,7 @@ export const createApp = (dependencies: AppDependencies = {}) => {
   });
 
   app.openapi(healthRoute, (c) => {
-    const body = enterSpan("response.validate", () =>
-      HealthResponseSchema.parse({ status: "healthy" }),
-    );
+    const body = enterSpan("response.validate", () => HealthResponseSchema.parse({ status: "healthy" }));
     return c.json(body, 200);
   });
 
@@ -295,8 +257,7 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     if (cursor !== undefined && cursor.length > MAX_CURSOR_LENGTH) {
       throw new AppError({ status: 400, code: "invalid_cursor", detail: "Invalid cursor" });
     }
-    const filtered =
-      category === undefined ? ITEMS : ITEMS.filter((item) => item.category === category);
+    const filtered = category === undefined ? ITEMS : ITEMS.filter((item) => item.category === category);
 
     let result: ReturnType<typeof paginate<(typeof ITEMS)[number]>>;
     try {
@@ -353,9 +314,7 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     const auditOwner = await profileAuditOwner(c, subject);
     const service = profileService(c, dependencies);
     const profile = await enterSpan("profile.service", () =>
-      enterSpan("profile.repository", () =>
-        service.create(subject, c.req.valid("json").data.attributes),
-      ),
+      enterSpan("profile.repository", () => service.create(subject, c.req.valid("json").data.attributes)),
     );
     const body = enterSpan("response.validate", () => profileDocument(profile));
     const response = jsonApiResponse(c.json(body, 201));
@@ -417,9 +376,7 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     if (subject === undefined) throw internalError();
     const auditOwner = await profileAuditOwner(c, subject);
     const service = profileService(c, dependencies);
-    await enterSpan("profile.service", () =>
-      enterSpan("profile.repository", () => service.delete(subject)),
-    );
+    await enterSpan("profile.service", () => enterSpan("profile.repository", () => service.delete(subject)));
     console.log({
       schema_version: 1,
       event: "profile.audit",

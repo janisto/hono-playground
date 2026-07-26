@@ -128,20 +128,15 @@ const matchingRanges = (headerValue: string, representation: string): MediaRange
 
 const acceptsBySpecificity = (ranges: readonly MediaRange[]): boolean => {
   if (ranges.length === 0) return false;
-  const specificity = (range: MediaRange): number =>
-    range.type === "*" ? 0 : range.subtype === "*" ? 1 : 2;
+  const specificity = (range: MediaRange): number => (range.type === "*" ? 0 : range.subtype === "*" ? 1 : 2);
   const mostSpecific = Math.max(...ranges.map(specificity));
-  return ranges
-    .filter((range) => specificity(range) === mostSpecific)
-    .some((range) => range.quality > 0);
+  return ranges.filter((range) => specificity(range) === mostSpecific).some((range) => range.quality > 0);
 };
 
 export const accepts = (headerValue: string | null, representation: string): boolean => {
   if (headerValue === null || headerValue.trim() === "") return true;
   return acceptsBySpecificity(
-    matchingRanges(headerValue, representation).filter(
-      (range) => range.representationParameters.size === 0,
-    ),
+    matchingRanges(headerValue, representation).filter((range) => range.representationParameters.size === 0),
   );
 };
 
@@ -159,9 +154,7 @@ const supportedJsonApiRange = (range: MediaRange): boolean => {
 
 export const acceptsJsonApi = (headerValue: string | null): boolean => {
   if (headerValue === null || headerValue.trim() === "") return true;
-  return acceptsBySpecificity(
-    matchingRanges(headerValue, JSON_API_MEDIA_TYPE).filter(supportedJsonApiRange),
-  );
+  return acceptsBySpecificity(matchingRanges(headerValue, JSON_API_MEDIA_TYPE).filter(supportedJsonApiRange));
 };
 
 export const isSupportedJsonApiContentType = (headerValue: string | null): boolean => {

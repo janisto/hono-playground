@@ -10,16 +10,10 @@ const unsupportedRepresentation = (detail: string, header: string): AppError =>
     source: { header },
   });
 
-export const precheckJsonApiBody = async (
-  request: Request,
-  maximumBytes: number,
-): Promise<string> => {
+export const precheckJsonApiBody = async (request: Request, maximumBytes: number): Promise<string> => {
   const encoding = request.headers.get("Content-Encoding");
   if (encoding !== null && encoding.trim().toLowerCase() !== "identity") {
-    throw unsupportedRepresentation(
-      "Only identity-encoded JSON:API documents are supported",
-      "Content-Encoding",
-    );
+    throw unsupportedRepresentation("Only identity-encoded JSON:API documents are supported", "Content-Encoding");
   }
 
   if (!isSupportedJsonApiContentType(request.headers.get("Content-Type"))) {

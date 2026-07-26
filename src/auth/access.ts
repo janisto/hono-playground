@@ -1,11 +1,4 @@
-import {
-  createRemoteJWKSet,
-  customFetch,
-  errors,
-  type JWTPayload,
-  type JWTVerifyGetKey,
-  jwtVerify,
-} from "jose";
+import { createRemoteJWKSet, customFetch, errors, type JWTPayload, type JWTVerifyGetKey, jwtVerify } from "jose";
 
 import {
   AccessConfigurationError,
@@ -83,11 +76,7 @@ export function parseAccessVerifierConfig(input: AccessVerifierConfigInput): Acc
   }
 
   const audienceLength = Array.from(input.audience).length;
-  if (
-    audienceLength === 0 ||
-    audienceLength > MAX_ACCESS_AUDIENCE_LENGTH ||
-    !isVisibleAscii(input.audience)
-  ) {
+  if (audienceLength === 0 || audienceLength > MAX_ACCESS_AUDIENCE_LENGTH || !isVisibleAscii(input.audience)) {
     throw new AccessConfigurationError();
   }
 
@@ -100,9 +89,7 @@ export function parseAccessVerifierConfig(input: AccessVerifierConfigInput): Acc
 }
 
 function shouldRemainAuthenticationFailure(error: unknown): boolean {
-  return (
-    error instanceof errors.JWKSNoMatchingKey || error instanceof errors.JWKSMultipleMatchingKeys
-  );
+  return error instanceof errors.JWKSNoMatchingKey || error instanceof errors.JWKSMultipleMatchingKeys;
 }
 
 function wrapRemoteKeyResolver(resolver: JWTVerifyGetKey): JWTVerifyGetKey {

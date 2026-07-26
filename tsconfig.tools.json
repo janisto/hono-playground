@@ -1,14 +1,7 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "noEmit": true,
-    "skipLibCheck": true,
-    "types": [
-      "node",
-      "vitest/globals",
-      "@cloudflare/workers-types",
-      "@cloudflare/vitest-pool-workers/types"
-    ]
+    "types": ["node", "vitest/globals", "@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"]
   },
   "include": [
     "src/**/*.ts",

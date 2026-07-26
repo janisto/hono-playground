@@ -33,8 +33,7 @@ function decodeBytes(encodedCursor: string): Uint8Array {
   }
 
   const firstPaddingIndex = encodedCursor.indexOf("=");
-  const unpadded =
-    firstPaddingIndex === -1 ? encodedCursor : encodedCursor.slice(0, firstPaddingIndex);
+  const unpadded = firstPaddingIndex === -1 ? encodedCursor : encodedCursor.slice(0, firstPaddingIndex);
   const suppliedPadding = encodedCursor.length - unpadded.length;
   const remainder = unpadded.length % BASE64_BLOCK_SIZE;
   if (remainder === 1) {
@@ -70,9 +69,7 @@ export function decodeCursor(encodedCursor: string): Cursor {
   }
   let decoded: string;
   try {
-    decoded = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
-      decodeBytes(encodedCursor),
-    );
+    decoded = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(decodeBytes(encodedCursor));
   } catch (error) {
     if (error instanceof InvalidCursorError) {
       throw error;

@@ -46,8 +46,6 @@ describe("Drizzle migration", () => {
     const applied = await env.DB.prepare(`SELECT name FROM ${MIGRATIONS_TABLE} ORDER BY id`).all<{
       name: string;
     }>();
-    expect(applied.results.map(({ name }) => name)).toEqual(
-      env.TEST_MIGRATIONS.map(({ name }) => name),
-    );
+    expect(applied.results.map(({ name }) => name)).toEqual(env.TEST_MIGRATIONS.map(({ name }) => name));
   });
 });

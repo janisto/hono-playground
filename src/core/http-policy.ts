@@ -17,17 +17,14 @@ import type { AppEnvironment, RouteMetadata } from "./types.js";
 
 const BODY_METHODS = new Set(["POST", "PATCH"]);
 
-const requiredRepresentation = (
-  metadata: RouteMetadata,
-): { mediaType: string; advertised: string } | undefined => {
+const requiredRepresentation = (metadata: RouteMetadata): { mediaType: string; advertised: string } | undefined => {
   if (metadata.template === apiDocumentationRoute.path) {
     return { mediaType: "text/html", advertised: "text/html" };
   }
   if (metadata.template === openApiDocumentRoute.path) {
     return { mediaType: "application/json", advertised: "application/json" };
   }
-  if (metadata.kind === "public")
-    return { mediaType: "application/json", advertised: "application/json" };
+  if (metadata.kind === "public") return { mediaType: "application/json", advertised: "application/json" };
   return undefined;
 };
 
@@ -63,11 +60,7 @@ export const httpPolicy = (): MiddlewareHandler<AppEnvironment> => {
       } else {
         const representation = requiredRepresentation(resolution.metadata);
         if (representation !== undefined) {
-          requireAccept(
-            c.req.header("Accept") ?? null,
-            representation.mediaType,
-            representation.advertised,
-          );
+          requireAccept(c.req.header("Accept") ?? null, representation.mediaType, representation.advertised);
         }
       }
     }
@@ -86,8 +79,7 @@ export const httpPolicy = (): MiddlewareHandler<AppEnvironment> => {
 
     const expectsJsonApiBody =
       BODY_METHODS.has(c.req.method) &&
-      (resolution.metadata.template === "/v1/profiles" ||
-        resolution.metadata.template === "/v1/profiles/current");
+      (resolution.metadata.template === "/v1/profiles" || resolution.metadata.template === "/v1/profiles/current");
     if (!expectsJsonApiBody) {
       await next();
       return;
@@ -99,9 +91,7 @@ export const httpPolicy = (): MiddlewareHandler<AppEnvironment> => {
       onError: () => {
         const declaredLength = c.req.header("Content-Length");
         throw payloadTooLarge(
-          declaredLength !== undefined &&
-            /^\d+$/u.test(declaredLength) &&
-            Number(declaredLength) > maximumBytes,
+          declaredLength !== undefined && /^\d+$/u.test(declaredLength) && Number(declaredLength) > maximumBytes,
         );
       },
     })(c, async () => {

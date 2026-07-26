@@ -37,19 +37,12 @@ const normalizeIpv4 = (value: string): string | undefined => {
 };
 
 const normalizeIpv6 = (value: string): string | undefined => {
-  if (
-    value.length < 2 ||
-    value.length > 45 ||
-    !value.includes(":") ||
-    !/^[0-9a-f:.]+$/iu.test(value)
-  ) {
+  if (value.length < 2 || value.length > 45 || !value.includes(":") || !/^[0-9a-f:.]+$/iu.test(value)) {
     return undefined;
   }
   try {
     const hostname = new URL(`http://[${value}]/`).hostname;
-    return hostname.startsWith("[") && hostname.endsWith("]")
-      ? hostname.slice(1, -1).toLowerCase()
-      : undefined;
+    return hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1).toLowerCase() : undefined;
   } catch {
     return undefined;
   }
@@ -65,8 +58,7 @@ export const enforcePublicRateLimit = async (c: Context<AppEnvironment>): Promis
   const actor = normalizeClientIp(c.req.header("CF-Connecting-IP")) ?? "unknown";
   if (
     actor === "unknown" &&
-    (c.get("runtimeConfig").environment === "staging" ||
-      c.get("runtimeConfig").environment === "production")
+    (c.get("runtimeConfig").environment === "staging" || c.get("runtimeConfig").environment === "production")
   ) {
     console.error({
       schema_version: 1,
@@ -100,10 +92,7 @@ export const enforceProfileRateLimit = async (
   if (c.get("runtimeConfig").rateLimitMode === "none") return;
   const key = await hmacSha256(c.env.RATE_LIMIT_KEY_HMAC_KEY, `profile:${kind}:${subject}`);
   try {
-    await invoke(
-      kind === "read" ? c.env.PROFILE_READ_RATE_LIMITER : c.env.PROFILE_WRITE_RATE_LIMITER,
-      key,
-    );
+    await invoke(kind === "read" ? c.env.PROFILE_READ_RATE_LIMITER : c.env.PROFILE_WRITE_RATE_LIMITER, key);
   } catch (error) {
     if (error instanceof AppError) throw error;
     throw unavailable();

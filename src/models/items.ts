@@ -1,14 +1,7 @@
 import { z } from "@hono/zod-openapi";
 import { JsonApiLinkSchema, JsonApiObjectSchema } from "./json-api.js";
 
-export const ITEM_CATEGORIES = [
-  "electronics",
-  "tools",
-  "accessories",
-  "robotics",
-  "power",
-  "components",
-] as const;
+export const ITEM_CATEGORIES = ["electronics", "tools", "accessories", "robotics", "power", "components"] as const;
 
 export const ItemCategorySchema = z.enum(ITEM_CATEGORIES);
 

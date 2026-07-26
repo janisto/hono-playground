@@ -3,11 +3,7 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../src/app.js";
-import {
-  AccessConfigurationError,
-  AccessJwksUnavailableError,
-  InvalidAccessTokenError,
-} from "../../src/auth/types.js";
+import { AccessConfigurationError, AccessJwksUnavailableError, InvalidAccessTokenError } from "../../src/auth/types.js";
 import type { RuntimeBindings } from "../../src/core/types.js";
 import type { Profile } from "../../src/models/profile.js";
 import type { ProfileRepository } from "../../src/repositories/profile-repository.js";
@@ -27,11 +23,7 @@ const bindings = new Proxy(env as unknown as RuntimeBindings, {
   },
 });
 
-const request = (
-  app: ReturnType<typeof createApp>,
-  path: string,
-  init: RequestInit = {},
-): Promise<Response> =>
+const request = (app: ReturnType<typeof createApp>, path: string, init: RequestInit = {}): Promise<Response> =>
   Promise.resolve(app.request(`https://worker.example${path}`, init, bindings));
 
 const authenticatedApp = (owner: string, now: () => Date = () => new Date()) =>
@@ -54,11 +46,7 @@ const authenticatedHeaders = (headers: HeadersInit = {}): Headers => {
   return result;
 };
 
-const jsonApiRequest = (
-  method: string,
-  document: unknown,
-  headers: HeadersInit = {},
-): RequestInit => ({
+const jsonApiRequest = (method: string, document: unknown, headers: HeadersInit = {}): RequestInit => ({
   method,
   headers: authenticatedHeaders({
     "Content-Type": JSON_API_MEDIA_TYPE,
@@ -108,9 +96,7 @@ afterEach(async () => {
   const owners = [...trackedSubjects];
   trackedSubjects.clear();
   if (owners.length > 0) {
-    await database.batch(
-      owners.map((owner) => database.prepare("DELETE FROM profiles WHERE id = ?").bind(owner)),
-    );
+    await database.batch(owners.map((owner) => database.prepare("DELETE FROM profiles WHERE id = ?").bind(owner)));
   }
   vi.restoreAllMocks();
 });
@@ -308,11 +294,7 @@ describe("JSON:API profile resources", () => {
       return time;
     });
 
-    const created = await request(
-      app,
-      PROFILES_PATH,
-      jsonApiRequest("POST", createDocument(validCreateAttributes)),
-    );
+    const created = await request(app, PROFILES_PATH, jsonApiRequest("POST", createDocument(validCreateAttributes)));
     expect(created.status).toBe(201);
     expect(created.headers.get("Content-Type")).toBe(JSON_API_MEDIA_TYPE);
     expect(created.headers.get("Location")).toBe(CURRENT_PROFILE_PATH);
@@ -378,11 +360,7 @@ describe("JSON:API profile resources", () => {
     expect(head.headers.get("Content-Type")).toBe(JSON_API_MEDIA_TYPE);
     expect(await head.text()).toBe("");
 
-    const noOpPatch = await request(
-      app,
-      CURRENT_PROFILE_PATH,
-      jsonApiRequest("PATCH", updateDocument(owner)),
-    );
+    const noOpPatch = await request(app, CURRENT_PROFILE_PATH, jsonApiRequest("PATCH", updateDocument(owner)));
     expect(noOpPatch.status).toBe(200);
     await expect(noOpPatch.json()).resolves.toEqual(initial);
 
@@ -504,9 +482,10 @@ describe("JSON:API profile resources", () => {
     const duplicate = await request(app, PROFILES_PATH, {
       method: "POST",
       headers,
-      body: `{"data":{"type":"profiles","attributes":${JSON.stringify(
-        validCreateAttributes,
-      ).replace('"termsAccepted":true', '"termsAccepted":false,"termsAccepted":true')}}}`,
+      body: `{"data":{"type":"profiles","attributes":${JSON.stringify(validCreateAttributes).replace(
+        '"termsAccepted":true',
+        '"termsAccepted":false,"termsAccepted":true',
+      )}}}`,
     });
     expect(duplicate.status).toBe(400);
     const unpairedSurrogate = await request(app, PROFILES_PATH, {
@@ -627,10 +606,7 @@ describe("JSON:API profile resources", () => {
   it("caps adversarial validation output without echoing submitted values or touching storage", async () => {
     const privateValue = "private-validation-value-marker";
     const unknownAttributes = Object.fromEntries(
-      Array.from({ length: 100 }, (_, index) => [
-        `unknown${String(index).padStart(3, "0")}`,
-        privateValue,
-      ]),
+      Array.from({ length: 100 }, (_, index) => [`unknown${String(index).padStart(3, "0")}`, privateValue]),
     );
     const profileRepository: ProfileRepository = {
       create: vi.fn(async () => undefined),
@@ -712,37 +688,34 @@ describe("JSON:API profile resources", () => {
       409,
       "resource_identity_mismatch",
     ],
-  ])(
-    "implements JSON:API identity conflict semantics: %s",
-    async (_name, path, method, document, status, code) => {
-      const profileRepository: ProfileRepository = {
-        create: vi.fn(async () => undefined),
-        get: vi.fn(async () => undefined),
-        update: vi.fn(async () => undefined),
-        delete: vi.fn(async () => false),
-      };
-      const app = createApp({
-        accessVerifier: async () => ({ sub: "strict-shape-subject" }),
-        profileRepositoryFactory: () => profileRepository,
-      });
-      const response = await request(
-        app,
-        path,
-        jsonApiRequest(method, document, {
-          "Cf-Access-Jwt-Assertion": "test",
-        }),
-      );
+  ])("implements JSON:API identity conflict semantics: %s", async (_name, path, method, document, status, code) => {
+    const profileRepository: ProfileRepository = {
+      create: vi.fn(async () => undefined),
+      get: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      delete: vi.fn(async () => false),
+    };
+    const app = createApp({
+      accessVerifier: async () => ({ sub: "strict-shape-subject" }),
+      profileRepositoryFactory: () => profileRepository,
+    });
+    const response = await request(
+      app,
+      path,
+      jsonApiRequest(method, document, {
+        "Cf-Access-Jwt-Assertion": "test",
+      }),
+    );
 
-      expect(response.status).toBe(status);
-      await expect(response.json()).resolves.toMatchObject({
-        errors: [{ status: String(status), code }],
-      });
-      expect(profileRepository.create).not.toHaveBeenCalled();
-      expect(profileRepository.get).not.toHaveBeenCalled();
-      expect(profileRepository.update).not.toHaveBeenCalled();
-      expect(profileRepository.delete).not.toHaveBeenCalled();
-    },
-  );
+    expect(response.status).toBe(status);
+    await expect(response.json()).resolves.toMatchObject({
+      errors: [{ status: String(status), code }],
+    });
+    expect(profileRepository.create).not.toHaveBeenCalled();
+    expect(profileRepository.get).not.toHaveBeenCalled();
+    expect(profileRepository.update).not.toHaveBeenCalled();
+    expect(profileRepository.delete).not.toHaveBeenCalled();
+  });
 
   it("turns corrupt repository output into a generic JSON:API 500", async () => {
     const corruptRepository: ProfileRepository = {

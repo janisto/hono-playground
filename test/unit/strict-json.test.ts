@@ -56,9 +56,7 @@ describe("strict JSON lexical validation", () => {
   });
 
   it("bounds recursive nesting independently of the byte limit", () => {
-    const accepted = `${"[".repeat(MAXIMUM_JSON_NESTING_DEPTH)}0${"]".repeat(
-      MAXIMUM_JSON_NESTING_DEPTH,
-    )}`;
+    const accepted = `${"[".repeat(MAXIMUM_JSON_NESTING_DEPTH)}0${"]".repeat(MAXIMUM_JSON_NESTING_DEPTH)}`;
     const rejected = `[${accepted}]`;
 
     expect(() => assertStrictJsonText(accepted)).not.toThrow();

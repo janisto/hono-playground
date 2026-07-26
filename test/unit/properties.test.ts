@@ -17,9 +17,7 @@ const TEST_BINDINGS = {
 } satisfies RuntimeBindings;
 
 const safeCharacters = [..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-"];
-const alphanumericCharacters = [
-  ..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-];
+const alphanumericCharacters = [..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"];
 
 describe("bounded contract properties", () => {
   it("round-trips bounded Unicode cursor values through canonical Base64URL", () => {
@@ -112,9 +110,7 @@ describe("bounded contract properties", () => {
 
     fc.assert(
       fc.property(
-        fc
-          .string({ maxLength: 180 })
-          .filter((candidate) => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate)),
+        fc.string({ maxLength: 180 }).filter((candidate) => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate)),
         (candidate) => {
           expect(requestId(candidate)).toMatch(/^[0-9a-f]{32}$/);
         },
@@ -166,13 +162,11 @@ describe("bounded contract properties", () => {
   it("rejects arbitrary unsupported runtime modes instead of defaulting", () => {
     fc.assert(
       fc.property(
-        fc
-          .string({ maxLength: 32 })
-          .filter((value) => !["none", "workers-binding"].includes(value)),
+        fc.string({ maxLength: 32 }).filter((value) => !["none", "workers-binding"].includes(value)),
         (rateLimitMode) => {
-          expect(() =>
-            parseRuntimeConfig({ ...TEST_BINDINGS, RATE_LIMIT_MODE: rateLimitMode }),
-          ).toThrow("internal_error");
+          expect(() => parseRuntimeConfig({ ...TEST_BINDINGS, RATE_LIMIT_MODE: rateLimitMode })).toThrow(
+            "internal_error",
+          );
         },
       ),
       { numRuns: 100 },
@@ -197,14 +191,10 @@ describe("bounded contract properties", () => {
           expect(
             ProfileCreateSchema.safeParse({
               ...base,
-              phoneNumber: `+${[...digits]
-                .map((digit) => String.fromCodePoint(0x0660 + Number(digit)))
-                .join("")}`,
+              phoneNumber: `+${[...digits].map((digit) => String.fromCodePoint(0x0660 + Number(digit))).join("")}`,
             }).success,
           ).toBe(false);
-          expect(
-            ProfileCreateSchema.safeParse({ ...base, firstName: "🙂".repeat(101) }).success,
-          ).toBe(false);
+          expect(ProfileCreateSchema.safeParse({ ...base, firstName: "🙂".repeat(101) }).success).toBe(false);
         },
       ),
       { numRuns: 100 },

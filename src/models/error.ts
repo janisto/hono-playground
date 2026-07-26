@@ -11,9 +11,7 @@ const problemResponseFields = {
   code: z.string().regex(/^[a-z][a-z0-9_]*$/),
 };
 
-export const ProblemResponseSchema = z
-  .strictObject(problemResponseFields)
-  .openapi("ProblemResponse");
+export const ProblemResponseSchema = z.strictObject(problemResponseFields).openapi("ProblemResponse");
 
 export const JsonApiErrorSourceSchema = z
   .union([

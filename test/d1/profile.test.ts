@@ -3,10 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { AppError } from "../../src/core/errors.js";
 import { type ProfileCreate, ProfileCreateSchema } from "../../src/models/profile.js";
-import {
-  DrizzleProfileRepository,
-  ProfileRepositoryError,
-} from "../../src/repositories/profile-repository.js";
+import { DrizzleProfileRepository, ProfileRepositoryError } from "../../src/repositories/profile-repository.js";
 import { ProfileService } from "../../src/services/profile-service.js";
 
 const database = (env as unknown as { readonly DB: D1Database }).DB;
@@ -42,9 +39,7 @@ afterEach(async () => {
   const ids = [...trackedIds];
   trackedIds.clear();
   if (ids.length === 0) return;
-  await database.batch(
-    ids.map((id) => database.prepare("DELETE FROM profiles WHERE id = ?").bind(id)),
-  );
+  await database.batch(ids.map((id) => database.prepare("DELETE FROM profiles WHERE id = ?").bind(id)));
 });
 
 describe("D1 profile lifecycle", () => {
@@ -85,9 +80,7 @@ describe("D1 profile lifecycle", () => {
       updatedAt: new Date("2026-07-22T11:00:00.000Z"),
     });
     await expect(service.update(id, {})).resolves.toEqual(updated);
-    await expect(service.update(id, { firstName: "Grace", marketingOptIn: true })).resolves.toEqual(
-      updated,
-    );
+    await expect(service.update(id, { firstName: "Grace", marketingOptIn: true })).resolves.toEqual(updated);
     expect(timestamps).toHaveLength(0);
 
     await expect(service.delete(id)).resolves.toBeUndefined();
@@ -170,11 +163,7 @@ describe("D1 profile lifecycle", () => {
     const patchDeleteId = profileId();
     await repository.create(patchDeleteId, input(), new Date("2026-07-22T10:00:00.000Z"));
     const [patched, deletedDuringPatch] = await Promise.all([
-      repository.update(
-        patchDeleteId,
-        { firstName: "Grace" },
-        new Date("2026-07-22T11:00:00.000Z"),
-      ),
+      repository.update(patchDeleteId, { firstName: "Grace" }, new Date("2026-07-22T11:00:00.000Z")),
       repository.delete(patchDeleteId),
     ]);
     expect(deletedDuringPatch).toBe(true);

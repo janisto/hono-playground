@@ -16,11 +16,7 @@ import {
   MAX_ACCESS_SUBJECT_LENGTH,
   parseAccessVerifierConfig,
 } from "../../src/auth/access.js";
-import {
-  AccessConfigurationError,
-  AccessJwksUnavailableError,
-  InvalidAccessTokenError,
-} from "../../src/auth/types.js";
+import { AccessConfigurationError, AccessJwksUnavailableError, InvalidAccessTokenError } from "../../src/auth/types.js";
 
 const TEAM_DOMAIN = "https://team.cloudflareaccess.com";
 const ISSUER = TEAM_DOMAIN;
@@ -94,9 +90,7 @@ const localVerifier = () =>
     },
   );
 
-const expectAuthenticationFailure = async (
-  result: Promise<unknown>,
-): Promise<InvalidAccessTokenError> => {
+const expectAuthenticationFailure = async (result: Promise<unknown>): Promise<InvalidAccessTokenError> => {
   const error: unknown = await result.then(
     () => undefined,
     (reason: unknown) => reason,
@@ -154,9 +148,7 @@ describe("Cloudflare Access verifier configuration", () => {
     "https://team.cloudflareaccess.com#fragment",
     " https://team.cloudflareaccess.com",
   ])("rejects a non-canonical or untrusted team domain: %s", (teamDomain) => {
-    expect(() => parseAccessVerifierConfig({ teamDomain, audience: AUDIENCE })).toThrow(
-      AccessConfigurationError,
-    );
+    expect(() => parseAccessVerifierConfig({ teamDomain, audience: AUDIENCE })).toThrow(AccessConfigurationError);
   });
 
   it.each([
@@ -168,9 +160,7 @@ describe("Cloudflare Access verifier configuration", () => {
     "\u007f",
     "a".repeat(MAX_ACCESS_AUDIENCE_LENGTH + 1),
   ])("rejects an invalid audience: %s", (audience) => {
-    expect(() => parseAccessVerifierConfig({ teamDomain: TEAM_DOMAIN, audience })).toThrow(
-      AccessConfigurationError,
-    );
+    expect(() => parseAccessVerifierConfig({ teamDomain: TEAM_DOMAIN, audience })).toThrow(AccessConfigurationError);
   });
 
   it("rejects mutually exclusive dependency seams", () => {
@@ -242,9 +232,7 @@ describe("Cloudflare Access JWT claims", () => {
 
   it.each(["exp", "iat", "nbf"])("requires the numeric %s claim", async (claim) => {
     await expectAuthenticationFailure(localVerifier()(await signToken({ omit: [claim] })));
-    await expectAuthenticationFailure(
-      localVerifier()(await signToken({ overrides: { [claim]: "not-a-number" } })),
-    );
+    await expectAuthenticationFailure(localVerifier()(await signToken({ overrides: { [claim]: "not-a-number" } })));
   });
 
   it.each([
@@ -347,8 +335,7 @@ describe("remote Cloudflare Access JWKS", () => {
   });
 
   it("maps a non-success JWKS response to a retryable 503", async () => {
-    const fetchImplementation: FetchImplementation = async () =>
-      new Response("upstream unavailable", { status: 502 });
+    const fetchImplementation: FetchImplementation = async () => new Response("upstream unavailable", { status: 502 });
     const verifier = createAccessVerifier(
       { teamDomain: TEAM_DOMAIN, audience: AUDIENCE },
       { fetch: fetchImplementation, now: () => NOW },
@@ -368,9 +355,7 @@ describe("remote Cloudflare Access JWKS", () => {
       { fetch: fetchImplementation, now: () => NOW },
     );
 
-    await expectAuthenticationFailure(
-      verifier(await signToken({ keyPair: secondKeyPair, keyId: SECOND_KEY_ID })),
-    );
+    await expectAuthenticationFailure(verifier(await signToken({ keyPair: secondKeyPair, keyId: SECOND_KEY_ID })));
   });
 
   it("refreshes the remote JWKS for a rotated key after the bounded cooldown", async () => {
@@ -391,9 +376,9 @@ describe("remote Cloudflare Access JWKS", () => {
         sub: "access-user-123",
       });
       dateNow.mockReturnValue(baseMilliseconds + 30_001);
-      await expect(
-        verifier(await signToken({ keyPair: secondKeyPair, keyId: SECOND_KEY_ID })),
-      ).resolves.toMatchObject({ sub: "access-user-123" });
+      await expect(verifier(await signToken({ keyPair: secondKeyPair, keyId: SECOND_KEY_ID }))).resolves.toMatchObject({
+        sub: "access-user-123",
+      });
       expect(fetchCount).toBe(2);
     } finally {
       dateNow.mockRestore();

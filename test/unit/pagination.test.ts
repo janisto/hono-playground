@@ -3,12 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ITEMS } from "../../src/data/items.js";
 import { ItemCollectionDocumentSchema, ItemSchema } from "../../src/models/items.js";
 import { JSON_API_OBJECT } from "../../src/models/json-api.js";
-import {
-  decodeCursor,
-  encodeCursor,
-  InvalidCursorError,
-  MAX_CURSOR_LENGTH,
-} from "../../src/pagination/cursor.js";
+import { decodeCursor, encodeCursor, InvalidCursorError, MAX_CURSOR_LENGTH } from "../../src/pagination/cursor.js";
 import { buildPaginationLinks } from "../../src/pagination/link.js";
 import { paginate } from "../../src/pagination/paginate.js";
 
@@ -24,13 +19,8 @@ const paginateItems = (cursor: string | null = null, limit = 5) =>
 
 describe("item fixture", () => {
   it("matches the pinned serialized fixture SHA-256", async () => {
-    const digest = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(JSON.stringify(ITEMS)),
-    );
-    const hexadecimal = Array.from(new Uint8Array(digest), (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("");
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(ITEMS)));
+    const hexadecimal = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 
     expect(hexadecimal).toBe("178e4947cf07061f3ff47a7e9e949d10f297a59f8f768191d33a16ade5c861c3");
   });
@@ -60,9 +50,10 @@ describe("item fixture", () => {
     );
     expect(
       Object.fromEntries(
-        ["electronics", "tools", "accessories", "robotics", "power", "components"].map(
-          (category) => [category, ITEMS.filter((item) => item.category === category).length],
-        ),
+        ["electronics", "tools", "accessories", "robotics", "power", "components"].map((category) => [
+          category,
+          ITEMS.filter((item) => item.category === category).length,
+        ]),
       ),
     ).toEqual({
       electronics: 13,
@@ -132,9 +123,7 @@ describe("cursor codec", () => {
     "A",
     "_w",
   ])("rejects malformed Base64URL or invalid UTF-8 without echoing it: %s", (cursor) => {
-    expect(() => decodeCursor(cursor)).toThrowError(
-      new InvalidCursorError("invalid cursor format"),
-    );
+    expect(() => decodeCursor(cursor)).toThrowError(new InvalidCursorError("invalid cursor format"));
   });
 
   it("rejects a cursor above the application limit", () => {
@@ -152,13 +141,7 @@ describe("pagination", () => {
   it("returns the first page and exact next link", () => {
     const result = paginateItems();
 
-    expect(result.items.map((item) => item.id)).toEqual([
-      "item-001",
-      "item-002",
-      "item-003",
-      "item-004",
-      "item-005",
-    ]);
+    expect(result.items.map((item) => item.id)).toEqual(["item-001", "item-002", "item-003", "item-004", "item-005"]);
     expect(result.total).toBe(30);
     expect(result.nextCursor).toBe("aXRlbTppdGVtLTAwNQ");
     expect(result.prevCursor).toBeNull();
@@ -215,9 +198,7 @@ describe("pagination", () => {
 
     expect(result.items.map((item) => item.id)).toEqual(["item-008", "item-009", "item-010"]);
     expect(result.total).toBe(13);
-    expect(result.links.next).toContain(
-      "filter%5Bcategory%5D=electronics&page%5Blimit%5D=3&page%5Bcursor%5D=",
-    );
+    expect(result.links.next).toContain("filter%5Bcategory%5D=electronics&page%5Blimit%5D=3&page%5Bcursor%5D=");
   });
 
   it.each([

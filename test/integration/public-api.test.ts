@@ -22,11 +22,7 @@ const CORS_HEADERS = [
 
 const app = createApp();
 
-const request = (
-  path: string,
-  init: RequestInit = {},
-  bindings: RuntimeBindings = TEST_BINDINGS,
-): Promise<Response> =>
+const request = (path: string, init: RequestInit = {}, bindings: RuntimeBindings = TEST_BINDINGS): Promise<Response> =>
   Promise.resolve(app.request(new Request(`${ORIGIN}${path}`, init), undefined, bindings));
 
 interface JsonObject {
@@ -88,8 +84,7 @@ const object = (value: unknown, label: string): JsonObject => {
   return value as JsonObject;
 };
 
-const jsonObject = async (response: Response): Promise<JsonObject> =>
-  object(await response.json(), "JSON response");
+const jsonObject = async (response: Response): Promise<JsonObject> => object(await response.json(), "JSON response");
 
 const itemCollection = async (response: Response): Promise<ItemCollectionDocument> =>
   (await response.json()) as ItemCollectionDocument;
@@ -265,28 +260,21 @@ describe("items JSON:API", () => {
 
   it.each([
     ["page[limit]", "/v1/items?page%5Blimit%5D=2&page%5Blimit%5D=3", "page[limit]"],
-    [
-      "filter[category]",
-      "/v1/items?filter%5Bcategory%5D=tools&filter%5Bcategory%5D=electronics",
-      "filter[category]",
-    ],
+    ["filter[category]", "/v1/items?filter%5Bcategory%5D=tools&filter%5Bcategory%5D=electronics", "filter[category]"],
     [
       "page[cursor]",
       "/v1/items?page%5Bcursor%5D=aXRlbTppdGVtLTAwMQ&page%5Bcursor%5D=aXRlbTppdGVtLTAwMg",
       "page[cursor]",
     ],
-  ])(
-    "rejects a repeated singleton %s instead of choosing one value",
-    async (_name, path, source) => {
-      const response = await request(path);
+  ])("rejects a repeated singleton %s instead of choosing one value", async (_name, path, source) => {
+    const response = await request(path);
 
-      await expectJsonApiError(response, {
-        status: 400,
-        code: "invalid_query_parameter",
-        source: { parameter: source },
-      });
-    },
-  );
+    await expectJsonApiError(response, {
+      status: 400,
+      code: "invalid_query_parameter",
+      source: { parameter: source },
+    });
+  });
 
   it("rejects an explicit empty cursor instead of aliasing the first page", async () => {
     const response = await request("/v1/items?page%5Bcursor%5D=");
@@ -301,9 +289,7 @@ describe("items JSON:API", () => {
   it("round-trips exact next and previous document links", async () => {
     const first = await request("/v1/items?page%5Blimit%5D=5");
     const firstDocument = await itemCollection(first);
-    expect(firstDocument.links.next).toBe(
-      "/v1/items?page%5Blimit%5D=5&page%5Bcursor%5D=aXRlbTppdGVtLTAwNQ",
-    );
+    expect(firstDocument.links.next).toBe("/v1/items?page%5Blimit%5D=5&page%5Bcursor%5D=aXRlbTppdGVtLTAwNQ");
 
     const second = await request(firstDocument.links.next ?? "missing");
     const secondDocument = await itemCollection(second);
@@ -329,9 +315,7 @@ describe("items JSON:API", () => {
     ["power", 2],
     ["components", 3],
   ])("filters %s before pagination with total %i", async (category, total) => {
-    const response = await request(
-      `/v1/items?filter%5Bcategory%5D=${category}&page%5Blimit%5D=100`,
-    );
+    const response = await request(`/v1/items?filter%5Bcategory%5D=${category}&page%5Blimit%5D=100`);
     const document = await itemCollection(response);
 
     expect(response.status).toBe(200);
@@ -353,24 +337,18 @@ describe("items JSON:API", () => {
   });
 
   it("accepts legal terminal base64url padding and an empty terminal page", async () => {
-    const padded = await request(
-      "/v1/items?page%5Blimit%5D=2&page%5Bcursor%5D=aXRlbTppdGVtLTAwNQ%3D%3D",
-    );
+    const padded = await request("/v1/items?page%5Blimit%5D=2&page%5Bcursor%5D=aXRlbTppdGVtLTAwNQ%3D%3D");
     const paddedDocument = await itemCollection(padded);
     expect(padded.status).toBe(200);
     expect(paddedDocument.data.map((item) => item.id)).toEqual(["item-006", "item-007"]);
 
-    const terminal = await request(
-      "/v1/items?page%5Blimit%5D=20&page%5Bcursor%5D=aXRlbTppdGVtLTAzMA",
-    );
+    const terminal = await request("/v1/items?page%5Blimit%5D=20&page%5Bcursor%5D=aXRlbTppdGVtLTAzMA");
     const terminalDocument = await itemCollection(terminal);
     expect(terminal.status).toBe(200);
     expect(terminalDocument.data).toEqual([]);
     expect(terminalDocument.meta).toEqual({ total: 30 });
     expect(terminalDocument.links.next).toBeUndefined();
-    expect(terminalDocument.links.prev).toBe(
-      "/v1/items?page%5Blimit%5D=20&page%5Bcursor%5D=aXRlbTppdGVtLTAxMA",
-    );
+    expect(terminalDocument.links.prev).toBe("/v1/items?page%5Blimit%5D=20&page%5Bcursor%5D=aXRlbTppdGVtLTAxMA");
   });
 
   it.each(["%%%", "aXRlbTptaXNzaW5n", "b3RoZXI6aXRlbS0wMDE"])(
@@ -460,12 +438,8 @@ describe("API documentation", () => {
     expect(html).toContain('<div id="swagger-ui"></div>');
     expect(html).toContain("swagger-ui-dist@5.32.11/swagger-ui.css");
     expect(html).toContain("swagger-ui-dist@5.32.11/swagger-ui-bundle.js");
-    expect(html).toContain(
-      'integrity="sha384-9Q2fpS+xeS4ffJy6CagnwoUl+4ldAYhOs9pgZuEKxypVModhmZFzeMlvVsAjf7uT"',
-    );
-    expect(html).toContain(
-      'integrity="sha384-vfl/klfTFrIz5urj0HnhcXLAbzPdRHezizfy+XgFB6GqcKkhlk0lS3bIbyB39NLA"',
-    );
+    expect(html).toContain('integrity="sha384-9Q2fpS+xeS4ffJy6CagnwoUl+4ldAYhOs9pgZuEKxypVModhmZFzeMlvVsAjf7uT"');
+    expect(html).toContain('integrity="sha384-vfl/klfTFrIz5urj0HnhcXLAbzPdRHezizfy+XgFB6GqcKkhlk0lS3bIbyB39NLA"');
     expect(html).toContain('url: "/openapi.json"');
     expect(html).toContain("supportedSubmitMethods: []");
     expect(html).toContain('validatorUrl: "none"');

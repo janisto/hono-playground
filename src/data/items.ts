@@ -279,6 +279,4 @@ const runtimeItems = ITEM_FIXTURE.map((item) => ({
 }));
 ItemSchema.array().parse(runtimeItems);
 
-export const ITEMS: readonly Readonly<Item>[] = Object.freeze(
-  runtimeItems.map((item) => Object.freeze(item)),
-);
+export const ITEMS: readonly Readonly<Item>[] = Object.freeze(runtimeItems.map((item) => Object.freeze(item)));
