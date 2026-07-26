@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../../src/app.js";
 import { resolveRoute } from "../../src/core/routes.js";
 import type { RuntimeBindings } from "../../src/core/types.js";
+import { JSON_API_MEDIA_TYPE } from "../../src/models/json-api.js";
 
 const ORIGIN = "https://api.example.test";
 const CORS_HEADERS = [
@@ -17,9 +18,6 @@ const CORS_HEADERS = [
 const TEST_BINDINGS = {
   DB: {} as D1Database,
   ENVIRONMENT: "test",
-  DEPLOYMENT_PROFILE: "workers-dev-demo",
-  LOG_LEVEL: "error",
-  MANAGED_OAUTH_ENABLED: "false",
   RATE_LIMIT_MODE: "none",
 } satisfies RuntimeBindings;
 
@@ -33,22 +31,55 @@ const request = (
   Promise.resolve(app.request(new Request(`${ORIGIN}${path}`, init), undefined, bindings));
 
 type Problem = {
+  type: "about:blank";
   title: string;
   status: number;
   detail: string;
-  errors?: Array<{ location: string; message: string }>;
+  code: string;
+};
+
+type JsonApiErrorDocument = {
+  jsonapi: { version: "1.1" };
+  errors: Array<{
+    status: string;
+    code: string;
+    title: string;
+    detail: string;
+    source?: { pointer?: string; parameter?: string; header?: string };
+  }>;
 };
 
 const expectProblem = async (
   response: Response,
-  expected: Pick<Problem, "detail" | "status" | "title">,
+  expected: Pick<Problem, "code" | "detail" | "status" | "title">,
 ): Promise<Problem> => {
   expect(response.status).toBe(expected.status);
   expect(response.headers.get("Content-Type")).toContain("application/problem+json");
   const body = (await response.json()) as Problem;
-  expect(body).toMatchObject(expected);
-  expect(body).not.toHaveProperty("type");
-  expect(body).not.toHaveProperty("instance");
+  expect(body).toEqual({ type: "about:blank", ...expected });
+  return body;
+};
+
+const expectJsonApiError = async (
+  response: Response,
+  expected: {
+    status: number;
+    code: string;
+    detail: string;
+    source?: { pointer?: string; parameter?: string; header?: string };
+  },
+): Promise<JsonApiErrorDocument> => {
+  expect(response.status).toBe(expected.status);
+  expect(response.headers.get("Content-Type")).toBe(JSON_API_MEDIA_TYPE);
+  const body = (await response.json()) as JsonApiErrorDocument;
+  expect(body.jsonapi).toEqual({ version: "1.1" });
+  expect(body.errors).toHaveLength(1);
+  expect(body.errors[0]).toMatchObject({
+    status: String(expected.status),
+    code: expected.code,
+    detail: expected.detail,
+    ...(expected.source === undefined ? {} : { source: expected.source }),
+  });
   return body;
 };
 
@@ -111,18 +142,20 @@ describe("request IDs and common response policy", () => {
     },
   );
 
-  it("preserves the validated request ID on body-limit and configuration failures", async () => {
+  it("preserves a validated request ID on body-limit and configuration failures", async () => {
     const smallApp = createApp({ maximumRequestBytes: 16 });
     const requestId = "bounded-request-id";
     const oversized = await smallApp.request(
-      new Request(`${ORIGIN}/v1/hello`, {
+      new Request(`${ORIGIN}/v1/profiles`, {
         method: "POST",
         headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
+          Accept: JSON_API_MEDIA_TYPE,
+          "Content-Type": JSON_API_MEDIA_TYPE,
           "X-Request-ID": requestId,
         },
-        body: JSON.stringify({ name: "a value larger than sixteen bytes" }),
+        body: JSON.stringify({
+          data: { type: "profiles", attributes: { firstName: "larger than sixteen bytes" } },
+        }),
       }),
       undefined,
       TEST_BINDINGS,
@@ -141,27 +174,31 @@ describe("request IDs and common response policy", () => {
     expectCommonHeaders(misconfigured);
   });
 
-  it("adds short HSTS only for a validated production response", async () => {
-    const response = await request(
-      "/openapi.json",
-      {},
-      {
-        ...TEST_BINDINGS,
-        ENVIRONMENT: "production",
-        RATE_LIMIT_MODE: "workers-binding",
-        RATE_LIMIT_KEY_HMAC_KEY: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-        PUBLIC_RATE_LIMITER: {
-          limit: () => Promise.resolve({ success: true }),
-        } as unknown as RateLimit,
-      },
-    );
+  it.each(["staging", "production"] as const)(
+    "adds short HSTS for a validated %s response",
+    async (environment) => {
+      const response = await request(
+        "/openapi.json",
+        {},
+        {
+          ...TEST_BINDINGS,
+          ENVIRONMENT: environment,
+          RATE_LIMIT_MODE: "workers-binding",
+          RATE_LIMIT_KEY_HMAC_KEY:
+            "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+          PUBLIC_RATE_LIMITER: {
+            limit: () => Promise.resolve({ success: true }),
+          } as unknown as RateLimit,
+        },
+      );
 
-    expect(response.status, await response.clone().text()).toBe(200);
-    expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=300");
-  });
+      expect(response.status, await response.clone().text()).toBe(200);
+      expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=300");
+    },
+  );
 });
 
-describe("success representation negotiation", () => {
+describe("representation negotiation", () => {
   it.each([
     undefined,
     "",
@@ -170,8 +207,7 @@ describe("success representation negotiation", () => {
     "application/*",
     "*/*",
     "text/plain;q=1, application/json;q=0.25",
-    "application/json;q=0.5;extension=yes",
-  ])("accepts a positive JSON range: %s", async (accept) => {
+  ])("accepts a positive operational JSON range: %s", async (accept) => {
     const response = await request(
       "/health",
       accept === undefined ? {} : { headers: { Accept: accept } },
@@ -193,24 +229,65 @@ describe("success representation negotiation", () => {
     "application/json;q=9e-1",
     "application/json;q=+0.5",
     'application/json;note="unterminated',
-  ])("returns 406 when JSON is not acceptably selected: %s", async (accept) => {
+  ])("returns Problem Details when operational JSON is unacceptable: %s", async (accept) => {
     const response = await request("/health", { headers: { Accept: accept } });
 
     await expectProblem(response, {
       title: "Not Acceptable",
       status: 406,
-      detail: "Supported response formats: application/json",
+      code: "not_acceptable",
+      detail: "Supported response format: application/json",
     });
     expect(response.headers.get("Vary")).toBe("Accept");
-    expect(response.headers.get("Link")).toBe('</schemas/ProblemResponse.json>; rel="describedBy"');
     expectCommonHeaders(response);
   });
 
-  it("combines repeated Accept field values as one precedence-aware list", async () => {
+  it.each([
+    undefined,
+    "",
+    JSON_API_MEDIA_TYPE,
+    `${JSON_API_MEDIA_TYPE};profile="https://example.test/profile"`,
+    `${JSON_API_MEDIA_TYPE};profile="https://example.test/profile urn:example:profile"`,
+    "application/*",
+    "*/*",
+  ])("accepts a supported JSON:API range: %s", async (accept) => {
+    const response = await request(
+      "/v1/items",
+      accept === undefined ? {} : { headers: { Accept: accept } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe(JSON_API_MEDIA_TYPE);
+  });
+
+  it.each([
+    "application/json",
+    `${JSON_API_MEDIA_TYPE};charset=utf-8`,
+    `${JSON_API_MEDIA_TYPE};ext="https://example.test/ext"`,
+    `${JSON_API_MEDIA_TYPE};profile=https://example.test/profile`,
+    `${JSON_API_MEDIA_TYPE};profile=""`,
+    `${JSON_API_MEDIA_TYPE};profile="relative-profile"`,
+    `${JSON_API_MEDIA_TYPE};profile="https://example.test/%"`,
+    `${JSON_API_MEDIA_TYPE};profile="https://one.test/profile  https://two.test/profile"`,
+    `${JSON_API_MEDIA_TYPE};q=0`,
+    `${JSON_API_MEDIA_TYPE};q="0.5"`,
+    `${JSON_API_MEDIA_TYPE};q=0, */*;q=1`,
+  ])("returns a JSON:API 406 for an unsupported JSON:API range: %s", async (accept) => {
+    const response = await request("/v1/items", { headers: { Accept: accept } });
+
+    await expectJsonApiError(response, {
+      status: 406,
+      code: "not_acceptable",
+      detail: `Supported response format: ${JSON_API_MEDIA_TYPE}`,
+    });
+    expect(response.headers.get("Vary")).toBe("Accept");
+  });
+
+  it("combines repeated Accept field values using media-range precedence", async () => {
     const headers = new Headers();
     headers.append("Accept", "*/*;q=1");
-    headers.append("Accept", "application/json;q=0");
-    const response = await request("/health", { headers });
+    headers.append("Accept", `${JSON_API_MEDIA_TYPE};q=0`);
+    const response = await request("/v1/items", { headers });
 
     expect(response.status).toBe(406);
   });
@@ -218,257 +295,264 @@ describe("success representation negotiation", () => {
 
 describe("known-resource method policy and strict paths", () => {
   it.each([
-    ["GET", "/health", "health_get"],
-    ["GET", "/v1/hello", "hello_get"],
-    ["POST", "/v1/hello", "hello_create"],
-    ["GET", "/v1/items", "items_list"],
-    ["POST", "/v1/profile", "profile_create"],
-    ["GET", "/v1/profile", "profile_get"],
-    ["PATCH", "/v1/profile", "profile_update"],
-    ["DELETE", "/v1/profile", "profile_delete"],
-    ["GET", "/openapi.json", "openapi_get"],
-    ["GET", "/api-docs", "api_docs_get"],
-    ["GET", "/schemas/Greeting.json", "schema_get"],
+    ["GET", "/health", "getHealth"],
+    ["GET", "/v1/items", "listItems"],
+    ["GET", "/v1/items/item-001", "getItem"],
+    ["POST", "/v1/profiles", "createProfile"],
+    ["GET", "/v1/profiles/current", "getCurrentProfile"],
+    ["PATCH", "/v1/profiles/current", "updateCurrentProfile"],
+    ["DELETE", "/v1/profiles/current", "deleteCurrentProfile"],
+    ["GET", "/openapi.json", "getOpenApi"],
+    ["GET", "/api-docs", "getApiDocs"],
   ])("maps %s %s to the fixed operation label %s", (method, path, operationId) => {
     expect(resolveRoute(path, method).metadata.operationId).toBe(operationId);
   });
 
   it.each([
-    ["HEAD", "/health", "GET"],
-    ["POST", "/health", "GET"],
-    ["PUT", "/v1/hello", "GET, POST"],
-    ["OPTIONS", "/v1/hello", "GET, POST"],
-    ["POST", "/v1/items", "GET"],
-    ["HEAD", "/openapi.json", "GET"],
-    ["OPTIONS", "/api-docs", "GET"],
-    ["HEAD", "/schemas/Greeting.json", "GET"],
-    ["OPTIONS", "/v1/profile", "GET, POST, PATCH, DELETE"],
-  ])("returns a complete 405 Allow for %s %s", async (method, path, allow) => {
+    ["HEAD", "/health", "GET", "problem"],
+    ["POST", "/health", "GET", "problem"],
+    ["POST", "/v1/items", "GET", "jsonapi"],
+    ["PUT", "/v1/items/item-001", "GET", "jsonapi"],
+    ["OPTIONS", "/v1/profiles", "POST", "jsonapi"],
+    ["OPTIONS", "/v1/profiles/current", "GET, PATCH, DELETE", "jsonapi"],
+    ["HEAD", "/openapi.json", "GET", "problem"],
+    ["OPTIONS", "/api-docs", "GET", "problem"],
+  ])("returns a complete 405 Allow for %s %s", async (method, path, allow, format) => {
     const response = await request(path, { method });
 
     if (method === "HEAD") {
       expect(response.status).toBe(405);
-      expect(response.headers.get("Content-Type")).toContain("application/problem+json");
+      expect(response.headers.get("Content-Type")).toContain(
+        format === "jsonapi" ? JSON_API_MEDIA_TYPE : "application/problem+json",
+      );
       expect(await response.text()).toBe("");
+    } else if (format === "jsonapi") {
+      await expectJsonApiError(response, {
+        status: 405,
+        code: "method_not_allowed",
+        detail: "Method Not Allowed",
+      });
     } else {
       await expectProblem(response, {
         title: "Method Not Allowed",
         status: 405,
+        code: "method_not_allowed",
         detail: "Method Not Allowed",
       });
     }
     expect(response.headers.get("Allow")).toBe(allow);
-    expect(response.headers.get("Link")).toBe('</schemas/ProblemResponse.json>; rel="describedBy"');
     expectCommonHeaders(response, path === "/api-docs");
   });
 
-  it("keeps the HEAD 405 body empty while retaining problem representation headers", async () => {
-    const response = await request("/health", { method: "HEAD" });
-
-    expect(response.status).toBe(405);
-    expect(response.headers.get("Content-Type")).toContain("application/problem+json");
-    expect(response.headers.get("Allow")).toBe("GET");
-    expect(response.headers.get("Content-Length")).toBeNull();
-    expect(await response.text()).toBe("");
-  });
-
-  it("applies the method guard before negotiation and body processing", async () => {
-    const response = await request("/v1/hello", {
-      method: "PUT",
-      headers: { Accept: "text/plain", "Content-Type": "application/cbor" },
+  it("applies the method guard before negotiation, authentication, and body processing", async () => {
+    const response = await request("/v1/profiles/current", {
+      method: "POST",
+      headers: { Accept: "text/plain", "Content-Type": "text/plain" },
       body: "not-json",
     });
 
     expect(response.status).toBe(405);
-    expect(response.headers.get("Allow")).toBe("GET, POST");
-  });
-
-  it.each(["/health/", "/v1/hello/", "/v1/items/", "/openapi.json/", "/api-docs/"])(
-    "does not redirect a trailing-slash path: %s",
-    async (path) => {
-      const response = await request(path);
-
-      await expectProblem(response, {
-        title: "Not Found",
-        status: 404,
-        detail: "Not Found",
-      });
-      expect(response.headers.has("Location")).toBe(false);
-      expectCommonHeaders(response);
-    },
-  );
-
-  it("rejects percent-encoded route variants before Hono dispatch or authentication", async () => {
-    const verifier = vi.fn(() => Promise.resolve({ sub: "must-not-be-used" }));
-    const encodedApp = createApp({ accessVerifier: verifier });
-    const cases: Array<[string, string, RequestInit]> = [
-      ["GET", "/%68ealth", { headers: { Accept: "text/plain" } }],
-      ["HEAD", "/%68ealth", {}],
-      [
-        "POST",
-        "/v1/%68ello",
-        {
-          headers: { Accept: "text/plain", "Content-Type": "application/json" },
-          body: JSON.stringify({ name: "Encoded" }),
-        },
-      ],
-      [
-        "POST",
-        "/v1/%70rofile",
-        {
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            Origin: "https://attacker.invalid",
-          },
-          body: JSON.stringify({}),
-        },
-      ],
-      ["GET", "/schemas/%47reeting.json", {}],
-      ["GET", "/v1/%2Fitems", {}],
-      ["GET", "/v1/%zz", {}],
-    ];
-
-    for (const [method, path, init] of cases) {
-      const response = await encodedApp.request(
-        new Request(`${ORIGIN}${path}`, { ...init, method }),
-        undefined,
-        TEST_BINDINGS,
-      );
-      expect(response.status, `${method} ${path}`).toBe(404);
-      if (method !== "HEAD") {
-        await expectProblem(response, {
-          title: "Not Found",
-          status: 404,
-          detail: "Not Found",
-        });
-      }
-    }
-    expect(verifier).not.toHaveBeenCalled();
-  });
-
-  it("uses ordinary 404 behavior for OPTIONS on an unknown resource", async () => {
-    const response = await request("/not-a-route", { method: "OPTIONS" });
-
-    expect(response.status).toBe(404);
-    expect(response.headers.has("Allow")).toBe(false);
-    expectCommonHeaders(response);
-  });
-});
-
-describe("JSON body preconditions and ordering", () => {
-  it("negotiates the success representation before touching an invalid body", async () => {
-    const smallApp = createApp({ maximumRequestBytes: 8 });
-    const response = await smallApp.request(
-      new Request(`${ORIGIN}/v1/hello`, {
-        method: "POST",
-        headers: { Accept: "text/plain", "Content-Type": "application/cbor" },
-        body: "this body is both unsupported and too large",
-      }),
-      undefined,
-      TEST_BINDINGS,
-    );
-
-    expect(response.status).toBe(406);
-  });
-
-  it("returns a normalized 422 when Content-Type is missing", async () => {
-    const response = await request("/v1/hello", {
-      method: "POST",
-      body: new TextEncoder().encode(JSON.stringify({ name: "Jani" })),
-    });
-
-    const problem = await expectProblem(response, {
-      title: "Unprocessable Entity",
-      status: 422,
-      detail: "validation failed",
-    });
-    expect(problem.errors).toEqual([{ location: "body", message: "JSON body is required" }]);
-    expect(response.headers.get("Link")).toBe(
-      '</schemas/ValidationProblemResponse.json>; rel="describedBy"',
-    );
+    expect(response.headers.get("Allow")).toBe("GET, PATCH, DELETE");
   });
 
   it.each([
-    [{ "Content-Type": "text/plain" }, "not-json"],
-    [{ "Content-Type": "application/cbor" }, "not-cbor"],
-    [{ "Content-Type": "application/json", "Content-Encoding": "gzip" }, "{}"],
-  ])("rejects unsupported representation metadata before parsing", async (headers, body) => {
-    const response = await request("/v1/hello", { method: "POST", headers, body });
+    ["/health/", "problem"],
+    ["/v1/items/", "jsonapi"],
+    ["/v1/profiles/current/", "jsonapi"],
+    ["/openapi.json/", "problem"],
+    ["/api-docs/", "problem"],
+  ])("does not redirect a trailing-slash path: %s", async (path, format) => {
+    const response = await request(path);
 
-    await expectProblem(response, {
-      title: "Unsupported Media Type",
-      status: 415,
-      detail: "Only identity-encoded application/json is supported",
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Location")).toBeNull();
+    if (format === "jsonapi") {
+      await expectJsonApiError(response, {
+        status: 404,
+        code: "not_found",
+        detail: "Not Found",
+      });
+    } else {
+      await expectProblem(response, {
+        title: "Not Found",
+        status: 404,
+        code: "not_found",
+        detail: "Not Found",
+      });
+    }
+  });
+
+  it.each([
+    ["/health%2F", "problem"],
+    ["/v1%2Fitems", "problem"],
+    ["/v1/items%2Fitem-001", "jsonapi"],
+  ])("rejects percent-encoded route variants before dispatch: %s", async (path, format) => {
+    const response = await request(path);
+
+    expect(response.status).toBe(404);
+    if (format === "jsonapi") {
+      await expectJsonApiError(response, {
+        status: 404,
+        code: "not_found",
+        detail: "Not Found",
+      });
+    } else {
+      await expectProblem(response, {
+        title: "Not Found",
+        status: 404,
+        code: "not_found",
+        detail: "Not Found",
+      });
+    }
+  });
+
+  it("uses ordinary 404 behavior for OPTIONS on an unknown resource", async () => {
+    const response = await request("/unknown", { method: "OPTIONS" });
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Allow")).toBeNull();
+  });
+});
+
+describe("JSON:API body preconditions and ordering", () => {
+  const profileRequest = (
+    body: BodyInit | null,
+    headers: HeadersInit = {},
+    maximumRequestBytes?: number,
+  ): Promise<Response> => {
+    const application = createApp(
+      maximumRequestBytes === undefined
+        ? { accessVerifier: () => Promise.resolve({ sub: "subject-1" }) }
+        : {
+            accessVerifier: () => Promise.resolve({ sub: "subject-1" }),
+            maximumRequestBytes,
+          },
+    );
+    return Promise.resolve(
+      application.request(
+        new Request(`${ORIGIN}/v1/profiles`, {
+          method: "POST",
+          headers: {
+            Accept: JSON_API_MEDIA_TYPE,
+            "Content-Type": JSON_API_MEDIA_TYPE,
+            ...headers,
+          },
+          body,
+        }),
+        undefined,
+        TEST_BINDINGS,
+      ),
+    );
+  };
+
+  it("negotiates the response before touching an invalid request body", async () => {
+    const response = await profileRequest("{", { Accept: "application/json" });
+
+    await expectJsonApiError(response, {
+      status: 406,
+      code: "not_acceptable",
+      detail: `Supported response format: ${JSON_API_MEDIA_TYPE}`,
     });
   });
 
-  it.each(["", "   ", '{"name":'])(
-    "normalizes an empty or malformed JSON body: %j",
-    async (body) => {
-      const response = await request("/v1/hello", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
+  it("returns 415 when Content-Type is missing", async () => {
+    const response = await profileRequest("{}", { "Content-Type": "" });
+
+    await expectJsonApiError(response, {
+      status: 415,
+      code: "unsupported_media_type",
+      detail: `Content-Type must be ${JSON_API_MEDIA_TYPE} without unsupported extensions`,
+    });
+  });
+
+  it.each([
+    ["application/json", undefined],
+    [`${JSON_API_MEDIA_TYPE};charset=utf-8`, undefined],
+    [`${JSON_API_MEDIA_TYPE};ext="https://example.test/ext"`, undefined],
+    [`${JSON_API_MEDIA_TYPE};profile=https://example.test/profile`, undefined],
+    [`${JSON_API_MEDIA_TYPE};profile=""`, undefined],
+    [`${JSON_API_MEDIA_TYPE};profile="relative-profile"`, undefined],
+    [`${JSON_API_MEDIA_TYPE};profile="https://example.test/%"`, undefined],
+    [
+      `${JSON_API_MEDIA_TYPE};profile="https://one.test/profile  https://two.test/profile"`,
+      undefined,
+    ],
+    [JSON_API_MEDIA_TYPE, "gzip"],
+  ])(
+    "rejects unsupported representation metadata before JSON parsing",
+    async (contentType, contentEncoding) => {
+      const response = await profileRequest("{", {
+        "Content-Type": contentType,
+        ...(contentEncoding === undefined ? {} : { "Content-Encoding": contentEncoding }),
       });
 
-      const problem = await expectProblem(response, {
-        title: "Unprocessable Entity",
-        status: 422,
-        detail: "validation failed",
+      await expectJsonApiError(response, {
+        status: 415,
+        code: "unsupported_media_type",
+        detail:
+          contentEncoding === undefined
+            ? `Content-Type must be ${JSON_API_MEDIA_TYPE} without unsupported extensions`
+            : "Only identity-encoded JSON:API documents are supported",
       });
-      expect(problem.errors).toEqual([{ location: "body", message: "Invalid JSON body" }]);
+    },
+  );
+
+  it.each(["", "   ", '{"data":'])(
+    "normalizes an empty or malformed JSON document: %j",
+    async (body) => {
+      const response = await profileRequest(body);
+
+      await expectJsonApiError(response, {
+        status: 400,
+        code: "invalid_json",
+        detail: "Invalid JSON document",
+      });
     },
   );
 
   it("rejects invalid UTF-8 instead of parsing replacement characters", async () => {
-    const response = await request("/v1/hello", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: new Uint8Array([0x7b, 0x22, 0x6e, 0x61, 0x6d, 0x65, 0x22, 0x3a, 0xff, 0x7d]),
-    });
+    const response = await profileRequest(new Uint8Array([0xc3, 0x28]));
 
-    const problem = await expectProblem(response, {
-      title: "Unprocessable Entity",
-      status: 422,
-      detail: "validation failed",
+    await expectJsonApiError(response, {
+      status: 400,
+      code: "invalid_json",
+      detail: "Invalid JSON document",
     });
-    expect(problem.errors).toEqual([{ location: "body", message: "Invalid JSON body" }]);
   });
 
   it("returns 413 for a streamed body above the configured application limit", async () => {
-    const smallApp = createApp({ maximumRequestBytes: 32 });
-    const response = await smallApp.request(
-      new Request(`${ORIGIN}/v1/hello`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "x".repeat(64) }),
-      }),
-      undefined,
-      TEST_BINDINGS,
-    );
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"data":"'));
+        controller.enqueue(new TextEncoder().encode("x".repeat(32)));
+        controller.enqueue(new TextEncoder().encode('"}'));
+        controller.close();
+      },
+    });
+    const response = await profileRequest(body, {}, 16);
 
-    await expectProblem(response, {
-      title: "Payload Too Large",
+    await expectJsonApiError(response, {
       status: 413,
+      code: "payload_too_large",
       detail: "Request body too large",
     });
-    expect(response.headers.get("Vary")).toBe("Accept");
-    expect(response.headers.get("Link")).toBe('</schemas/ProblemResponse.json>; rel="describedBy"');
-    expectCommonHeaders(response);
   });
 
-  it("accepts application/json parameters and an explicit identity encoding", async () => {
-    const response = await request("/v1/hello", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
+  it("accepts a profile media-type parameter and explicit identity encoding", async () => {
+    const response = await profileRequest(
+      JSON.stringify({
+        data: {
+          type: "profiles",
+          attributes: {},
+        },
+      }),
+      {
+        "Content-Type": `${JSON_API_MEDIA_TYPE};profile="https://example.test/profile urn:example:profile"`,
         "Content-Encoding": "identity",
       },
-      body: JSON.stringify({ name: "Jani" }),
-    });
+    );
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ message: "Hello, Jani!" });
+    expect(response.status).toBe(422);
+    expect(response.headers.get("Content-Type")).toBe(JSON_API_MEDIA_TYPE);
   });
 });

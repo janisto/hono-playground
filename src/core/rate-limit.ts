@@ -63,12 +63,17 @@ export const normalizeClientIp = (value: string | undefined): string | undefined
 export const enforcePublicRateLimit = async (c: Context<AppEnvironment>): Promise<void> => {
   if (c.get("runtimeConfig").rateLimitMode === "none") return;
   const actor = normalizeClientIp(c.req.header("CF-Connecting-IP")) ?? "unknown";
-  if (actor === "unknown" && c.get("runtimeConfig").environment === "production") {
+  if (
+    actor === "unknown" &&
+    (c.get("runtimeConfig").environment === "staging" ||
+      c.get("runtimeConfig").environment === "production")
+  ) {
     console.error({
       schema_version: 1,
       event: "operator.error",
       level: "error",
       code: "public_client_ip_unavailable",
+      request_id: c.get("requestId"),
     });
   }
   const key = await hmacSha256(c.env.RATE_LIMIT_KEY_HMAC_KEY, `public:${actor}`);
@@ -81,6 +86,7 @@ export const enforcePublicRateLimit = async (c: Context<AppEnvironment>): Promis
       event: "operator.error",
       level: "error",
       code: "public_limiter_unavailable",
+      request_id: c.get("requestId"),
     });
   }
 };

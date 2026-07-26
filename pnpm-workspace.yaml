@@ -7,15 +7,26 @@ minimumReleaseAgeStrict: true
 minimumReleaseAgeIgnoreMissingTime: false
 trustLockfile: false
 blockExoticSubdeps: true
-overrides:
-  js-yaml@4.2.0: 4.3.0
-
+peerDependencyRules:
+  allowedVersions:
+    '@distilled.cloud/cloudflare': 0.30.1
 allowBuilds:
   '@scarf/scarf': false
   esbuild: true
+  msgpackr-extract: false
   sharp: false
   workerd: true
 minimumReleaseAgeExclude:
-  - '@cloudflare/workers-types@5.20260722.1'
+  - '@distilled.cloud/cloudflare@0.30.1'
+  - '@effect/platform-node@4.0.0-beta.101'
+  - '@cloudflare/vitest-pool-workers@0.18.8'
+  - '@cloudflare/workers-types@5.20260724.1'
+  - alchemy@2.0.0-beta.64
+  - drizzle-kit@1.0.0-rc.4
+  - drizzle-orm@1.0.0-rc.4
+  - effect@4.0.0-beta.101
+  - hono@4.12.32
+  - ioredis@5.11.1
   - jose@6.2.4
-  - swagger-ui-dist@5.32.11
+  - miniflare@4.20260722.0
+  - '@hono/swagger-ui@0.6.1'

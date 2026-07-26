@@ -13,9 +13,6 @@ const SUBJECT = "profile-owner-marker";
 const TEST_BINDINGS = {
   DB: {} as D1Database,
   ENVIRONMENT: "test",
-  DEPLOYMENT_PROFILE: "workers-dev-demo",
-  LOG_LEVEL: "info",
-  MANAGED_OAUTH_ENABLED: "false",
   RATE_LIMIT_MODE: "none",
   RATE_LIMIT_KEY_HMAC_KEY: RATE_LIMIT_KEY,
   AUDIT_SUBJECT_HMAC_KEY: AUDIT_KEY,
@@ -23,14 +20,14 @@ const TEST_BINDINGS = {
 
 const STORED_PROFILE = {
   id: SUBJECT,
-  first_name: "PrivateFirstNameMarker",
-  last_name: "PrivateLastNameMarker",
+  firstName: "PrivateFirstNameMarker",
+  lastName: "PrivateLastNameMarker",
   email: "private-email-marker@example.com",
-  phone_number: "+358401111111",
-  marketing: false,
-  terms: true as const,
-  created_at: "2026-07-22T12:00:00.000Z",
-  updated_at: "2026-07-22T12:00:00.000Z",
+  phoneNumber: "+358401111111",
+  marketingOptIn: false,
+  termsAccepted: true as const,
+  createdAt: "2026-07-22T12:00:00.000Z",
+  updatedAt: "2026-07-22T12:00:00.000Z",
 };
 
 const repository: ProfileRepository = {
@@ -38,8 +35,8 @@ const repository: ProfileRepository = {
     Promise.resolve({
       id,
       ...input,
-      created_at: timestamp,
-      updated_at: timestamp,
+      createdAt: timestamp.toISOString(),
+      updatedAt: timestamp.toISOString(),
     }),
   get: () => Promise.resolve(STORED_PROFILE),
   update: () => Promise.resolve(STORED_PROFILE),
@@ -69,7 +66,7 @@ describe("structured application events", () => {
       request_id: "access-event-id",
       method: "GET",
       route_template: "/health",
-      operation_id: "health_get",
+      operation_id: "getHealth",
       status: 200,
       latency_ms: expect.any(Number),
       outcome: "ok",
@@ -118,19 +115,24 @@ describe("structured application events", () => {
       now: () => new Date("2026-07-22T12:00:00.000Z"),
     });
     const response = await application.request(
-      new Request(`${ORIGIN}/v1/profile`, {
+      new Request(`${ORIGIN}/v1/profiles`, {
         method: "POST",
         headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
+          Accept: "application/vnd.api+json",
+          "Content-Type": "application/vnd.api+json",
           "X-Request-ID": "audit-event-id",
         },
         body: JSON.stringify({
-          first_name: STORED_PROFILE.first_name,
-          last_name: STORED_PROFILE.last_name,
-          email: STORED_PROFILE.email,
-          phone_number: STORED_PROFILE.phone_number,
-          terms: true,
+          data: {
+            type: "profiles",
+            attributes: {
+              firstName: STORED_PROFILE.firstName,
+              lastName: STORED_PROFILE.lastName,
+              email: STORED_PROFILE.email,
+              phoneNumber: STORED_PROFILE.phoneNumber,
+              termsAccepted: true,
+            },
+          },
         }),
       }),
       undefined,
@@ -154,8 +156,8 @@ describe("structured application events", () => {
       owner: expect.stringMatching(/^[0-9a-f]{32}$/),
     });
     expect(access).toMatchObject({
-      route_template: "/v1/profile",
-      operation_id: "profile_create",
+      route_template: "/v1/profiles",
+      operation_id: "createProfile",
       outcome: "ok",
       status: 201,
     });
@@ -163,14 +165,60 @@ describe("structured application events", () => {
     const serializedEvents = JSON.stringify(events);
     for (const privateValue of [
       SUBJECT,
-      STORED_PROFILE.first_name,
-      STORED_PROFILE.last_name,
+      STORED_PROFILE.firstName,
+      STORED_PROFILE.lastName,
       STORED_PROFILE.email,
-      STORED_PROFILE.phone_number,
+      STORED_PROFILE.phoneNumber,
     ]) {
       expect(serializedEvents).not.toContain(privateValue);
     }
   });
+
+  it.each([
+    ["conflicting", () => Promise.resolve(undefined), 409],
+    ["failed", () => Promise.reject(new Error("private-repository-failure-marker")), 500],
+  ])(
+    "never emits a success audit event for a %s profile create",
+    async (_condition, create, expectedStatus) => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const application = createApp({
+        accessVerifier: () => Promise.resolve({ sub: SUBJECT }),
+        profileRepositoryFactory: () => ({ ...repository, create }),
+        now: () => new Date("2026-07-22T12:00:00.000Z"),
+      });
+      const response = await application.request(
+        new Request(`${ORIGIN}/v1/profiles`, {
+          method: "POST",
+          headers: {
+            Accept: "application/vnd.api+json",
+            "Content-Type": "application/vnd.api+json",
+          },
+          body: JSON.stringify({
+            data: {
+              type: "profiles",
+              attributes: {
+                firstName: "Ada",
+                lastName: "Lovelace",
+                email: "ada@example.com",
+                phoneNumber: "+12025550123",
+                termsAccepted: true,
+              },
+            },
+          }),
+        }),
+        undefined,
+        TEST_BINDINGS,
+      );
+
+      expect(response.status).toBe(expectedStatus);
+      const events = [...log.mock.calls, ...errorLog.mock.calls].map(([event]) => event);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ event: "profile.audit", result: "success" }),
+      );
+      expect(JSON.stringify(events)).not.toContain("private-repository-failure-marker");
+    },
+  );
 
   it("adds only aggregate D1 metadata to the access event", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -180,14 +228,14 @@ describe("structured application events", () => {
       profileRepositoryFactory: (context) => ({
         ...repository,
         get: () => {
-          context.set("d1Metrics", { durationMs: 4, rowsRead: 1, rowsWritten: 0 });
+          context.set("d1Metrics", { queryCount: 1, rowsRead: 1, rowsWritten: 0 });
           return Promise.resolve(STORED_PROFILE);
         },
       }),
     });
     const response = await application.request(
-      new Request(`${ORIGIN}/v1/profile`, {
-        headers: { Accept: "application/json", "X-Request-ID": "d1-event-id" },
+      new Request(`${ORIGIN}/v1/profiles/current`, {
+        headers: { Accept: "application/vnd.api+json", "X-Request-ID": "d1-event-id" },
       }),
       undefined,
       TEST_BINDINGS,
@@ -198,7 +246,7 @@ describe("structured application events", () => {
     expect(log.mock.calls[0]?.[0]).toMatchObject({
       event: "http.access",
       request_id: "d1-event-id",
-      d1_duration_ms: 4,
+      d1_query_count: 1,
       d1_rows_read: 1,
       d1_rows_written: 0,
     });
@@ -249,10 +297,16 @@ describe("structured application events", () => {
       undefined,
       TEST_BINDINGS,
     );
-    const misconfigured = await createApp().request(new Request(`${ORIGIN}/health`), undefined, {
-      ...TEST_BINDINGS,
-      ENVIRONMENT: privateMarker,
-    });
+    const misconfigured = await createApp().request(
+      new Request(`${ORIGIN}/health`, {
+        headers: { "X-Request-ID": "config-error-id" },
+      }),
+      undefined,
+      {
+        ...TEST_BINDINGS,
+        ENVIRONMENT: privateMarker,
+      },
+    );
 
     expect(malformedMetadata.status).toBe(200);
     expect(misconfigured.status).toBe(500);
@@ -262,6 +316,7 @@ describe("structured application events", () => {
       event: "operator.error",
       level: "error",
       code: "runtime_configuration_invalid",
+      request_id: "config-error-id",
     });
     expect(JSON.stringify(events)).not.toContain(privateMarker);
     expect(JSON.stringify(log.mock.calls[0]?.[0])).not.toContain("cf_ray");
@@ -278,15 +333,23 @@ describe("structured application events", () => {
       now: () => new Date("2026-07-22T12:00:00.000Z"),
     });
     const response = await application.request(
-      new Request(`${ORIGIN}/v1/profile`, {
+      new Request(`${ORIGIN}/v1/profiles`, {
         method: "POST",
-        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        headers: {
+          Accept: "application/vnd.api+json",
+          "Content-Type": "application/vnd.api+json",
+        },
         body: JSON.stringify({
-          first_name: "Ada",
-          last_name: "Lovelace",
-          email: "ada@example.com",
-          phone_number: "+12025550123",
-          terms: true,
+          data: {
+            type: "profiles",
+            attributes: {
+              firstName: "Ada",
+              lastName: "Lovelace",
+              email: "ada@example.com",
+              phoneNumber: "+12025550123",
+              termsAccepted: true,
+            },
+          },
         }),
       }),
       undefined,
@@ -297,14 +360,90 @@ describe("structured application events", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it("fails a non-test profile mutation when the audit secret is absent", async () => {
+    const create = vi.fn(() => Promise.resolve(STORED_PROFILE));
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const application = createApp({
+      accessVerifier: () => Promise.resolve({ sub: SUBJECT }),
+      profileRepositoryFactory: () => ({ ...repository, create }),
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+    const response = await application.request(
+      new Request(`${ORIGIN}/v1/profiles`, {
+        method: "POST",
+        headers: {
+          Accept: "application/vnd.api+json",
+          "Content-Type": "application/vnd.api+json",
+        },
+        body: JSON.stringify({
+          data: {
+            type: "profiles",
+            attributes: {
+              firstName: "Ada",
+              lastName: "Lovelace",
+              email: "ada@example.com",
+              phoneNumber: "+12025550123",
+              termsAccepted: true,
+            },
+          },
+        }),
+      }),
+      undefined,
+      {
+        ...TEST_BINDINGS,
+        ENVIRONMENT: "development",
+        AUDIT_SUBJECT_HMAC_KEY: undefined,
+      },
+    );
+
+    expect(response.status).toBe(500);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a mismatched PATCH identity before evaluating the audit secret", async () => {
+    const update = vi.fn(() => Promise.resolve(STORED_PROFILE));
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const application = createApp({
+      accessVerifier: () => Promise.resolve({ sub: SUBJECT }),
+      profileRepositoryFactory: () => ({ ...repository, update }),
+    });
+    const response = await application.request(
+      new Request(`${ORIGIN}/v1/profiles/current`, {
+        method: "PATCH",
+        headers: {
+          Accept: "application/vnd.api+json",
+          "Content-Type": "application/vnd.api+json",
+        },
+        body: JSON.stringify({
+          data: {
+            type: "profiles",
+            id: "different-owner",
+            attributes: { firstName: "Grace" },
+          },
+        }),
+      }),
+      undefined,
+      {
+        ...TEST_BINDINGS,
+        ENVIRONMENT: "development",
+        AUDIT_SUBJECT_HMAC_KEY: undefined,
+      },
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      errors: [{ code: "resource_identity_mismatch" }],
+    });
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it("keeps public routes healthy but fails a missing profile DB binding with a stable code", async () => {
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const bindingsWithoutDatabase = {
       ENVIRONMENT: "test",
-      DEPLOYMENT_PROFILE: "workers-dev-demo",
-      LOG_LEVEL: "error",
-      MANAGED_OAUTH_ENABLED: "false",
       RATE_LIMIT_MODE: "none",
     } as unknown as RuntimeBindings;
     const application = createApp({ accessVerifier: () => Promise.resolve({ sub: SUBJECT }) });
@@ -315,7 +454,12 @@ describe("structured application events", () => {
       bindingsWithoutDatabase,
     );
     const profileResponse = await application.request(
-      new Request(`${ORIGIN}/v1/profile`),
+      new Request(`${ORIGIN}/v1/profiles/current`, {
+        headers: {
+          Accept: "application/vnd.api+json",
+          "X-Request-ID": "missing-database-id",
+        },
+      }),
       undefined,
       bindingsWithoutDatabase,
     );
@@ -327,6 +471,7 @@ describe("structured application events", () => {
       event: "operator.error",
       level: "error",
       code: "runtime_configuration_invalid",
+      request_id: "missing-database-id",
     });
   });
 });

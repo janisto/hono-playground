@@ -66,9 +66,11 @@ export class ProfileService {
     if (!deleted) throw profileNotFound();
   }
 
-  #timestamp(): string {
+  #timestamp(): Date {
     try {
-      return this.#now().toISOString();
+      const timestamp = this.#now();
+      if (!Number.isFinite(timestamp.getTime())) throw new TypeError("Invalid clock");
+      return timestamp;
     } catch {
       throw internalError();
     }

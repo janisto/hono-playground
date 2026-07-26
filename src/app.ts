@@ -1,3 +1,4 @@
+import { swaggerUI } from "@hono/swagger-ui";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context, MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -5,8 +6,7 @@ import { secureHeaders } from "hono/secure-headers";
 
 import {
   healthRoute,
-  helloGetRoute,
-  helloPostRoute,
+  itemGetRoute,
   itemsRoute,
   profileDeleteRoute,
   profileGetRoute,
@@ -16,32 +16,37 @@ import {
 import { ACCESS_ASSERTION_HEADER, createAccessVerifier } from "./auth/access.js";
 import type { AccessVerifier } from "./auth/types.js";
 import { auditPseudonym } from "./core/crypto.js";
-import { AppError, internalError, problemResponse, zodValidationError } from "./core/errors.js";
+import {
+  AppError,
+  internalError,
+  invalidJsonError,
+  jsonApiErrorResponse,
+  problemResponse,
+  zodValidationError,
+} from "./core/errors.js";
 import { httpPolicy } from "./core/http-policy.js";
 import { lifecycle, runtimeConfiguration } from "./core/lifecycle.js";
 import { enforceProfileRateLimit } from "./core/rate-limit.js";
-import { appendHeaderValue, appendSchemaLink } from "./core/schema-links.js";
+import { isJsonApiRoute, resolveRoute } from "./core/routes.js";
 import { enterSpan } from "./core/tracing.js";
 import type { AppEnvironment, D1Metrics } from "./core/types.js";
 import { ITEMS } from "./data/items.js";
-import { DOCS_ASSETS } from "./generated/docs-assets.js";
 import { HealthResponseSchema } from "./models/health.js";
-import { GreetingSchema, type Language } from "./models/hello.js";
-import { ItemListSchema } from "./models/items.js";
-import { ProfileSchema } from "./models/profile.js";
-import { getDeploymentOpenApiDocument, STANDALONE_SCHEMA_REGISTRY } from "./openapi/artifacts.js";
+import {
+  type Item,
+  ItemCollectionDocumentSchema,
+  ItemDocumentSchema,
+  type ItemResource,
+} from "./models/items.js";
+import { JSON_API_MEDIA_TYPE, JSON_API_OBJECT } from "./models/json-api.js";
+import { type Profile, ProfileDocumentSchema, type ProfileResource } from "./models/profile.js";
 import { InvalidCursorError, MAX_CURSOR_LENGTH } from "./pagination/cursor.js";
 import { paginate } from "./pagination/paginate.js";
-import { D1ProfileRepository, type ProfileRepository } from "./repositories/profile-repository.js";
+import {
+  DrizzleProfileRepository,
+  type ProfileRepository,
+} from "./repositories/profile-repository.js";
 import { ProfileService } from "./services/profile-service.js";
-
-const GREETINGS: Readonly<Record<Language, string>> = {
-  en: "Hello",
-  fi: "Hei",
-  es: "Hola",
-  fr: "Bonjour",
-  de: "Hallo",
-};
 
 export type AppDependencies = {
   accessVerifier?: AccessVerifier;
@@ -51,7 +56,7 @@ export type AppDependencies = {
 };
 
 const mergeD1Metrics = (current: D1Metrics, next: D1Metrics): D1Metrics => ({
-  durationMs: current.durationMs + next.durationMs,
+  queryCount: current.queryCount + next.queryCount,
   rowsRead: current.rowsRead + next.rowsRead,
   rowsWritten: current.rowsWritten + next.rowsWritten,
 });
@@ -70,8 +75,8 @@ const createRepository = (
   ) {
     throw internalError("runtime_configuration_invalid");
   }
-  return new D1ProfileRepository(database, {
-    onMetadata: (metadata) => c.set("d1Metrics", mergeD1Metrics(c.get("d1Metrics"), metadata)),
+  return new DrizzleProfileRepository(database, {
+    onMetrics: (metrics) => c.set("d1Metrics", mergeD1Metrics(c.get("d1Metrics"), metrics)),
   });
 };
 
@@ -110,6 +115,9 @@ const profileAuditOwner = async (
   c: Context<AppEnvironment>,
   subject: string,
 ): Promise<string | undefined> => {
+  if (c.get("runtimeConfig").environment !== "test" && c.env.AUDIT_SUBJECT_HMAC_KEY === undefined) {
+    throw internalError("runtime_configuration_invalid");
+  }
   if (
     c.env.AUDIT_SUBJECT_HMAC_KEY !== undefined &&
     c.env.AUDIT_SUBJECT_HMAC_KEY === c.env.RATE_LIMIT_KEY_HMAC_KEY
@@ -119,47 +127,109 @@ const profileAuditOwner = async (
   return auditPseudonym(c.env.AUDIT_SUBJECT_HMAC_KEY, subject);
 };
 
-const addSchemaLink = <T extends Response>(response: T, schemaName: string): T => {
-  appendSchemaLink(response.headers, schemaName);
+const jsonApiResponse = <T extends Response>(response: T): T => {
+  response.headers.set("Content-Type", JSON_API_MEDIA_TYPE);
   return response;
 };
 
-const docsHtml = (): string => `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Hono Playground API</title>
-    <link rel="icon" type="image/png" sizes="16x16" href="${DOCS_ASSETS.favicon16}">
-    <link rel="icon" type="image/png" sizes="32x32" href="${DOCS_ASSETS.favicon32}">
-    <link rel="stylesheet" href="${DOCS_ASSETS.stylesheet}">
-    <link rel="stylesheet" href="${DOCS_ASSETS.customStylesheet}">
-  </head>
-  <body>
-    <main id="swagger-ui"></main>
-    <script src="${DOCS_ASSETS.bundleScript}"></script>
-    <script src="${DOCS_ASSETS.initializerScript}"></script>
-  </body>
-</html>`;
+const itemResource = (item: Item): ItemResource => {
+  const { id, ...attributes } = item;
+  return {
+    type: "items",
+    id,
+    attributes,
+    links: { self: `/v1/items/${id}` },
+  };
+};
+
+const profileResource = (profile: Profile): ProfileResource => {
+  const { id, ...attributes } = profile;
+  return {
+    type: "profiles",
+    id,
+    attributes,
+    links: { self: "/v1/profiles/current" },
+  };
+};
+
+const profileDocument = (profile: Profile) =>
+  ProfileDocumentSchema.parse({
+    jsonapi: JSON_API_OBJECT,
+    links: {
+      self: "/v1/profiles/current",
+    },
+    data: profileResource(profile),
+  });
+
+const hasUnrecognizedKey = (
+  error: {
+    readonly issues: readonly {
+      readonly code: string;
+      readonly path: readonly PropertyKey[];
+      readonly keys?: readonly string[];
+    }[];
+  },
+  path: readonly PropertyKey[],
+  key: string,
+): boolean =>
+  error.issues.some(
+    (issue) =>
+      issue.code === "unrecognized_keys" &&
+      issue.path.length === path.length &&
+      issue.path.every((segment, index) => segment === path[index]) &&
+      issue.keys?.includes(key) === true,
+  );
+
+const hasOwnMemberAt = (value: unknown, path: readonly PropertyKey[]): boolean => {
+  let current = value;
+  for (const segment of path) {
+    if (typeof current !== "object" || current === null || !Object.hasOwn(current, segment)) {
+      return false;
+    }
+    current = Reflect.get(current, segment);
+  }
+  return true;
+};
 
 export const createApp = (dependencies: AppDependencies = {}) => {
   const app = new OpenAPIHono<AppEnvironment>({
     strict: true,
-    defaultHook: (result) => {
+    defaultHook: async (result, c) => {
       if (!result.success) {
+        const pathname = new URL(c.req.url).pathname;
+        const document = result.target === "json" ? await c.req.json<unknown>() : undefined;
+        if (
+          c.req.method === "POST" &&
+          pathname === "/v1/profiles" &&
+          hasOwnMemberAt(document, ["data", "id"]) &&
+          hasUnrecognizedKey(result.error, ["data"], "id")
+        ) {
+          throw new AppError({
+            status: 403,
+            code: "client_generated_id_unsupported",
+            detail: "Client-generated profile IDs are not supported",
+          });
+        }
+        if (
+          pathname.startsWith("/v1/profiles") &&
+          hasOwnMemberAt(document, ["data", "type"]) &&
+          result.error.issues.some(
+            (issue) =>
+              issue.path.length === 2 && issue.path[0] === "data" && issue.path[1] === "type",
+          )
+        ) {
+          throw new AppError({
+            status: 409,
+            code: "resource_type_mismatch",
+            detail: "Resource type does not match endpoint",
+          });
+        }
         throw zodValidationError(result.error, result.target === "query" ? "query" : "body");
       }
     },
   });
 
-  app.use(
-    "*",
-    lifecycle(
-      dependencies.maximumRequestBytes === undefined
-        ? {}
-        : { maximumRequestBytes: dependencies.maximumRequestBytes },
-    ),
-  );
+  app.use("*", lifecycle());
   app.use(
     "*",
     secureHeaders({
@@ -171,51 +241,46 @@ export const createApp = (dependencies: AppDependencies = {}) => {
   );
   app.use("*", runtimeConfiguration(dependencies.maximumRequestBytes));
   app.use("*", httpPolicy());
-  app.use("/v1/profile", accessMiddleware(dependencies));
-  app.use("/v1/profile", profileLimiter);
+  app.use("/v1/profiles", accessMiddleware(dependencies));
+  app.use("/v1/profiles/current", accessMiddleware(dependencies));
+  app.use("/v1/profiles", profileLimiter);
+  app.use("/v1/profiles/current", profileLimiter);
+
+  app.openAPIRegistry.registerComponent("securitySchemes", "CloudflareAccess", {
+    type: "apiKey",
+    in: "cookie",
+    name: "CF_Authorization",
+    description: "Cloudflare Access browser session cookie.",
+  });
 
   app.openapi(healthRoute, (c) => {
     const body = enterSpan("response.validate", () =>
       HealthResponseSchema.parse({ status: "healthy" }),
     );
-    return addSchemaLink(c.json(body, 200), "HealthResponse");
-  });
-
-  app.openapi(helloGetRoute, (c) => {
-    const body = enterSpan("response.validate", () =>
-      GreetingSchema.parse({ message: "Hello, World!" }),
-    );
-    return addSchemaLink(c.json(body, 200), "Greeting");
-  });
-
-  app.openapi(helloPostRoute, (c) => {
-    const input = c.req.valid("json");
-    const body = enterSpan("response.validate", () =>
-      GreetingSchema.parse({ message: `${GREETINGS[input.language]}, ${input.name}!` }),
-    );
-    return addSchemaLink(c.json(body, 200), "Greeting");
+    return c.json(body, 200);
   });
 
   app.openapi(itemsRoute, (c) => {
     const query = c.req.valid("query");
-    if (query.cursor !== undefined && query.cursor.length > MAX_CURSOR_LENGTH) {
+    const cursor = query["page[cursor]"];
+    const category = query["filter[category]"];
+    const limit = query["page[limit]"];
+    if (cursor !== undefined && cursor.length > MAX_CURSOR_LENGTH) {
       throw new AppError({ status: 400, code: "invalid_cursor", detail: "Invalid cursor" });
     }
     const filtered =
-      query.category === undefined
-        ? ITEMS
-        : ITEMS.filter((item) => item.category === query.category);
+      category === undefined ? ITEMS : ITEMS.filter((item) => item.category === category);
 
     let result: ReturnType<typeof paginate<(typeof ITEMS)[number]>>;
     try {
       result = paginate({
         items: filtered,
-        ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
-        limit: query.limit,
+        ...(cursor === undefined ? {} : { cursor }),
+        limit,
         cursorType: "item",
         getId: (item) => item.id,
         basePath: "/v1/items",
-        ...(query.category === undefined ? {} : { category: query.category }),
+        ...(category === undefined ? {} : { category }),
       });
     } catch (error) {
       if (error instanceof InvalidCursorError) {
@@ -225,11 +290,34 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     }
 
     const body = enterSpan("response.validate", () =>
-      ItemListSchema.parse({ items: result.items, total: result.total }),
+      ItemCollectionDocumentSchema.parse({
+        jsonapi: JSON_API_OBJECT,
+        links: {
+          ...result.links,
+        },
+        data: result.items.map(itemResource),
+        meta: { total: result.total },
+      }),
     );
-    const response = c.json(body, 200);
-    if (result.linkHeader !== null) appendHeaderValue(response.headers, "Link", result.linkHeader);
-    return addSchemaLink(response, "ItemList");
+    return jsonApiResponse(c.json(body, 200));
+  });
+
+  app.openapi(itemGetRoute, (c) => {
+    const { itemId } = c.req.valid("param");
+    const item = ITEMS.find((candidate) => candidate.id === itemId);
+    if (item === undefined) {
+      throw new AppError({ status: 404, code: "not_found", detail: "Item not found" });
+    }
+    const body = enterSpan("response.validate", () =>
+      ItemDocumentSchema.parse({
+        jsonapi: JSON_API_OBJECT,
+        links: {
+          self: `/v1/items/${item.id}`,
+        },
+        data: itemResource(item),
+      }),
+    );
+    return jsonApiResponse(c.json(body, 200));
   });
 
   app.openapi(profilePostRoute, async (c) => {
@@ -238,11 +326,13 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     const auditOwner = await profileAuditOwner(c, subject);
     const service = profileService(c, dependencies);
     const profile = await enterSpan("profile.service", () =>
-      enterSpan("profile.repository", () => service.create(subject, c.req.valid("json"))),
+      enterSpan("profile.repository", () =>
+        service.create(subject, c.req.valid("json").data.attributes),
+      ),
     );
-    const body = enterSpan("response.validate", () => ProfileSchema.parse(profile));
-    const response = addSchemaLink(c.json(body, 201), "Profile");
-    response.headers.set("Location", "/v1/profile");
+    const body = enterSpan("response.validate", () => profileDocument(profile));
+    const response = jsonApiResponse(c.json(body, 201));
+    response.headers.set("Location", "/v1/profiles/current");
     console.log({
       schema_version: 1,
       event: "profile.audit",
@@ -262,19 +352,27 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     const profile = await enterSpan("profile.service", () =>
       enterSpan("profile.repository", () => service.get(subject)),
     );
-    const body = enterSpan("response.validate", () => ProfileSchema.parse(profile));
-    return addSchemaLink(c.json(body, 200), "Profile");
+    const body = enterSpan("response.validate", () => profileDocument(profile));
+    return jsonApiResponse(c.json(body, 200));
   });
 
   app.openapi(profilePatchRoute, async (c) => {
     const subject = c.get("identitySubject");
     if (subject === undefined) throw internalError();
+    const input = c.req.valid("json").data;
+    if (input.id !== subject) {
+      throw new AppError({
+        status: 409,
+        code: "resource_identity_mismatch",
+        detail: "Resource ID does not match the current profile",
+      });
+    }
     const auditOwner = await profileAuditOwner(c, subject);
     const service = profileService(c, dependencies);
     const profile = await enterSpan("profile.service", () =>
-      enterSpan("profile.repository", () => service.update(subject, c.req.valid("json"))),
+      enterSpan("profile.repository", () => service.update(subject, input.attributes ?? {})),
     );
-    const body = enterSpan("response.validate", () => ProfileSchema.parse(profile));
+    const body = enterSpan("response.validate", () => profileDocument(profile));
     console.log({
       schema_version: 1,
       event: "profile.audit",
@@ -284,7 +382,7 @@ export const createApp = (dependencies: AppDependencies = {}) => {
       request_id: c.get("requestId"),
       ...(auditOwner === undefined ? {} : { owner: auditOwner }),
     });
-    return addSchemaLink(c.json(body, 200), "Profile");
+    return jsonApiResponse(c.json(body, 200));
   });
 
   app.openapi(profileDeleteRoute, async (c) => {
@@ -307,40 +405,35 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     return c.body(null, 204);
   });
 
-  app.get("/openapi.json", (c) => {
-    const config = c.get("runtimeConfig");
-    const document = getDeploymentOpenApiDocument({
-      deploymentProfile: config.deploymentProfile,
-      managedOauthEnabled: config.managedOauthEnabled,
-      rateLimitMode:
-        config.rateLimitMode === "workers-binding+waf" ? "workers-binding+waf" : "workers-binding",
-    });
-    return c.json(document);
+  const openApiDocument = app.getOpenAPI31Document({
+    openapi: "3.1.0",
+    info: {
+      title: "Hono Playground",
+      version: "0.1.0",
+      description: "Cloudflare Workers REST API using Hono, Alchemy, Drizzle, and JSON:API.",
+    },
+    servers: [{ url: "/" }],
   });
 
-  app.get("/schemas/:schemaName", (c) => {
-    const pathname = new URL(c.req.url).pathname;
-    const rawName = pathname.slice("/schemas/".length).replace(/\.json$/, "");
-    if (!/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(rawName)) {
-      throw new AppError({ status: 404, code: "schema_not_found", detail: "Schema not found" });
-    }
-    const schema = STANDALONE_SCHEMA_REGISTRY.get(rawName as never);
-    if (schema === undefined) {
-      throw new AppError({ status: 404, code: "schema_not_found", detail: "Schema not found" });
-    }
-    const response = c.json(schema, 200);
-    response.headers.set("Content-Type", "application/schema+json");
-    return addSchemaLink(response, rawName);
-  });
-
-  app.get("/api-docs", (c) => c.html(docsHtml()));
+  app.get("/openapi.json", (c) => c.json(openApiDocument));
+  app.get(
+    "/api-docs",
+    swaggerUI({
+      url: "/openapi.json",
+      title: "Hono Playground API",
+      version: "5.32.11",
+      supportedSubmitMethods: [],
+      validatorUrl: "none",
+    }),
+  );
 
   app.notFound((c) => {
     c.set("outcome", "not_found");
-    return problemResponse(
-      new AppError({ status: 404, code: "not_found", detail: "Not Found" }),
-      c.req.method,
-    );
+    const error = new AppError({ status: 404, code: "not_found", detail: "Not Found" });
+    const pathname = new URL(c.req.url).pathname;
+    return pathname === "/v1" || pathname.startsWith("/v1/")
+      ? jsonApiErrorResponse(error, c.req.method)
+      : problemResponse(error, c.req.method);
   });
 
   app.onError((error, c) => {
@@ -348,11 +441,7 @@ export const createApp = (dependencies: AppDependencies = {}) => {
       error instanceof AppError
         ? error
         : error instanceof HTTPException && error.message === "Malformed JSON in request body"
-          ? zodValidationError({
-              issues: [
-                { code: "custom", path: [], message: "Invalid JSON body", input: undefined },
-              ],
-            } as never)
+          ? invalidJsonError()
           : internalError();
     c.set("outcome", normalized.code);
     if (normalized.operatorCode !== undefined) {
@@ -361,6 +450,7 @@ export const createApp = (dependencies: AppDependencies = {}) => {
         event: "operator.error",
         level: "error",
         code: normalized.operatorCode,
+        request_id: c.get("requestId"),
       });
     } else if (normalized.status >= 500) {
       console.error({
@@ -368,9 +458,14 @@ export const createApp = (dependencies: AppDependencies = {}) => {
         event: "operator.error",
         level: "error",
         code: "unhandled_exception",
+        request_id: c.get("requestId"),
       });
     }
-    return problemResponse(normalized, c.req.method);
+    const pathname = new URL(c.req.url).pathname;
+    const metadata = resolveRoute(pathname, c.req.method).metadata;
+    return isJsonApiRoute(metadata) || pathname === "/v1" || pathname.startsWith("/v1/")
+      ? jsonApiErrorResponse(normalized, c.req.method)
+      : problemResponse(normalized, c.req.method);
   });
 
   return app;

@@ -3,103 +3,31 @@ import { describe, expect, it } from "vitest";
 import {
   APPLICATION_ERROR_CATALOG,
   AppError,
+  jsonApiErrorResponse,
   problemResponse,
   validationError,
 } from "../../src/core/errors.js";
+import { MAX_VALIDATION_ERRORS } from "../../src/models/error.js";
 
 describe("application error catalog", () => {
-  it("freezes the literal status, title, and safe-detail contract", () => {
-    expect(
-      Object.fromEntries(
-        Object.entries(APPLICATION_ERROR_CATALOG).map(([code, entry]) => [
-          code,
-          { status: entry.status, title: entry.title, safeDetails: entry.safeDetails },
-        ]),
-      ),
-    ).toEqual({
-      invalid_cursor: { status: 400, title: "Bad Request", safeDetails: ["Invalid cursor"] },
-      not_authenticated: {
-        status: 401,
-        title: "Unauthorized",
-        safeDetails: ["Not authenticated"],
-      },
-      origin_not_allowed: {
-        status: 403,
-        title: "Forbidden",
-        safeDetails: ["Origin not allowed"],
-      },
-      not_found: {
-        status: 404,
-        title: "Not Found",
-        safeDetails: ["Not Found", "Profile not found"],
-      },
-      schema_not_found: {
-        status: 404,
-        title: "Not Found",
-        safeDetails: ["Schema not found"],
-      },
-      method_not_allowed: {
-        status: 405,
-        title: "Method Not Allowed",
-        safeDetails: ["Method Not Allowed"],
-      },
-      not_acceptable: {
-        status: 406,
-        title: "Not Acceptable",
-        safeDetails: [
-          "Supported response formats: application/json",
-          "Supported response formats: application/schema+json",
-          "Supported response formats: text/html",
-        ],
-      },
-      profile_conflict: {
-        status: 409,
-        title: "Conflict",
-        safeDetails: ["Profile already exists"],
-      },
-      payload_too_large: {
-        status: 413,
-        title: "Payload Too Large",
-        safeDetails: ["Request body too large"],
-      },
-      unsupported_media_type: {
-        status: 415,
-        title: "Unsupported Media Type",
-        safeDetails: ["Only identity-encoded application/json is supported"],
-      },
-      validation_failed: {
-        status: 422,
-        title: "Unprocessable Entity",
-        safeDetails: ["validation failed"],
-      },
-      rate_limited: {
-        status: 429,
-        title: "Too Many Requests",
-        safeDetails: ["Rate limit exceeded"],
-      },
-      rate_limiter_unavailable: {
-        status: 503,
-        title: "Service Unavailable",
-        safeDetails: ["Rate limiter unavailable"],
-      },
-      internal_error: {
-        status: 500,
-        title: "Internal Server Error",
-        safeDetails: ["Internal Server Error"],
-      },
-      jwks_unavailable: {
-        status: 503,
-        title: "Service Unavailable",
-        safeDetails: ["Authentication service unavailable"],
-      },
-      database_unavailable: {
-        status: 503,
-        title: "Service Unavailable",
-        safeDetails: ["Database temporarily unavailable"],
-      },
+  it("freezes status, title, and safe-detail contracts", () => {
+    expect(APPLICATION_ERROR_CATALOG.invalid_query_parameter).toMatchObject({
+      status: 400,
+      title: "Bad Request",
+      safeDetails: ["Invalid query parameter"],
+    });
+    expect(APPLICATION_ERROR_CATALOG.client_generated_id_unsupported.status).toBe(403);
+    expect(APPLICATION_ERROR_CATALOG.method_not_allowed.status).toBe(405);
+    expect(APPLICATION_ERROR_CATALOG.resource_type_mismatch.status).toBe(409);
+    expect(APPLICATION_ERROR_CATALOG.resource_identity_mismatch.status).toBe(409);
+    expect(APPLICATION_ERROR_CATALOG.validation_failed).toMatchObject({
+      status: 422,
+      title: "Unprocessable Content",
+      safeDetails: ["Request document validation failed"],
     });
     expect(Object.isFrozen(APPLICATION_ERROR_CATALOG)).toBe(true);
-    for (const entry of Object.values(APPLICATION_ERROR_CATALOG)) {
+    for (const [code, entry] of Object.entries(APPLICATION_ERROR_CATALOG)) {
+      expect(code).toMatch(/^[a-z][a-z0-9_]*$/u);
       expect(Object.isFrozen(entry)).toBe(true);
       expect(Object.isFrozen(entry.safeDetails)).toBe(true);
     }
@@ -118,17 +46,28 @@ describe("application error catalog", () => {
           status: 404,
           code: "not_found",
           detail: "Not Found",
-          errors: [{ location: "private", message: "private" }],
+          errors: [{ detail: "private" }],
         }),
-    ).toThrow("Only validation errors");
+    ).toThrow("must not include normalized issues");
     expect(
       () =>
         new AppError({
           status: 422,
           code: "validation_failed",
-          detail: "validation failed",
+          detail: "Request document validation failed",
         }),
     ).toThrow("at least one normalized issue");
+    expect(
+      () =>
+        new AppError({
+          status: 422,
+          code: "validation_failed",
+          detail: "Request document validation failed",
+          errors: Array.from({ length: MAX_VALIDATION_ERRORS + 1 }, () => ({
+            detail: "Invalid value",
+          })),
+        }),
+    ).toThrow(`must not exceed ${MAX_VALIDATION_ERRORS} issues`);
     expect(
       () =>
         new AppError({
@@ -148,7 +87,7 @@ describe("application error catalog", () => {
     ).toThrow("non-empty Allow");
   });
 
-  it("composes fixed authentication and retry headers centrally", async () => {
+  it("composes fixed authentication and retry headers centrally", () => {
     const unauthorized = new AppError({
       status: 401,
       code: "not_authenticated",
@@ -169,13 +108,41 @@ describe("application error catalog", () => {
     expect(unauthorized.headers.get("WWW-Authenticate")).toBe('Bearer realm="Cloudflare Access"');
     expect(limited.headers.get("Retry-After")).toBe("60");
     expect(unavailable.headers.get("Retry-After")).toBe("1");
-    expect(
-      await problemResponse(validationError([{ location: "body", message: "Invalid" }])).json(),
-    ).toEqual({
-      title: "Unprocessable Entity",
-      status: 422,
-      detail: "validation failed",
-      errors: [{ location: "body", message: "Invalid" }],
+  });
+
+  it("serializes operational errors as RFC 9457 and resource errors as JSON:API", async () => {
+    const operational = problemResponse(
+      new AppError({ status: 404, code: "not_found", detail: "Not Found" }),
+    );
+    expect(operational.headers.get("Content-Type")).toBe("application/problem+json");
+    await expect(operational.json()).resolves.toEqual({
+      type: "about:blank",
+      title: "Not Found",
+      status: 404,
+      detail: "Not Found",
+      code: "not_found",
+    });
+
+    const resource = jsonApiErrorResponse(
+      validationError([
+        {
+          detail: "Invalid value",
+          source: { pointer: "/data/attributes/firstName" },
+        },
+      ]),
+    );
+    expect(resource.headers.get("Content-Type")).toBe("application/vnd.api+json");
+    await expect(resource.json()).resolves.toEqual({
+      jsonapi: { version: "1.1" },
+      errors: [
+        {
+          status: "422",
+          code: "validation_failed",
+          title: "Unprocessable Content",
+          detail: "Invalid value",
+          source: { pointer: "/data/attributes/firstName" },
+        },
+      ],
     });
   });
 });

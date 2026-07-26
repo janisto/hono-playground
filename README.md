@@ -1,131 +1,170 @@
 # Hono Playground
 
-A deliberately small REST API built with Hono for the Cloudflare Workers runtime. It uses Cloudflare D1 for one profile per verified Cloudflare Access identity, Workers Static Assets for pinned same-origin Swagger UI files, Workers Rate Limiting bindings, and native Workers logs/traces.
+A greenfield Cloudflare Workers API demonstrating a small, current stack:
+Hono, Alchemy, Drizzle, D1, and JSON:API 1.1.
 
-This is a best-effort synthetic-data playground. It is not an SLA-backed service, a compliance or consent system, or a place for real personal data. Local implementation through Phase 7 is the current scope. No Worker, D1 database, Access application, hostname, WAF rule, production secret, saved query, or live observability state has been provisioned or verified; those are explicit Phase 8 release-owner steps in [docs/cloudflare-production.md](docs/cloudflare-production.md).
+The repository has not been deployed. No Worker, D1 database, Cloudflare
+Access application, secret, or live observability configuration has been
+verified.
 
-## Contract
+## Stack
 
-The API preserves the application behavior pinned from `fastapi-playground` commit `fe23a9c108e2ee4f80435468778c38762f655762`, adapted to a Cloudflare-only runtime and JSON-only initial release.
+- Hono `4.12.32` routes requests and generates OpenAPI 3.1.
+- Alchemy `2.0.0-beta.64` owns Worker development, infrastructure, bindings,
+  secrets, state, and deployment.
+- Drizzle ORM and Drizzle Kit `1.0.0-rc.4` own database access and migration
+  generation.
+- Effect `4.0.0-beta.101` is limited to the Alchemy program.
+- Cloudflare D1 persists profiles; Cloudflare Access authenticates profile
+  owners.
 
-| Method | Path | Operation ID | Application behavior |
-| --- | --- | --- | --- |
-| `GET` | `/health` | `health_get` | Worker health; does not query D1 |
-| `GET` | `/v1/hello` | `hello_get` | Default greeting |
-| `POST` | `/v1/hello` | `hello_create` | Strict localized greeting input |
-| `GET` | `/v1/items` | `items_list` | Exact 30-item fixture and cursor pagination |
-| `POST` | `/v1/profile` | `profile_create` | Create the verified identity's profile |
-| `GET` | `/v1/profile` | `profile_get` | Read the verified identity's profile |
-| `PATCH` | `/v1/profile` | `profile_update` | Update allowlisted fields, last write wins |
-| `DELETE` | `/v1/profile` | `profile_delete` | Delete the verified identity's profile |
+There is no application-owned Wrangler configuration or command. Alchemy
+infers the Worker binding type from its resource graph, so the runtime type,
+declared bindings, and deployment definition stay together. Values loaded
+through Effect Config become `secret_text` bindings in the same Worker upload
+as the code and other bindings. This removes the separate code/type/secret
+workflow, but it does not make D1 migrations or external Access policy atomic
+with a Worker upload.
 
-Supporting routes are `/openapi.json`, `/api-docs`, and the hidden `/schemas/{schemaName}` and `/schemas/{schemaName}.json` forms. Trailing slashes do not redirect. Unsupported methods on a known resource return an RFC 9457 Problem with the complete `Allow` header; `HEAD` is deliberately rejected and has no wire body. CORS is disabled, so `OPTIONS` follows the same method policy.
+## API
 
-Successful API representations are JSON. Problems use `application/problem+json`; standalone schemas use `application/schema+json`. CBOR and ReDoc are intentionally deferred. Requests use a one-megabyte application limit, strict UTF-8 JSON, identity content encoding, and strict `Accept` selection. Incoming request IDs are kept only when they match the documented safe lexical form.
+| Method | Path | Response |
+| --- | --- | --- |
+| `GET` | `/health` | operational JSON |
+| `GET` | `/v1/items` | cursor-paginated JSON:API collection |
+| `GET` | `/v1/items/{itemId}` | JSON:API resource |
+| `POST` | `/v1/profiles` | create the Access identity's profile |
+| `GET` | `/v1/profiles/current` | read the current profile |
+| `PATCH` | `/v1/profiles/current` | update the current profile |
+| `DELETE` | `/v1/profiles/current` | empty `204` |
+| `GET` | `/openapi.json` | OpenAPI `3.1.0` |
+| `GET` | `/api-docs` | Swagger UI |
 
-Intentional compatibility differences include ASCII-only E.164 phone digits, Zod's pinned email validator and diagnostics, complete `Allow` values, consistently required Problem `detail`, stronger sensitive-value redaction, no CORS, and no unused FastAPI schema artifacts. The frozen email corpus agrees on ordinary, plus-tagged, trimmed/case-normalized, malformed, quoted-local, IP-literal, and repeated-dot samples; the pinned Pydantic validator accepts `δοκιμή@example.com`, while this pinned Zod validator deliberately rejects that Unicode local part. Percent-encoded path variants are rejected with a fixed `404` before Hono dispatch so decoded routing cannot bypass raw-path method, negotiation, origin, body, or rate-limit policy; clients must use the canonical ASCII paths in the route table.
+Resource requests and responses use `application/vnd.api+json`. Profile routes
+derive ownership from the verified Cloudflare Access `sub`; callers cannot
+choose an owner ID.
 
-## Toolchain
+Application and JSON:API fields use `camelCase`, such as `createdAt` and
+`marketingOptIn`. SQL identifiers use `snake_case`, such as `created_at` and
+`marketing_opt_in`. Drizzle v1 `snakeCase.table` declares that mapping once.
+See [AGENTS.md](AGENTS.md) for the complete repository contract.
 
-- Node 24.18 and pnpm 11.15 through Corepack
-- TypeScript 5.9 in strict mode
-- Biome 2.5 for formatting and linting
-- Hono 4, Zod 4, and `@hono/zod-openapi`
-- Wrangler 4 and the Cloudflare Vitest/workerd pool
+Swagger UI is provided by the official Hono middleware and loads the exact
+`swagger-ui-dist@5.32.11` assets from jsDelivr. That avoids a generated asset
+pipeline, but makes the documentation UI depend on that CDN. The OpenAPI JSON
+endpoint itself has no CDN dependency, and “Try it out” plus the online
+validator are disabled.
 
-TypeScript 7 is intentionally deferred. A forced local probe with TypeScript 7.0.2 showed that the pinned `openapi-typescript` 7.13 generator still uses the removed TypeScript 5 compiler-factory API and crashes. Revisit the upgrade when the whole generator/test dependency path declares and proves support; do not use peer overrides in production tooling.
+## Setup
 
-## Local setup
+Use the pinned Node 24 and pnpm 11 toolchain:
 
 ```sh
 corepack enable
 pnpm install --frozen-lockfile
-cp .dev.vars.example .dev.vars
+cp .env.example .env
 ```
 
-Replace the two example values in `.dev.vars` with distinct lowercase 64-hex values generated by `openssl rand -hex 32`. The Worker decodes each value to exactly 32 key bytes and rejects malformed or obviously repeated placeholders. Do not commit `.dev.vars`. Production values are separate secrets set with `wrangler secret put`; the same key must never be reused for rate-limit and audit pseudonyms.
-
-Apply and inspect the local D1 migration explicitly:
+Populate `.env` with the three Cloudflare rate-limit namespace IDs, the exact
+Access team domain and audience, and two distinct HMAC keys. Generate each key
+independently:
 
 ```sh
-pnpm db:migrations:list:local
-pnpm db:migrations:apply:local
+openssl rand -hex 32
+```
+
+Never commit `.env` or reuse one key for both purposes.
+
+Start the Alchemy development loop:
+
+```sh
 pnpm dev
 ```
 
-`pnpm dev` serves application-public routes and local resources. It deliberately has no development identity header or Access bypass. Exercise profile CRUD through the workerd tests with an injected verifier; manual profile use belongs on an Access-protected deployed route with an ephemeral human login. Never save an Access JWT, cookie, or Playwright storage state.
+This is not a cloud-free emulator. In the pinned Alchemy beta, the Worker runs
+locally in workerd while D1 and several other bindings resolve to real,
+stage-isolated Cloudflare resources. Development therefore requires
+Cloudflare authentication and can create remote state. Use the Vitest and
+Playwright suites for secretless local validation.
 
-Useful local endpoints after startup:
+## Database migrations
 
-```text
-http://127.0.0.1:8787/health
-http://127.0.0.1:8787/v1/items?limit=5
-http://127.0.0.1:8787/openapi.json
-http://127.0.0.1:8787/api-docs
+[src/db/schema.ts](src/db/schema.ts) is the code schema.
+[drizzle/](drizzle/) contains reviewed SQL migrations and snapshots.
+
+For every schema change:
+
+```sh
+pnpm db:generate
+pnpm db:check
 ```
 
-The Swagger page loads content-hashed files only from `/docs-assets/`, disables manual authorization input, and relies on an existing same-origin Access browser session for protected operations. Asset-first responses carry the same applicable security boundary, including the short `max-age=300` HSTS policy; browsers ignore HSTS received over local HTTP.
-The pinned Swagger renderer still writes element-level style attributes, so its CSP permits only `style-src-attr 'unsafe-inline'`; scripts and stylesheet elements remain same-origin without broad `style-src 'unsafe-inline'`. The Chromium gate records any CSP violation or cross-origin request.
+Review and commit both generated files. Never edit or remove a migration that
+may have been applied; add a forward migration. Deployment does not generate
+migrations. Alchemy's D1 resource applies only the committed SQL under
+`drizzle/` before the Worker that depends on that database is uploaded.
+
+That ordering is not a distributed transaction. A successful D1 migration
+remains applied if a later Worker upload fails, so code and migrations must be
+designed for that partial-failure boundary.
 
 ## Validation
 
 ```sh
-pnpm exec playwright install chromium
 pnpm test:unit
 pnpm test:integration
 pnpm test:d1
-pnpm test:contract
-pnpm test:e2e
 pnpm coverage
+pnpm test:e2e
 pnpm qa
-pnpm audit:prod
-pnpm audit:all
+pnpm audit
 ```
 
-`pnpm qa` checks generated docs/OpenAPI artifacts and license inventory, runs Biome and strict Worker/tooling TypeScript checks, verifies generated Wrangler bindings, runs the workerd/D1 suite with instrumented Istanbul coverage, validates `wrangler.jsonc`, and performs a deployment dry run. Istanbul is intentional because the Cloudflare Workers Vitest pool cannot expose native V8 coverage. The Worker source is checked separately from Node-based tooling so an upstream Miniflare declaration issue does not weaken application type checking; dependency declarations in the tooling project use `skipLibCheck`, while Worker source does not.
+`pnpm qa` runs formatting/lint checks, strict TypeScript checks, Drizzle's
+migration consistency check, and coverage. CI additionally runs the
+production dependency audit and real-browser documentation smoke test.
 
-The production dependency audit is clean and enforced by QA. The full development audit currently reports `sharp` 0.34.5 through the pinned Wrangler/Miniflare toolchain because patched `sharp` 0.35 is outside their exact dependency declaration. `sharp` is not in the Worker bundle or runtime dependency graph; do not force a transitive native-library override. Track the Cloudflare toolchain update and remove this documented exception as soon as its pinned Miniflare adopts the patched line. The separately reported `js-yaml` development advisory is patched with a tested pnpm override to 4.3.0.
+The D1 tests run the committed migrations in workerd and exercise the Drizzle
+repository against the resulting database. The Playwright test bundles the
+Worker and runs it in Miniflare; it verifies that a browser can load Swagger UI
+and fetch the OpenAPI 3.1 document without application or network failures.
+Cloudflare's official Vitest pool currently brings Wrangler transitively, but
+Wrangler is not a direct dependency or an application development/deployment
+surface.
 
-CI is secretless and read-only: it installs the frozen lockfile and runs QA plus a local deploy dry run. It cannot migrate D1, deploy, or change Cloudflare control-plane state.
+## Plan and deploy
 
-`pnpm deploy:production` is an operator-only, strict-conflict deployment command. It reruns QA and a production preflight that rejects this repository's current development placeholders, local rate-limit IDs, and missing D1 ID. The two-step first-deployment/Access transition is documented in [docs/cloudflare-production.md](docs/cloudflare-production.md); do not bypass it for a production-ready release.
+```sh
+pnpm infra:plan -- --stage staging
+pnpm infra:deploy -- --stage staging
 
-After changing a Wrangler binding, variable, environment, or route, run `pnpm types` and inspect the generated binding diff before QA or deployment. The generated types deliberately freeze validated configuration literals.
+pnpm infra:plan -- --stage prod
+pnpm infra:deploy -- --stage prod
+```
 
-## Security and identity boundary
+The first Alchemy operation can bootstrap account state even when the command
+is `plan`. Confirm the Cloudflare account and stage before approving it.
+`staging` and `prod` D1 databases use a retain removal policy.
 
-Application-public routes never inspect an Access assertion. Every `/v1/profile` operation verifies Cloudflare's injected `Cf-Access-Jwt-Assertion` again with rotating remote JWKS, RS256, exact issuer/audience, required time claims, `type=app`, and a non-empty user subject. A service-token claim shape cannot own a profile. Missing or invalid tokens are application `401`; temporary JWKS failures are `503`; invalid verifier configuration is a generic `500`.
+Pinned Alchemy `2.0.0-beta.64` currently enables Worker version-preview URLs
+whenever the stable `workers.dev` URL is enabled; its
+`subdomain.previewsEnabled` input is not honored by the provider. This
+repository does not carry a custom provider to mask that beta limitation.
+Verify the live URL policy after deployment and reassess it on every Alchemy
+upgrade.
 
-The initial hostname-free topology necessarily puts whole-Worker Access in front of the assigned `workers.dev` URL, so even application-public routes require edge login there. A future custom-domain topology scopes edge Access to exactly `/v1/profile`, disables both `workers.dev` and previews, and restores genuinely public edge reachability. OpenAPI serves the matching immutable security variant. Cloudflare-generated Access, WAF, Static Asset, platform-limit, and runtime responses are outside the Worker's RFC 9457/header contract.
+Cloudflare Access application/policy creation remains external to this
+repository. Complete the checklist in
+[docs/cloudflare-production.md](docs/cloudflare-production.md) before claiming
+staging or production readiness.
 
-Unsafe profile operations with an `Origin` header require exact same-origin equality before authentication or mutation. A missing `Origin` remains valid for non-browser clients. Never enable generic CORS or Access's OPTIONS bypass without a separate exact-origin browser design.
+## Current documentation
 
-## Profile data and consistency
-
-The verified Access `sub` is the immutable D1 primary key. Clients cannot supply it. Email is trimmed/lowercased; phone numbers use ASCII E.164 digits; `terms` must be true. Create is race-safe with `ON CONFLICT(id) DO NOTHING`; D1 batches mutation plus selection. Empty PATCH reads without changing `updated_at`; concurrent PATCH is explicitly last-commit-wins.
-
-Create and delete are never automatically retried because a lost response can hide a committed write. Reconcile an uncertain `5xx` with `GET /v1/profile` before retrying or assuming state. PATCH uses at most two bounded retries only for Cloudflare's documented transient messages with identical fields and timestamp. There is no exactly-once, ETag, or idempotency-key guarantee.
-
-Production D1 must be created once with `--jurisdiction=eu`, and its jurisdiction, replication state, plan limits, identifier, migrations, and Time Travel window must be read back before accepting even synthetic data. EU D1 jurisdiction does not imply EU-only Worker, Access, or telemetry processing. Time Travel is whole-database destructive recovery, not row undo or a promised RPO/RTO.
-
-Every command capable of touching D1 remotely contains `remote` in its name. There is no `wrangler dev --remote` script. Read and approve the target and obtain a Time Travel bookmark before any remote migration or restore.
-
-## Operations and privacy
-
-Wrangler explicitly enables persisted invocation/application logs, independent full-sampling logs and traces for the initial low-volume playground, source maps, dependency instrumentation, and version metadata. The application emits one fixed-schema access event per completed Worker invocation plus a separate pseudonymous audit event after successful profile mutations. Fixed-name spans cover Access verification, profile service/repository work, and response validation.
-
-Application events never contain request/response bodies, profile fields, raw subjects, cookies, tokens, Access headers, raw/normalized paths, SQL, bound values, or exception messages. Cloudflare invocation logs may still retain platform-selected URL metadata, so credentials and personal data must never appear in a URL or deployed marker test. Logs/traces are operational signals, not a durable audit ledger. Measure event volume, plan retention, and cost before traffic; reduce trace sampling first when full sampling is no longer justified.
-
-The detailed non-secret state manifest, Query Builder/Query Insights investigations, Access and audit-log readbacks, privacy boundaries, release checklist, rollback procedure, and incident runbooks are in [docs/cloudflare-production.md](docs/cloudflare-production.md). A code rollback does not roll back D1, Access, DNS/TLS, rate limits, WAF, notifications, or billing state.
-
-## Troubleshooting
-
-- `401` on a direct profile test: the Access assertion is absent/invalid; there is no local bypass.
-- `503 Authentication service unavailable`: inspect Access/JWKS reachability; retry after the advertised delay, never bypass verification.
-- `503 Database temporarily unavailable`: reconcile mutation state with `GET` before deciding whether to retry.
-- `405` for `HEAD`/`OPTIONS`: intentional contract behavior, not missing CORS middleware.
-- Swagger loads but profile calls enter Access: complete top-level same-origin Access login; never paste a token into Swagger.
-- Local schema mismatch: list/apply local migrations; do not edit an applied migration.
-- Unexpected Cloudflare failure: check active version, limits, D1/Access state, Workers metrics/logs/traces, and Cloudflare service status before changing security controls.
-
-No Firebase, Google Cloud runtime, server process, container, external database/CDN, `nodejs_compat`, or unneeded Cloudflare storage/observability service is used.
+- [Alchemy Workers](https://alchemy.run/cloudflare/workers/workers/)
+- [Alchemy secrets and environment bindings](https://alchemy.run/cloudflare/security/secrets-env/)
+- [Alchemy D1](https://alchemy.run/cloudflare/data/d1/)
+- [Drizzle Kit migrations](https://orm.drizzle.team/docs/migrations)
+- [Drizzle Kit generate](https://orm.drizzle.team/docs/drizzle-kit-generate)
+- [Hono OpenAPI](https://hono.dev/examples/zod-openapi)
+- [Hono Swagger UI](https://hono.dev/examples/swagger-ui)
+- [JSON:API 1.1](https://jsonapi.org/format/)

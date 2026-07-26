@@ -1,5 +1,5 @@
 import { decodeCursor, encodeCursor, InvalidCursorError } from "./cursor.js";
-import { buildLinkHeader } from "./link.js";
+import { buildPaginationLinks, type PaginationLinks } from "./link.js";
 
 export interface PaginateOptions<T> {
   readonly items: readonly T[];
@@ -14,13 +14,9 @@ export interface PaginateOptions<T> {
 export interface PaginationResult<T> {
   readonly items: readonly T[];
   readonly total: number;
-  readonly linkHeader: string | null;
+  readonly links: PaginationLinks;
   readonly nextCursor: string | null;
   readonly prevCursor: string | null;
-}
-
-export function getLastQueryValue(searchParams: URLSearchParams, name: string): string | undefined {
-  return searchParams.getAll(name).at(-1);
 }
 
 export function paginate<T>(options: PaginateOptions<T>): PaginationResult<T> {
@@ -30,7 +26,7 @@ export function paginate<T>(options: PaginateOptions<T>): PaginationResult<T> {
   }
 
   let startIndex = 0;
-  if (cursor) {
+  if (cursor !== undefined && cursor !== null) {
     const decoded = decodeCursor(cursor);
     if (decoded.cursorType !== cursorType) {
       throw new InvalidCursorError(`invalid cursor type: expected '${cursorType}'`);
@@ -68,9 +64,12 @@ export function paginate<T>(options: PaginateOptions<T>): PaginationResult<T> {
     }
   }
 
-  const linkHeader = buildLinkHeader(
+  const links = buildPaginationLinks(
     basePath,
-    category === undefined ? { limit: String(limit) } : { category, limit: String(limit) },
+    category === undefined
+      ? { pageLimit: String(limit) }
+      : { filterCategory: category, pageLimit: String(limit) },
+    cursor ?? null,
     nextCursor,
     prevCursor,
   );
@@ -78,7 +77,7 @@ export function paginate<T>(options: PaginateOptions<T>): PaginationResult<T> {
   return {
     items: pageItems,
     total: items.length,
-    linkHeader: linkHeader || null,
+    links,
     nextCursor,
     prevCursor,
   };

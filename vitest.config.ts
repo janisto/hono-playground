@@ -1,17 +1,60 @@
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
 
+import { COMPATIBILITY_DATE, RATE_LIMITS } from "./infra/config.js";
+
+const readDrizzleMigrations = async () => {
+  const root = path.join(import.meta.dirname, "drizzle");
+  const entries = await readdir(root, { withFileTypes: true });
+  const directories = entries
+    .filter((entry) => entry.isDirectory() && /^[0-9]+_/u.test(entry.name))
+    .map((entry) => entry.name)
+    .sort();
+
+  const migrations = await Promise.all(
+    directories.map(async (directory) => {
+      const nested = await readD1Migrations(path.join(root, directory));
+      return nested.map((migration) => ({
+        ...migration,
+        name: `${directory}/${migration.name}`,
+      }));
+    }),
+  );
+  return migrations.flat();
+};
+
 export default defineConfig({
   plugins: [
     cloudflareTest(async () => ({
-      wrangler: { configPath: "./wrangler.jsonc" },
+      main: "./src/index.ts",
       miniflare: {
+        compatibilityDate: COMPATIBILITY_DATE,
+        d1Databases: ["DB"],
+        versionMetadata: "CF_VERSION_METADATA",
+        ratelimits: {
+          PUBLIC_RATE_LIMITER: {
+            namespace_id: "test-public",
+            simple: RATE_LIMITS.public,
+          },
+          PROFILE_READ_RATE_LIMITER: {
+            namespace_id: "test-profile-read",
+            simple: RATE_LIMITS.profileRead,
+          },
+          PROFILE_WRITE_RATE_LIMITER: {
+            namespace_id: "test-profile-write",
+            simple: RATE_LIMITS.profileWrite,
+          },
+        },
         bindings: {
-          TEST_MIGRATIONS: await readD1Migrations(path.join(import.meta.dirname, "migrations")),
+          TEST_MIGRATIONS: await readDrizzleMigrations(),
           ENVIRONMENT: "test",
-          LOG_LEVEL: "error",
+          MAX_REQUEST_SIZE_BYTES: 1_000_000,
+          RATE_LIMIT_MODE: "workers-binding",
+          ACCESS_TEAM_DOMAIN: "test.cloudflareaccess.com",
+          ACCESS_AUD: "test-audience",
           RATE_LIMIT_KEY_HMAC_KEY:
             "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
           AUDIT_SUBJECT_HMAC_KEY:
@@ -29,10 +72,10 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       reporter: ["text", "json-summary", "html"],
       thresholds: {
-        branches: 75,
-        functions: 75,
-        lines: 75,
-        statements: 75,
+        branches: 85,
+        functions: 90,
+        lines: 90,
+        statements: 90,
       },
     },
   },

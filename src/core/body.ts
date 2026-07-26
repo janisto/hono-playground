@@ -1,30 +1,31 @@
-import { AppError, validationError } from "./errors.js";
+import { JSON_API_MEDIA_TYPE } from "../models/json-api.js";
+import { isSupportedJsonApiContentType } from "./content-negotiation.js";
+import { AppError, invalidJsonError } from "./errors.js";
 
-export const precheckJsonBody = async (request: Request, maximumBytes: number): Promise<void> => {
+const unsupportedRepresentation = (detail: string): AppError =>
+  new AppError({
+    status: 415,
+    code: "unsupported_media_type",
+    detail,
+  });
+
+export const precheckJsonApiBody = async (
+  request: Request,
+  maximumBytes: number,
+): Promise<void> => {
   const encoding = request.headers.get("Content-Encoding");
   if (encoding !== null && encoding.trim().toLowerCase() !== "identity") {
-    throw new AppError({
-      status: 415,
-      code: "unsupported_media_type",
-      detail: "Only identity-encoded application/json is supported",
-    });
+    throw unsupportedRepresentation("Only identity-encoded JSON:API documents are supported");
   }
 
-  const contentType = request.headers.get("Content-Type");
-  if (contentType === null) {
-    throw validationError([{ location: "body", message: "JSON body is required" }]);
-  }
-  const baseType = contentType.split(";", 1)[0]?.trim().toLowerCase();
-  if (baseType !== "application/json") {
-    throw new AppError({
-      status: 415,
-      code: "unsupported_media_type",
-      detail: "Only identity-encoded application/json is supported",
-    });
+  if (!isSupportedJsonApiContentType(request.headers.get("Content-Type"))) {
+    throw unsupportedRepresentation(
+      `Content-Type must be ${JSON_API_MEDIA_TYPE} without unsupported extensions`,
+    );
   }
 
   const declaredLength = request.headers.get("Content-Length");
-  if (declaredLength !== null && /^\d+$/.test(declaredLength)) {
+  if (declaredLength !== null && /^\d+$/u.test(declaredLength)) {
     if (Number(declaredLength) > maximumBytes) {
       throw new AppError({
         status: 413,
@@ -34,9 +35,8 @@ export const precheckJsonBody = async (request: Request, maximumBytes: number): 
     }
   }
 
-  if (request.body === null) {
-    return;
-  }
+  if (request.body === null) return;
+
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -65,11 +65,6 @@ export const precheckJsonBody = async (request: Request, maximumBytes: number): 
   try {
     new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
   } catch {
-    throw new AppError({
-      status: 422,
-      code: "validation_failed",
-      detail: "validation failed",
-      errors: [{ location: "body", message: "Invalid JSON body" }],
-    });
+    throw invalidJsonError();
   }
 };

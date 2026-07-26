@@ -1,20 +1,8 @@
 import { AppError } from "./errors.js";
-import type {
-  DeploymentProfile,
-  EnvironmentName,
-  LogLevel,
-  RateLimitMode,
-  RuntimeBindings,
-  RuntimeConfig,
-} from "./types.js";
+import type { EnvironmentName, RateLimitMode, RuntimeBindings, RuntimeConfig } from "./types.js";
 
-const ENVIRONMENTS = new Set<EnvironmentName>(["development", "test", "production"]);
-const DEPLOYMENT_PROFILES = new Set<DeploymentProfile>([
-  "workers-dev-demo",
-  "custom-domain-production",
-]);
-const LOG_LEVELS = new Set<LogLevel>(["debug", "info", "warn", "error"]);
-const RATE_LIMIT_MODES = new Set<RateLimitMode>(["none", "workers-binding", "workers-binding+waf"]);
+const ENVIRONMENTS = new Set<EnvironmentName>(["development", "staging", "test", "production"]);
+const RATE_LIMIT_MODES = new Set<RateLimitMode>(["none", "workers-binding"]);
 const HMAC_SECRET_SHAPE = /^[0-9a-f]{64}$/u;
 const REPEATED_SECRET_CHUNK = /^(.{1,32})\1+$/u;
 
@@ -31,39 +19,24 @@ const oneOf = <T extends string>(value: string | undefined, allowed: Set<T>): T 
   return value as T;
 };
 
-const booleanValue = (value: string | undefined): boolean => {
-  if (value === "true") return true;
-  if (value === "false") return false;
-  throw configurationError();
-};
-
 export const parseRuntimeConfig = (
   bindings: RuntimeBindings,
   maximumRequestBytesOverride?: number,
 ): RuntimeConfig => {
   const environment = oneOf(bindings.ENVIRONMENT, ENVIRONMENTS);
-  const deploymentProfile = oneOf(bindings.DEPLOYMENT_PROFILE, DEPLOYMENT_PROFILES);
-  const logLevel = oneOf(bindings.LOG_LEVEL ?? "info", LOG_LEVELS);
   const rateLimitMode = oneOf(bindings.RATE_LIMIT_MODE, RATE_LIMIT_MODES);
-  const maximumRaw =
-    maximumRequestBytesOverride ?? Number(bindings.MAX_REQUEST_SIZE_BYTES ?? 1_000_000);
+  const maximumRaw = maximumRequestBytesOverride ?? bindings.MAX_REQUEST_SIZE_BYTES ?? 1_000_000;
+  const productionLike = environment === "staging" || environment === "production";
 
   if (!Number.isSafeInteger(maximumRaw) || maximumRaw < 1 || maximumRaw > 10_000_000) {
     throw configurationError();
   }
-  if (environment === "production" && maximumRaw !== 1_000_000) throw configurationError();
-  if (environment === "production" && logLevel === "debug") throw configurationError();
-  if (environment === "production" && rateLimitMode === "none") throw configurationError();
-  if (deploymentProfile === "workers-dev-demo" && rateLimitMode === "workers-binding+waf") {
-    throw configurationError();
-  }
+  if (productionLike && maximumRaw !== 1_000_000) throw configurationError();
+  if (productionLike && rateLimitMode === "none") throw configurationError();
 
   return {
     environment,
-    deploymentProfile,
-    logLevel,
     maximumRequestBytes: maximumRaw,
-    managedOauthEnabled: booleanValue(bindings.MANAGED_OAUTH_ENABLED ?? "false"),
     rateLimitMode,
   };
 };

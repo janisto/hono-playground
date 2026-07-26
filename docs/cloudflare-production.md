@@ -1,303 +1,212 @@
-# Cloudflare production state and operations
+# Cloudflare deployment runbook
 
-This file is the non-secret manifest and manual runbook for Cloudflare state that is not fully
-versioned with the Worker. It is deliberately honest about the current state: **Phase 7 is local
-only; no Worker, D1 database, Access application, route, WAF rule, saved query, notification, or
-production secret has been provisioned or verified.**
+This repository has not been deployed. Every live-state item below is pending
+until it has been read back from Cloudflare after a successful apply.
 
-Update this file from live readback during Phase 8. Never add account recovery data, policy-member
-email addresses, tokens, cookies, JWTs, secret values, private incident contacts, or actor email/IP
-fields from audit records.
+## Failure boundary
 
-## Ownership and change safety
+What breaks if deployment fails?
 
-- Owner role: the designated release owner with least-privilege Cloudflare access and account 2FA.
-- Private contact: stored in the team's private incident/contact system, not this repository.
-- Last repository-only verification: 2026-07-22.
-- Last live verification: not performed; deployment state is not provisioned.
-- Change rule: read current state first, name the account/resource/change window, and stop concurrent
-  deployment or migration work. Remote writes and destructive recovery require explicit release-owner
-  approval.
-- Separation rule: Worker deployment never applies D1 migrations. CI has no Cloudflare credentials and
-  runs only QA plus `wrangler deploy --dry-run`.
+- A D1 migration can commit before the Worker upload fails.
+- A correct source revision can be deployed with the wrong stage or account.
+- A Worker can be healthy while its external Access policy protects the wrong
+  hostname or audience.
+- A source rollback cannot reverse D1 or recover an older secret value.
 
-What breaks if this manifest is wrong? An operator can deploy to the wrong account, route around Access,
-apply a migration to the wrong D1 database, or roll back code while leaving the actual incident active
-in D1, Access, DNS/TLS, WAF, rate limiting, notifications, or billing state. Treat live readback as
-authoritative.
+Alchemy gives the repository one desired resource graph and one Worker upload
+containing code, bindings, and secrets. Cloudflare's D1, Worker, Access, and
+account APIs do not form a whole-stack transaction. Always verify observed
+live state after an apply.
 
-## External-state manifest
+## Intended state
 
-Replace `Not provisioned` only with values copied from authenticated live readback. Dates use ISO 8601.
+| Resource | Intended configuration | Current status |
+| --- | --- | --- |
+| Stack | `HonoPlayground`, explicit stage | not created |
+| Worker | `hono-playground-<stage>` | not created |
+| Runtime | compatibility date `2026-07-25` | config only |
+| D1 | `hono-playground-db-<stage>`, EU jurisdiction, replication disabled | not created |
+| Migration ledger | `drizzle_migrations` | not created |
+| Rate limiting | public 300/min, profile reads 120/min, profile writes 30/min | config only |
+| Secrets | distinct rate-limit and audit HMAC bindings | not uploaded |
+| Observability | persisted logs/traces and version metadata | config only |
+| Access | exact production Worker hostname and reviewed allow policy | external, not created |
+| Alchemy state | Cloudflare-backed state | not bootstrapped |
 
-| Resource/state | Intended value | Live identifier/readback | Owner | Last verified |
-| --- | --- | --- | --- | --- |
-| Cloudflare account and plans | Workers Free, D1 Free, current Access entitlement for the first synthetic playground | Not provisioned | Release owner | Not verified |
-| Worker | `hono-playground`; `workers-dev-demo`; `workers_dev: true`; previews disabled | Not provisioned | Release owner | Not verified |
-| Active Worker version | Exact tested revision, version ID, deployment ID, bundle/startup size, and compatibility date `2026-07-22` | Not provisioned | Release owner | Not verified |
-| Production URL/route | Assigned `workers.dev` URL initially; no custom route | Not provisioned | Release owner | Not verified |
-| D1 | `hono-playground`, EU jurisdiction, binding `DB`, read replication disabled, migrations from `./migrations` | Not provisioned | Release owner | Not verified |
-| D1 recovery | Active plan's Time Travel window and pre-change bookmark recorded before every risky migration | Not provisioned | Release owner | Not verified |
-| Access application | Whole assigned `workers.dev` Worker initially; Cloudflare IdP restricted to account members; one exact-owner Allow policy; eight-hour session | Not provisioned | Release owner | Not verified |
-| Access verifier | Exact team domain, application ID, audience, and Managed OAuth state; member identity stays private | Not provisioned | Release owner | Not verified |
-| Rate-limit namespaces | Three reviewed positive-integer namespace IDs, unique in the account, for public 300/minute, profile read 120/minute, profile write 30/minute | `1001`/`1002`/`1003` are reserved local-only Phase 7 values | Release owner | Not verified |
-| Worker secrets | Separate Access/audit/rate-limit material; only secret names and rotation date may be recorded | Not provisioned | Release owner | Not verified |
-| Workers observability | Persisted logs, invocation logs, traces, and independent log/trace sampling all enabled; source maps uploaded | Config only; live state not verified | Release owner | Not verified |
-| Query Builder | Five saved investigations listed below, including owner and dashboard query identifiers | Not provisioned | Release owner | Not verified |
-| Audit Logs v2 | Release-window review with action IDs only | Not reviewed | Release owner | Not verified |
-| D1 Audit Logs | Read back supported D1 control-plane actions; do not claim row-level coverage | Not reviewed | Release owner | Not verified |
-| Access authentication logs | Availability, fields, and retention read back from the active plan | Not reviewed | Release owner | Not verified |
-| WAF/Security Events | Not applicable to the domainless profile; conditional after custom-domain promotion | Not provisioned | Release owner | Not verified |
-| Notifications/budget | Available plan notifications, thresholds, recipients, and test date; recipients remain private | Not provisioned | Release owner | Not verified |
+Alchemy owns the Worker, D1 database, committed migration application,
+rate-limit bindings, runtime variables/secrets, compatibility settings, and
+observability. Access applications and identity policies, DNS/custom domains,
+WAF, alerts, budgets, and recovery procedures are external state.
 
-The committed namespace IDs exist only to exercise the binding locally. Cloudflare does not provision a
-separate namespace resource: before the first deployment, choose three reviewed positive-integer values
-that are unique in the account, update `wrangler.jsonc` and its reviewed literal gate together, run
-`pnpm types`, and verify the deployed bindings and allow/block behavior. Do not deploy the reserved local
-IDs as if they were reviewed production configuration.
+Staging and production D1 databases have a retain removal policy. There is no
+destroy script in this repository.
 
-## Versioned configuration and privacy boundaries
+## Required input
 
-`wrangler.jsonc` is the reviewed source for the Worker-versioned portion of the deployment. The config
-gate validates the pinned Wrangler schema and exact security-sensitive literals: no `nodejs_compat`, no
-preview URL or invented route, asset-first routing without HTML rewriting/fallback, no public `.html`
-asset, persisted logs/traces with independent sampling, invocation logs, source maps, version metadata,
-three limiter bindings, disabled Wrangler telemetry, enabled dependency instrumentation, and local-only
-D1 access.
+Copy `.env.example` to the ignored `.env` and supply:
 
-After every reviewed `wrangler.jsonc` binding, variable, environment, or route change, run `pnpm types`
-and inspect `worker-configuration.d.ts` before `pnpm qa`. The generated binding types include validated
-configuration literals, so a stale file is a real failed gate rather than a diff to ignore.
-
-The explicit choices have privacy and cost consequences:
-
-- `send_metrics: false` opts project-local Wrangler telemetry out.
-- dependency instrumentation uploads dependency names, declared ranges, and installed versions to
-  Cloudflare with the Worker. Re-review this disclosure if the repository becomes private/sensitive.
-- source maps expose mapped source to Cloudflare's error tooling; they are not public Static Assets.
-- invocation logs are platform-managed and may include URLs/metadata the application cannot redact.
-  Credentials and personal data must never be placed in URLs or query strings.
-- application logs and custom spans use fixed names and allowlisted low-cardinality fields. They never
-  contain bodies, profile fields, subject IDs, cookies, authorization material, raw paths, SQL/bind
-  values, arbitrary headers, or exception text.
-- full log and trace head sampling is only for the initial low-volume, rate-limited synthetic playground.
-  One request can create multiple trace events. Measure events/spans per route and active retention and
-  pricing; reduce trace sampling first, then log sampling, before meaningful traffic.
-- logs, traces, Query Builder, Access logs, and audit logs have different plan-dependent scopes and
-  retention. None is a durable application audit ledger or a completeness/compliance guarantee.
-- EU D1 jurisdiction covers the database, not all Worker execution, Access, or telemetry. Do not describe
-  the deployment as full EU processing/residency without a separate product/legal review.
-
-Only synthetic profiles are allowed until every boundary has live negative and privacy smoke coverage.
-
-## Local and CI gates
-
-Run from the repository root with the pinned lockfile toolchain:
-
-```sh
-pnpm install --frozen-lockfile
-node --version
-pnpm --version
-pnpm exec wrangler --version
-pnpm config:check
-pnpm licenses:check
-pnpm qa
+```text
+PUBLIC_RATE_LIMIT_NAMESPACE_ID
+PROFILE_READ_RATE_LIMIT_NAMESPACE_ID
+PROFILE_WRITE_RATE_LIMIT_NAMESPACE_ID
+ACCESS_TEAM_DOMAIN
+ACCESS_AUD
+RATE_LIMIT_KEY_HMAC_KEY
+AUDIT_SUBJECT_HMAC_KEY
 ```
 
-`pnpm qa` includes generated docs/OpenAPI freshness, formatting/linting, strict type checks, workerd/D1
-tests and coverage, Wrangler binding/config checks, and a deployment dry run. Browser and deployed
-log/trace/audit checks remain separate release gates because local workerd cannot prove Cloudflare's
-stored telemetry or identity edge.
+Before deployment:
 
-The license command inventories production dependencies using pnpm and rejects missing, unknown, or
-non-allowlisted metadata for direct and transitive production packages. It is intentionally not legal
-advice or a source-code/dev-dependency license audit. Review the full lockfile inventory, notices, and
-every high-impact dependency update; neither Dependabot nor `pnpm audit` proves safety.
+- choose three distinct positive-integer strings that do not collide with
+  another binding namespace in the target account (these bindings are not
+  visible in the Cloudflare dashboard);
+- copy the team domain and audience from the exact Access application;
+- generate the two lowercase 64-hex HMAC values independently;
+- keep Cloudflare credentials and every secret outside Git; and
+- confirm the selected account and explicit stage.
 
-`pnpm audit:prod` is currently clean and runs in QA. As of 2026-07-22, `pnpm audit:all` still reports
-the `sharp` 0.34.5/libvips advisory inherited only through the exact Wrangler/Miniflare development
-toolchain. It is absent from the Worker runtime graph and bundle. Do not force the native `sharp` 0.35
-line underneath Miniflare; update the pinned Cloudflare toolchain when it adopts the patched dependency,
-then remove this exception. A patched `js-yaml` 4.3.0 override covers the OpenAPI generator's exact
-transitive 4.2.0 pin and is exercised by generated-client checks.
+Alchemy resolves these values at deployment. Effect Config inputs become
+`secret_text` bindings in the same Worker upload as code and ordinary
+bindings. A rotation is therefore a Worker deployment. Rotating the
+rate-limit key starts new application buckets; rotating the audit key breaks
+pseudonym continuity.
 
-## Authenticated readback commands
+## Migration review
 
-These commands are read-only but target remote Cloudflare state. Confirm the active Wrangler identity,
-account, and Worker name before running them. Keep JSON output containing account metadata out of the
-repository unless a specific non-secret identifier belongs in the manifest.
+The only supported schema-change flow is:
 
 ```sh
-pnpm exec wrangler whoami
-pnpm exec wrangler deployments status --name hono-playground --json
-pnpm exec wrangler deployments list --name hono-playground --json
-pnpm exec wrangler versions list --name hono-playground --json
-pnpm exec wrangler d1 info hono-playground --json
-pnpm db:migrations:list:remote
-pnpm exec wrangler d1 insights hono-playground --time-period 1d --sort-type sum --sort-by count --limit 20 --json
-pnpm exec wrangler secret list --name hono-playground
+pnpm db:generate
+pnpm db:check
 ```
 
-Also read back in the dashboard/API:
+Review and commit every generated `migration.sql` and `snapshot.json`.
+Deployment never generates migrations. Alchemy applies pending committed SQL
+before uploading the dependent Worker.
 
-- Worker URL/routes, previews, compatibility date, bindings, dependency metadata, source maps, and active
-  version/deployment IDs;
-- nested log/trace enablement, persistence, independent sampling, event volume, active plan/retention,
-  and Workers metrics/outcomes;
-- D1 identifier, jurisdiction, replication state, storage/quota/Time Travel window, migrations, metrics,
-  and Query Insights;
-- Access application hostname/path, audience, policies, login method, session duration, Managed OAuth,
-  authentication log availability, and the absence of a preview-url Access path;
-- Audit Logs v2 action IDs around each release and D1 Audit Log entries for the supported control-plane
-  operations; and
-- custom-domain DNS/TLS/redirect/cache/transform/managed-WAF state and Security Events only after that
-  topology exists.
+Never edit a migration after it may have reached any stage. Alchemy's D1
+ledger identifies applied migrations by file name, not by a stored content
+hash. Git review and the forward-only policy are therefore the integrity
+boundary for already-applied files.
 
-Audit Logs v2 is control-plane history, not API/profile access history. D1 Audit Logs do not establish
-row access or mutation history; confirm the active product coverage instead of assuming migrations and
-normal SQL appear there. Record release action IDs only, never copied actor identity or IP fields.
+D1 migration plus ledger insertion are sent together, but the database
+migration and later Worker upload are not atomic. Use an additive/expand-first
+change when a deployed schema must coexist with old and new Worker versions.
+This repository does not preserve compatibility for unpublished API shapes;
+that does not permit unsafe changes to deployed data.
 
-## Reproducible investigations
+## First staging apply
 
-Create these Query Builder investigations from the structured event fields and record each saved query's
-dashboard identifier, owner role, and verification date in the manifest:
+1. Confirm the Cloudflare account, exact source revision, stage `staging`, and
+   absence of another apply for the same stack.
+2. Run:
 
-| Saved name | Definition and evidence goal |
-| --- | --- |
-| `worker-request-correlation` | Exact `request_id` or `cf_ray`; correlate the single application access record, invocation outcome, and trace without searching bodies/URLs. |
-| `worker-5xx-by-version` | `http.access` status 500-599 and platform failure outcomes, grouped by Worker version and stable outcome/error class. |
-| `worker-slow-routes` | High wall/CPU duration grouped only by fixed route template and operation ID; inspect version and D1 metadata. |
-| `worker-rate-limit` | Status 429 grouped by fixed public/profile-read/profile-write class and version; no actor/rate-limit key. |
-| `profile-d1-cost` | Profile operations grouped by fixed operation ID with D1 duration and rows read/written; no subject, SQL, or bound values. |
+   ```sh
+   pnpm qa
+   pnpm audit
+   pnpm test:e2e
+   pnpm infra:plan -- --stage staging
+   ```
 
-Use Real-time logs for a bounded current investigation only:
+3. Review every proposed resource, binding, secret change, and migration. The
+   first Alchemy command may bootstrap its state store; `plan` is not
+   guaranteed to be zero-write on an uninitialized account.
+4. Apply:
+
+   ```sh
+   pnpm infra:deploy -- --stage staging
+   ```
+
+5. Plan again and explain any residual change:
+
+   ```sh
+   pnpm infra:plan -- --stage staging
+   ```
+
+6. Read back the Worker name/URL/version, D1 identity/schema/ledger, binding
+   types, compatibility date, logs, traces, and rate-limit behavior.
+7. Run positive and negative HTTP smoke tests with synthetic data, then delete
+   the synthetic profile.
+
+Do not use `pnpm dev` as deployment proof. In the pinned Alchemy beta it runs
+the Worker locally but connects D1 and several bindings to real
+stage-isolated Cloudflare resources.
+
+## Access
+
+Profile routes fail closed in the Worker unless the Access assertion verifies
+with RS256, the exact issuer and audience, required time claims, `type=app`,
+and a bounded subject.
+
+Before production:
+
+1. Determine the stable production Worker hostname from staging-equivalent
+   Alchemy output.
+2. Create the self-hosted Access application and exact reviewed allow policy.
+3. Read back the hostname/path scope, audience, policy order, identity
+   providers, session duration, and unauthenticated denial.
+4. Put that exact team domain and audience into the production deployment
+   environment.
+5. Verify both an allowed identity and a denied/absent identity at the edge.
+
+Do not add an application authentication bypass, service-token profile
+ownership, or a local development identity shortcut.
+
+## Production apply
+
+Repeat the staging process with `--stage prod` from the exact approved
+revision. Freeze concurrent changes, explicitly accept the D1/Worker
+partial-failure boundary, and inspect a second plan after deployment.
+
+Pinned Alchemy `2.0.0-beta.64` currently enables version-preview URLs whenever
+the stable `workers.dev` URL is enabled. Its `subdomain.previewsEnabled` input
+is not honored by the provider, so the repository does not claim previews are
+disabled. Verify this live and reassess the provider on upgrade.
+
+After deployment verify:
+
+- Worker URL, source version, compatibility date, binding types, and secrets
+  present without reading their values;
+- D1 name, jurisdiction, replication mode, schema, migration ledger, and
+  recovery availability;
+- actual allow/block behavior for every rate-limit class;
+- Access allow and deny behavior with the exact audience;
+- `/health`, JSON:API content negotiation, `/openapi.json`, and `/api-docs`;
+- create/read/update/delete for one synthetic profile; and
+- absence of bodies, profile values, raw subjects, tokens, SQL, and bound
+  values in application-owned logs and traces.
+
+Use Alchemy for application logs and live tailing:
 
 ```sh
-pnpm tail
+pnpm infra:logs -- --stage prod
+pnpm infra:tail -- --stage prod
 ```
 
-It can sample/drop events and is not persistence. Run four separate experimental D1 Query Insights views
-for top count, average latency, reads, and writes:
+Tail output is diagnostic, not a durable audit ledger.
 
-```sh
-pnpm exec wrangler d1 insights hono-playground --time-period 1d --sort-type sum --sort-by count --limit 20 --json
-pnpm exec wrangler d1 insights hono-playground --time-period 1d --sort-type avg --sort-by time --limit 20 --json
-pnpm exec wrangler d1 insights hono-playground --time-period 1d --sort-type sum --sort-by reads --limit 20 --json
-pnpm exec wrangler d1 insights hono-playground --time-period 1d --sort-type sum --sort-by writes --limit 20 --json
-```
+## Recovery
 
-Query Insights exposes SQL shapes but not bound parameter values. Verify all shapes remain fixed/prepared
-and contain no synthetic privacy marker; never interpolate user values into SQL. Treat the command as
-experimental and re-check its pinned Wrangler help after upgrades.
+A code rollback is a new, planned Alchemy deployment from a known-good revision
+that is compatible with the current D1 schema and explicitly supplied secret
+versions. It does not reverse migrations, data, Access, DNS, or secret
+rotations.
 
-For a release smoke, send only synthetic markers and prove they are absent from every application-owned
-log field/custom-span attribute. A platform invocation log may still contain a request URL, which is why
-the marker must never be a real secret or personal value. Verify handler, Access JWKS, D1, and fixed-name
-custom spans (`access.verify`, `profile.service`, `profile.repository`, `response.validate`) in the trace
-UI without depending on Cloudflare-internal span IDs or names.
+After a partial failure:
 
-## Manual provisioning and release checklist
+1. stop concurrent applies and preserve non-secret error/plan output;
+2. read the actual Worker version, D1 schema/ledger, and Access state;
+3. choose a forward repair or compatible known-good Worker; and
+4. deploy through Alchemy, plan again, and repeat the live smoke tests.
 
-This section prepares Phase 8; running it is not part of local Phase 7. Every mutation needs an explicit
-release-owner decision and live target readback.
+Do not perform D1 Time Travel or another destructive recovery operation from
+this repository without separate approval and a current Cloudflare procedure.
 
-1. Name the account, owner, change window, active Workers/D1/Access plans, least-privilege deploy token,
-   account 2FA, and synthetic smoke identity. Freeze concurrent deployment/migration work.
-2. Run the full local/CI gates from the exact revision. Record Node, pnpm, Wrangler, revision, compatibility
-   date, dry-run bundle/startup size, and test result.
-3. Create D1 once with EU jurisdiction, copy its real ID into config, set `ENVIRONMENT=production`, and
-   read back jurisdiction, replication, plan/quota, storage, and Time Travel window. Never fabricate an
-   ID. The mode-aware config gate accepts a real database ID only with the production environment.
-4. Choose three reviewed positive-integer limiter namespace IDs that are unique in the account, and
-   provision separate audit/rate-limit secrets. Replace the reserved local IDs, run `pnpm types`, inspect
-   the generated binding diff, run the config gate again, and verify every deployed binding and its
-   allow/block behavior.
-5. Test migrations locally. Immediately before a remote migration, confirm target/account/database,
-   list remote migrations, and obtain a Time Travel bookmark. Apply a remote migration only as a separate
-   approved step; never hide it in deploy/build/CI.
-6. Run QA and the dry run again. The first bootstrap upload exists only to establish/read back the
-   assigned `workers.dev` origin before its Access application has an audience. With empty/synthetic D1,
-   explicit release-owner approval, and profile verification expected to fail closed, run the pinned
-   `WRANGLER_WRITE_LOGS=false pnpm exec wrangler deploy --strict` command. Record the bootstrap
-   version/deployment ID before changing identity state. Do not call this the production-ready version.
-7. Immediately configure/read back whole-Worker Access on the assigned `workers.dev` route, exact audience,
-   Cloudflare login/account membership restrictions, one exact-owner policy, eight-hour session, and
-   Managed OAuth. Identity membership remains private. Until this is correct, profile verification fails
-   closed and only synthetic/empty D1 data is permitted.
-8. Replace `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` with that live readback and set
-   `MANAGED_OAUTH_ENABLED` to the verified capability. Run `pnpm types`, inspect the generated binding
-   diff, run `pnpm production:check`, then
-   `pnpm deploy:production`; the latter reruns full QA, the production preflight, and strict Wrangler
-   conflict detection before uploading. Read back the final version, variables/bindings, source maps,
-   previews, and Access audience. Never leave the bootstrap placeholder configuration active.
-9. Prove unauthenticated Access denial on every route, authenticated public/docs behavior, browser-cookie
-   and Managed OAuth user profile CRUD, cleanup, no preview URL, real limiter behavior, and deployed docs
-   CSP/same-origin behavior. Do not save cookies/tokens/Playwright storage state.
-10. Inspect metrics, logs, queries, automatic/custom traces, D1 insights, Access logs, D1/Audit Logs v2, and
-   privacy markers. Record only non-secret IDs, results, limits, sampling, retention, and dates here.
+## References
 
-Production deploy, remote migration, Access changes, and D1 restore are intentionally absent from CI and
-the default `Justfile` flow.
-
-## Rollback and recovery
-
-A Worker rollback restores a retained Worker code/assets/configuration version by creating a new active
-deployment. It does **not** restore D1 schema/data or reverse Access, rate-limit/WAF, DNS/TLS,
-notification, or billing changes.
-
-Before rollback, identify the last known-good version and prove it remains compatible with the current D1
-schema and bound resources. With release-owner approval, run interactively (do not add `--yes`):
-
-```sh
-pnpm exec wrangler rollback <verified-version-id> --name hono-playground --message "incident rollback"
-pnpm exec wrangler deployments status --name hono-playground --json
-```
-
-Then re-run health/public/Access/profile/static-asset negative and positive smoke, inspect the active
-version and telemetry, and update the manifest/change record. Keep migrations immutable, forward-only,
-and additive/backward-compatible across at least the previous and new Worker. Fix a failed migration with
-a new migration; never edit one already applied remotely.
-
-D1 Time Travel is whole-database destructive recovery, not row undo and not an automatic rollback step.
-Its window is plan/state dependent and offers no promised row-level RPO/RTO. First freeze mutations,
-verify the exact database, incident time, authority, and current recovery window, then obtain and record
-both the intended restore bookmark and a current undo bookmark:
-
-```sh
-pnpm exec wrangler d1 time-travel info hono-playground --timestamp <verified-rfc3339-time> --json
-```
-
-Only after explicit destructive approval may the owner run the interactive restore:
-
-```sh
-pnpm exec wrangler d1 time-travel restore hono-playground --bookmark <verified-bookmark> --json
-```
-
-Afterward, read D1 metadata/migrations, verify synthetic profile invariants and Worker compatibility,
-inspect D1 Audit Logs/Audit Logs v2, and record the restore and undo bookmarks privately where needed.
-
-## Incident runbooks
-
-For every incident, capture timestamps, `CF-Ray`, request ID, active version/deployment ID, stable error
-codes, plan/quota state, and relevant dashboard/action IDs. Never copy credentials, profile data, raw
-URLs, actor identities/IPs, SQL values, or private contacts into this repository.
-
-| Incident | Evidence | Safe containment/recovery | Authority and verification |
-| --- | --- | --- | --- |
-| Elevated `5xx`, CPU/runtime limit | Metrics/outcomes by version, invocation log, source-mapped error, fixed route/operation, CPU/wall time, trace and D1 metadata; check Cloudflare status | Stop rollout/traffic changes; preserve fail-closed profile behavior; rollback only to a schema-compatible retained version; tune CPU only after measured Paid-plan promotion | Release owner; verify active version plus public/profile/docs smoke and normalized errors |
-| Access/JWKS outage | Access auth logs, verifier safe codes, JWKS fetch trace/status, team domain/audience readback, Cloudflare status | Do not bypass Access or JWT verification; keep profile fail closed; communicate synthetic playground unavailability and retry only transient JWKS failures | Access/release owner; verify unauthenticated denial and both authorized browser/Managed OAuth user flows |
-| Access policy lockout | Application hostname/path, policy order/includes/requires, login method, account membership, audience/session and audit action IDs | Use a separately authenticated authorized account administrator; correct the narrow policy, never add `Everyone`, permanent bypass, or Service Auth ownership | Account/Access admin; two-person readback and negative/positive route matrix |
-| D1 outage/quota exhaustion | D1 status, quota/billing/storage, metrics, rows/duration, Query Insights, Worker binding errors | Stop mutations/load smoke, preserve fail-closed profile limiter, keep public routes if safe; upgrade plan only with owner approval | Release owner/account billing owner; verify migrations and synthetic CRUD/cleanup |
-| Bad Worker deploy | Deployment/version IDs, revision, config/bindings diff, logs/traces, dry-run artifact | Roll back code only when current D1/bindings remain compatible; separately reverse external-state changes if implicated | Release owner; deployment readback and full edge/application smoke |
-| Failed migration/schema mismatch | Exact target ID/name, migration lists, error/action ID, pre-change bookmark, schema expectations | Stop deploy/migrations, never edit an applied file, add a forward repair migration; restore only for confirmed destructive loss | Database/release owner; list migrations and run real D1 contract plus synthetic lifecycle |
-| Destructive D1 restore | Incident time, verified target/restore/undo bookmarks, current Time Travel window, current version/schema | Freeze writes; use the approval and whole-database procedure above; never treat it as single-profile undo | Explicit database owner approval; readback, migration/schema and synthetic data verification |
-| Leaked deploy token, Access session, audit/rate-limit secret | Secret name/usage, audit actions, token/session scope and timestamps without copying values | Revoke/rotate at the source, invalidate sessions where supported, replace affected Worker secrets and redeploy; review unexpected control-plane changes | Account security plus release owner; old credential rejected, new version/bindings and audit review |
-| Limiter/WAF false positive or abuse | 429s by fixed limiter class, shared-NAT sample, configured namespace IDs and deployed binding behavior; WAF Security Events only on custom domain | Adjust the narrow threshold/scope or disable only the faulty optional WAF rule; never accept caller `X-Forwarded-For` or remove profile fail-closed behavior | Release/security owner; valid and bounded blocked corpus plus route/host scope readback |
-| Cost/event-volume spike | Workers/D1 usage, rows, CPU/wall time, log/trace events per route, version and traffic class | Stop abusive smoke, keep rate limits, reduce trace sampling before logs, investigate fixed D1 shapes, set/review plan notifications; upgrades require billing owner | Release plus billing owner; usage trend, sampling/config and representative route smoke |
-| Orphaned Access subject | Authorized user reports no profile after identity change; compare only safe pseudonymous operational evidence | Never authorize/reassign by email; preserve old row; require owner-approved, narrowly targeted cleanup/recovery design | Privacy/data owner; new identity owns only its own row and old data remains inaccessible |
-| Profile privacy incident | Access/audit history, safe request/version IDs, telemetry marker review, affected data scope outside public repo | Stop profile mutations/traffic as needed, revoke credentials, preserve evidence, follow private notification/legal process; do not dump rows/logs here | Privacy/security owner; negative authorization tests, telemetry redaction, synthetic CRUD cleanup |
-
-This playground has no formal availability SLO or on-call promise. For the initial domainless Free profile,
-native dashboards and manual smoke do not provide independent continuous uptime probing. Revisit Workers
-Paid, active alerting, a custom domain, and plan-appropriate health checks before real traffic or
-availability expectations.
+- [Alchemy state store](https://alchemy.run/state-store/)
+- [Alchemy secrets and environment bindings](https://alchemy.run/cloudflare/security/secrets-env/)
+- [Alchemy D1](https://alchemy.run/cloudflare/data/d1/)
+- [Drizzle migrations](https://orm.drizzle.team/docs/migrations)
+- [Cloudflare D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/)
+- [Cloudflare Access policies](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/)

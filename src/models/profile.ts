@@ -1,8 +1,15 @@
 import { z } from "@hono/zod-openapi";
+import { JsonApiLinkSchema, JsonApiObjectSchema } from "./json-api.js";
 
 const boundedName = () =>
   z
     .string()
+    .refine((value) => value === value.trim(), {
+      message: "Name must not have surrounding whitespace",
+    })
+    .refine((value) => !/[\p{Cc}]/u.test(value), {
+      message: "Name must not contain control characters",
+    })
     .refine((value) => Array.from(value).length >= 1, {
       message: "String should have at least 1 character",
     })
@@ -36,43 +43,96 @@ const NormalizedPhoneNumberSchema = z.string().regex(/^\+[1-9][0-9]{6,14}$/, {
 });
 
 const mutableProfileFields = {
-  first_name: boundedName(),
-  last_name: boundedName(),
+  firstName: boundedName(),
+  lastName: boundedName(),
   email: EmailSchema,
-  phone_number: PhoneNumberSchema,
-  marketing: z.boolean(),
+  phoneNumber: PhoneNumberSchema,
+  marketingOptIn: z.boolean(),
 };
 
 export const ProfileCreateSchema = z
   .object({
     ...mutableProfileFields,
-    marketing: mutableProfileFields.marketing.default(false),
-    terms: z.literal(true, { error: "Terms must be accepted" }),
+    marketingOptIn: mutableProfileFields.marketingOptIn.default(false),
+    termsAccepted: z.literal(true, { error: "Terms must be accepted" }),
   })
   .strict()
-  .openapi("ProfileCreate");
+  .openapi("ProfileCreateAttributes");
 
 export const ProfileUpdateSchema = z
   .object(mutableProfileFields)
   .partial()
   .strict()
-  .openapi("ProfileUpdate");
+  .openapi("ProfileUpdateAttributes");
 
 export const ProfileSchema = z
   .object({
     id: z.string().min(1).max(128),
-    first_name: mutableProfileFields.first_name,
-    last_name: mutableProfileFields.last_name,
+    firstName: mutableProfileFields.firstName,
+    lastName: mutableProfileFields.lastName,
     email: NormalizedEmailSchema,
-    phone_number: NormalizedPhoneNumberSchema,
-    marketing: mutableProfileFields.marketing,
-    terms: z.literal(true),
-    created_at: z.iso.datetime({ offset: false, precision: 3 }),
-    updated_at: z.iso.datetime({ offset: false, precision: 3 }),
+    phoneNumber: NormalizedPhoneNumberSchema,
+    marketingOptIn: mutableProfileFields.marketingOptIn,
+    termsAccepted: z.literal(true),
+    createdAt: z.iso.datetime({ offset: false, precision: 3 }),
+    updatedAt: z.iso.datetime({ offset: false, precision: 3 }),
+  })
+  .strict();
+
+export const ProfileAttributesSchema = ProfileSchema.omit({ id: true }).openapi(
+  "ProfileAttributes",
+);
+
+export const ProfileResourceSchema = z
+  .object({
+    type: z.literal("profiles"),
+    id: ProfileSchema.shape.id,
+    attributes: ProfileAttributesSchema,
+    links: z.object({ self: JsonApiLinkSchema }).strict(),
   })
   .strict()
-  .openapi("Profile");
+  .openapi("ProfileResource");
+
+export const ProfileDocumentSchema = z
+  .object({
+    jsonapi: JsonApiObjectSchema,
+    links: z
+      .object({
+        self: JsonApiLinkSchema,
+      })
+      .strict(),
+    data: ProfileResourceSchema,
+  })
+  .strict()
+  .openapi("ProfileDocument");
+
+export const ProfileCreateDocumentSchema = z
+  .object({
+    data: z
+      .object({
+        type: z.literal("profiles"),
+        attributes: ProfileCreateSchema,
+      })
+      .strict(),
+  })
+  .strict()
+  .openapi("ProfileCreateDocument");
+
+export const ProfileUpdateDocumentSchema = z
+  .object({
+    data: z
+      .object({
+        type: z.literal("profiles"),
+        id: ProfileSchema.shape.id,
+        attributes: ProfileUpdateSchema.optional(),
+      })
+      .strict(),
+  })
+  .strict()
+  .openapi("ProfileUpdateDocument");
 
 export type Profile = z.infer<typeof ProfileSchema>;
 export type ProfileCreate = z.infer<typeof ProfileCreateSchema>;
 export type ProfileUpdate = z.infer<typeof ProfileUpdateSchema>;
+export type ProfileResource = z.infer<typeof ProfileResourceSchema>;
+export type ProfileDocument = z.infer<typeof ProfileDocumentSchema>;

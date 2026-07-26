@@ -1,4 +1,5 @@
 import { z } from "@hono/zod-openapi";
+import { JsonApiLinkSchema, JsonApiObjectSchema } from "./json-api.js";
 
 export const ITEM_CATEGORIES = [
   "electronics",
@@ -25,15 +26,15 @@ export const ItemSchema = z
       description: "Item category",
       example: "electronics",
     }),
-    price: z.number().min(0).openapi({
-      description: "Item price in USD",
-      example: 29.99,
+    priceCents: z.number().int().min(0).openapi({
+      description: "Item price in US cents",
+      example: 2999,
     }),
-    in_stock: z.boolean().openapi({
+    inStock: z.boolean().openapi({
       description: "Availability status",
       example: true,
     }),
-    created_at: z.iso.datetime({ precision: 3 }).openapi({
+    createdAt: z.iso.datetime({ precision: 3 }).openapi({
       description: "Creation timestamp",
       example: "2024-01-15T10:30:00.000Z",
     }),
@@ -45,19 +46,58 @@ export const ItemSchema = z
   .strict()
   .openapi("Item");
 
-export const ItemListSchema = z
+export const ItemAttributesSchema = ItemSchema.omit({ id: true }).openapi("ItemAttributes");
+
+export const ItemResourceSchema = z
   .object({
-    items: z.array(ItemSchema).openapi({
-      description: "List of items in the current page",
-    }),
-    total: z.number().int().min(0).openapi({
-      description: "Total number of items matching the filter",
-      example: 30,
-    }),
+    type: z.literal("items"),
+    id: ItemSchema.shape.id,
+    attributes: ItemAttributesSchema,
+    links: z.object({ self: JsonApiLinkSchema }).strict(),
   })
   .strict()
-  .openapi("ItemList");
+  .openapi("ItemResource");
+
+export const ItemDocumentSchema = z
+  .object({
+    jsonapi: JsonApiObjectSchema,
+    links: z
+      .object({
+        self: JsonApiLinkSchema,
+      })
+      .strict(),
+    data: ItemResourceSchema,
+  })
+  .strict()
+  .openapi("ItemDocument");
+
+export const ItemCollectionDocumentSchema = z
+  .object({
+    jsonapi: JsonApiObjectSchema,
+    links: z
+      .object({
+        self: JsonApiLinkSchema,
+        next: JsonApiLinkSchema.optional(),
+        prev: JsonApiLinkSchema.optional(),
+      })
+      .strict(),
+    data: z.array(ItemResourceSchema).openapi({
+      description: "Items in the current page",
+    }),
+    meta: z
+      .object({
+        total: z.number().int().min(0).openapi({
+          description: "Total number of items matching the filter",
+          example: 30,
+        }),
+      })
+      .strict(),
+  })
+  .strict()
+  .openapi("ItemCollectionDocument");
 
 export type ItemCategory = z.infer<typeof ItemCategorySchema>;
 export type Item = z.infer<typeof ItemSchema>;
-export type ItemList = z.infer<typeof ItemListSchema>;
+export type ItemResource = z.infer<typeof ItemResourceSchema>;
+export type ItemDocument = z.infer<typeof ItemDocumentSchema>;
+export type ItemCollectionDocument = z.infer<typeof ItemCollectionDocumentSchema>;

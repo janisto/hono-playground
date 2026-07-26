@@ -1,18 +1,18 @@
-export type EnvironmentName = "development" | "test" | "production";
-export type DeploymentProfile = "workers-dev-demo" | "custom-domain-production";
-export type LogLevel = "debug" | "info" | "warn" | "error";
-export type RateLimitMode = "none" | "workers-binding" | "workers-binding+waf";
+import type { WorkerEnv } from "../../alchemy.run.js";
+
+export type EnvironmentName = "development" | "staging" | "test" | "production";
+export type RateLimitMode = "none" | "workers-binding";
 
 type WidenGeneratedBinding<Value> = Value extends string ? string : Value;
 
 export type RuntimeBindings = {
-  [Name in keyof Env]?: WidenGeneratedBinding<Env[Name]>;
-} & { DB: Env["DB"] };
+  [Name in keyof WorkerEnv]?: WidenGeneratedBinding<WorkerEnv[Name]>;
+} & { DB: WorkerEnv["DB"] };
 
 export type RouteMetadata = {
   template: string;
   operationId: string;
-  kind: "public" | "profile-read" | "profile-write" | "docs" | "unmatched";
+  kind: "public" | "resource" | "profile-read" | "profile-write" | "docs" | "unmatched";
 };
 
 export type TraceMetadata = {
@@ -21,17 +21,14 @@ export type TraceMetadata = {
 };
 
 export type D1Metrics = {
-  durationMs: number;
+  queryCount: number;
   rowsRead: number;
   rowsWritten: number;
 };
 
 export interface RuntimeConfig {
   environment: EnvironmentName;
-  deploymentProfile: DeploymentProfile;
-  logLevel: LogLevel;
   maximumRequestBytes: number;
-  managedOauthEnabled: boolean;
   rateLimitMode: RateLimitMode;
 }
 

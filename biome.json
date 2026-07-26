@@ -14,10 +14,7 @@
       "!**/node_modules",
       "!**/plans",
       "!**/playwright-report",
-      "!**/public/docs-assets",
-      "!**/test-results",
-      "!**/test/generated/openapi.d.ts",
-      "!**/worker-configuration.d.ts"
+      "!**/test-results"
     ]
   },
   "formatter": {

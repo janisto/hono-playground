@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AppError } from "../../src/core/errors.js";
 import type { Profile, ProfileCreate } from "../../src/models/profile.js";
 import {
-  D1ProfileRepository,
+  DrizzleProfileRepository,
   isRetryableD1Error,
   type ProfileRepository,
   ProfileRepositoryError,
@@ -18,107 +18,69 @@ type PreparedCall = {
 };
 
 type HarnessOptions = {
-  batch?: (calls: readonly PreparedCall[]) => Promise<D1Result<unknown>[]>;
-  run?: (call: PreparedCall) => Promise<D1Result<unknown>>;
+  raw?: (call: PreparedCall) => Promise<unknown[][]>;
 };
-
-type FakeStatement = D1PreparedStatement & { readonly call: PreparedCall };
-
-const result = (
-  results: unknown[],
-  changes = 0,
-  metadata: Partial<D1Meta> = {},
-): D1Result<unknown> => ({
-  success: true,
-  results,
-  meta: {
-    duration: 1,
-    size_after: 0,
-    rows_read: results.length,
-    rows_written: changes,
-    last_row_id: 0,
-    changed_db: changes > 0,
-    changes,
-    ...metadata,
-  },
-});
 
 const databaseHarness = (options: HarnessOptions = {}) => {
   const calls: PreparedCall[] = [];
-
   const prepare = vi.fn((sql: string): D1PreparedStatement => {
     const call: PreparedCall = { sql, bindings: [] };
     calls.push(call);
-
     const statement = {
-      call,
       bind: vi.fn((...bindings: unknown[]) => {
         call.bindings = bindings;
         return statement;
       }),
-      run: vi.fn(() => options.run?.(call) ?? Promise.resolve(result([]))),
-    } as unknown as FakeStatement;
-
+      raw: vi.fn(() => options.raw?.(call) ?? Promise.resolve([])),
+    } as unknown as D1PreparedStatement;
     return statement;
   });
-
-  const batch = vi.fn((statements: D1PreparedStatement[]) => {
-    const batchCalls = statements.map((statement) => (statement as FakeStatement).call);
-    return options.batch?.(batchCalls) ?? Promise.resolve([]);
-  });
-
-  const database = { prepare, batch } as unknown as D1Database;
-  return { database, prepare, batch, calls };
+  return { database: { prepare } as unknown as D1Database, prepare, calls };
 };
 
 const INPUT = {
-  first_name: "Ada",
-  last_name: "Lovelace",
+  firstName: "Ada",
+  lastName: "Lovelace",
   email: "ada@example.com",
-  phone_number: "+358401234567",
-  marketing: false,
-  terms: true,
+  phoneNumber: "+358401234567",
+  marketingOptIn: false,
+  termsAccepted: true,
 } satisfies ProfileCreate;
 
-const STORED_PROFILE = {
-  id: "subject-1",
-  first_name: INPUT.first_name,
-  last_name: INPUT.last_name,
-  email: INPUT.email,
-  phone_number: INPUT.phone_number,
-  marketing: 0,
-  terms: 1,
-  created_at: "2026-07-22T10:00:00.000Z",
-  updated_at: "2026-07-22T10:00:00.000Z",
-} as const;
+const STORED_VALUES = [
+  "subject-1",
+  INPUT.firstName,
+  INPUT.lastName,
+  INPUT.email,
+  INPUT.phoneNumber,
+  0,
+  1,
+  Date.parse("2026-07-22T10:00:00.000Z"),
+  Date.parse("2026-07-22T10:00:00.000Z"),
+] as const;
 
 const PROFILE = {
-  ...STORED_PROFILE,
-  marketing: false,
-  terms: true,
+  id: "subject-1",
+  ...INPUT,
+  createdAt: "2026-07-22T10:00:00.000Z",
+  updatedAt: "2026-07-22T10:00:00.000Z",
 } satisfies Profile;
 
-describe("D1ProfileRepository", () => {
-  it("creates with positional binds, a conflict-specific insert, and one batch", async () => {
-    const metadata = vi.fn();
-    const harness = databaseHarness({
-      batch: async () => [
-        result([], 1, { duration: 2, rows_written: 1 }),
-        result([STORED_PROFILE], 0, { duration: 3, rows_read: 1 }),
-      ],
-    });
-    const repository = new D1ProfileRepository(harness.database, {
-      onMetadata: metadata,
-    });
+describe("DrizzleProfileRepository", () => {
+  it("creates through a typed conflict-safe insert with RETURNING", async () => {
+    const metrics = vi.fn();
+    const harness = databaseHarness({ raw: async () => [[...STORED_VALUES]] });
+    const repository = new DrizzleProfileRepository(harness.database, { onMetrics: metrics });
 
     await expect(
-      repository.create("subject-1", INPUT, "2026-07-22T10:00:00.000Z"),
+      repository.create("subject-1", INPUT, new Date("2026-07-22T10:00:00.000Z")),
     ).resolves.toEqual(PROFILE);
 
-    expect(harness.batch).toHaveBeenCalledOnce();
-    expect(harness.calls).toHaveLength(2);
-    expect(harness.calls[0]?.sql).toContain("ON CONFLICT(id) DO NOTHING");
-    expect(harness.calls[0]?.sql).not.toContain("INSERT OR IGNORE");
+    expect(harness.prepare).toHaveBeenCalledOnce();
+    expect(harness.calls[0]?.sql.toLowerCase()).toContain(
+      'on conflict ("profiles"."id") do nothing',
+    );
+    expect(harness.calls[0]?.sql.toLowerCase()).toContain("returning");
     expect(harness.calls[0]?.bindings).toEqual([
       "subject-1",
       "Ada",
@@ -127,231 +89,198 @@ describe("D1ProfileRepository", () => {
       "+358401234567",
       0,
       1,
-      "2026-07-22T10:00:00.000Z",
-      "2026-07-22T10:00:00.000Z",
+      Date.parse("2026-07-22T10:00:00.000Z"),
+      Date.parse("2026-07-22T10:00:00.000Z"),
     ]);
-    expect(harness.calls[1]).toMatchObject({
-      sql: expect.stringContaining("WHERE id = ?"),
-      bindings: ["subject-1"],
-    });
-    expect(metadata).toHaveBeenCalledOnce();
-    expect(metadata).toHaveBeenCalledWith({ durationMs: 5, rowsRead: 1, rowsWritten: 1 });
+    expect(metrics).toHaveBeenCalledWith({ queryCount: 1, rowsRead: 1, rowsWritten: 1 });
   });
 
-  it("reports a primary-key conflict only when the insert changed no row", async () => {
-    const harness = databaseHarness({
-      batch: async () => [result([], 0), result([STORED_PROFILE])],
-    });
-    const repository = new D1ProfileRepository(harness.database);
-
+  it("reports a primary-key conflict only when RETURNING yields no row", async () => {
+    const repository = new DrizzleProfileRepository(databaseHarness().database);
     await expect(
-      repository.create("subject-1", INPUT, "2026-07-22T10:00:00.000Z"),
+      repository.create("subject-1", INPUT, new Date("2026-07-22T10:00:00.000Z")),
     ).resolves.toBeUndefined();
   });
 
-  it("uses a primary-key read and rejects corrupt storage rows", async () => {
-    const harness = databaseHarness({
-      run: async () => result([{ ...STORED_PROFILE, marketing: 2 }]),
+  it("rejects corrupt or non-normalized storage rows after Drizzle mapping", async () => {
+    const corruptId = databaseHarness({
+      raw: async () => [["", ...STORED_VALUES.slice(1)]],
     });
-    const repository = new D1ProfileRepository(harness.database);
+    const nonNormalized = databaseHarness({
+      raw: async () => [
+        [...STORED_VALUES.slice(0, 3), "ADA@EXAMPLE.COM", ...STORED_VALUES.slice(4)],
+      ],
+    });
 
-    await expect(repository.get("subject-1")).rejects.toBeInstanceOf(ProfileRepositoryError);
-    expect(harness.calls[0]).toMatchObject({
-      sql: expect.stringContaining("WHERE id = ?"),
-      bindings: ["subject-1"],
-    });
+    await expect(
+      new DrizzleProfileRepository(corruptId.database).get("subject-1"),
+    ).rejects.toBeInstanceOf(ProfileRepositoryError);
+    await expect(
+      new DrizzleProfileRepository(nonNormalized.database).get("subject-1"),
+    ).rejects.toBeInstanceOf(ProfileRepositoryError);
   });
 
-  it("rejects stored values that request schemas would silently normalize", async () => {
-    const harness = databaseHarness({
-      run: async () => result([{ ...STORED_PROFILE, email: "ADA@EXAMPLE.COM" }]),
-    });
-    const repository = new D1ProfileRepository(harness.database);
+  it("turns an empty patch into one typed primary-key read", async () => {
+    const harness = databaseHarness({ raw: async () => [[...STORED_VALUES]] });
+    const repository = new DrizzleProfileRepository(harness.database);
 
-    await expect(repository.get("subject-1")).rejects.toBeInstanceOf(ProfileRepositoryError);
+    await expect(
+      repository.update("subject-1", {}, new Date("2030-01-01T00:00:00.000Z")),
+    ).resolves.toEqual(PROFILE);
+    expect(harness.prepare).toHaveBeenCalledOnce();
+    expect(harness.calls[0]?.sql.toLowerCase()).toContain("select");
+    expect(harness.calls[0]?.bindings).toEqual(["subject-1", 2]);
   });
 
-  it("turns an empty patch into a single read without a batch", async () => {
-    const harness = databaseHarness({
-      run: async () => result([STORED_PROFILE]),
-    });
-    const repository = new D1ProfileRepository(harness.database);
-
-    await expect(repository.update("subject-1", {}, "2030-01-01T00:00:00.000Z")).resolves.toEqual(
-      PROFILE,
-    );
-    expect(harness.batch).not.toHaveBeenCalled();
-    expect(harness.calls).toHaveLength(1);
-    expect(harness.calls[0]?.sql).toMatch(/^SELECT /);
-  });
-
-  it("builds PATCH SQL from the fixed field allowlist and binds the timestamp once", async () => {
-    const updatedRow = {
-      ...STORED_PROFILE,
-      first_name: "Grace",
-      marketing: 1,
-      updated_at: "2026-07-22T11:00:00.000Z",
-    };
-    const harness = databaseHarness({
-      batch: async () => [result([], 1), result([updatedRow])],
-    });
-    const repository = new D1ProfileRepository(harness.database);
+  it("builds PATCH from the typed field allowlist and returns the committed row", async () => {
+    const updatedValues = [...STORED_VALUES];
+    updatedValues[1] = "Grace";
+    updatedValues[5] = 1;
+    updatedValues[8] = Date.parse("2026-07-22T11:00:00.000Z");
+    const harness = databaseHarness({ raw: async () => [updatedValues] });
+    const repository = new DrizzleProfileRepository(harness.database);
 
     await expect(
       repository.update(
         "subject-1",
-        { marketing: true, first_name: "Grace" },
-        "2026-07-22T11:00:00.000Z",
+        { marketingOptIn: true, firstName: "Grace" },
+        new Date("2026-07-22T11:00:00.000Z"),
       ),
-    ).resolves.toMatchObject({ first_name: "Grace", marketing: true });
+    ).resolves.toMatchObject({ firstName: "Grace", marketingOptIn: true });
 
-    expect(harness.calls[0]).toEqual({
-      sql: "UPDATE profiles SET first_name = ?, marketing = ?, updated_at = ? WHERE id = ?",
-      bindings: ["Grace", 1, "2026-07-22T11:00:00.000Z", "subject-1"],
-    });
-    expect(harness.calls[1]?.bindings).toEqual(["subject-1"]);
+    const sql = harness.calls[0]?.sql.toLowerCase() ?? "";
+    expect(sql).toContain("update");
+    expect(sql).toContain('"first_name"');
+    expect(sql).toContain('"marketing_opt_in"');
+    expect(sql).toContain('"updated_at"');
+    expect(sql).not.toContain('"terms_accepted" =');
+    expect(sql).toContain("returning");
   });
 
-  it("retries PATCH at most twice with fixed SQL, values, timestamp, and bounded jitter", async () => {
-    let attempts = 0;
-    const updatedRow = {
-      ...STORED_PROFILE,
-      first_name: "Grace",
-      updated_at: "2026-07-22T11:00:00.000Z",
-    };
+  it("does not advance updatedAt when every supplied PATCH value is unchanged", async () => {
+    const metrics = vi.fn();
     const harness = databaseHarness({
-      batch: async () => {
+      raw: async (call) =>
+        call.sql.trimStart().toLowerCase().startsWith("update") ? [] : [[...STORED_VALUES]],
+    });
+    const repository = new DrizzleProfileRepository(harness.database, { onMetrics: metrics });
+
+    await expect(
+      repository.update(
+        "subject-1",
+        { firstName: "Ada", marketingOptIn: false },
+        new Date("2030-01-01T00:00:00.000Z"),
+      ),
+    ).resolves.toEqual(PROFILE);
+
+    expect(harness.prepare).toHaveBeenCalledTimes(2);
+    expect(harness.calls[0]?.sql.toLowerCase()).toContain("update");
+    expect(harness.calls[0]?.sql.toLowerCase()).toContain('"first_name"');
+    expect(harness.calls[0]?.sql.toLowerCase()).toContain('"marketing_opt_in"');
+    expect(harness.calls[1]?.sql.toLowerCase()).toContain("select");
+    expect(metrics.mock.calls).toEqual([
+      [{ queryCount: 1, rowsRead: 0, rowsWritten: 0 }],
+      [{ queryCount: 1, rowsRead: 1, rowsWritten: 0 }],
+    ]);
+  });
+
+  it("retries PATCH at most twice with one timestamp and bounded jitter", async () => {
+    let attempts = 0;
+    const updatedValues = [...STORED_VALUES];
+    updatedValues[1] = "Grace";
+    updatedValues[8] = Date.parse("2026-07-22T11:00:00.000Z");
+    const harness = databaseHarness({
+      raw: async () => {
         attempts += 1;
         if (attempts < 3) throw new Error("D1_ERROR: Network connection lost.");
-        return [result([], 1), result([updatedRow])];
+        return [updatedValues];
       },
     });
     const sleep = vi.fn(async () => undefined);
-    const repository = new D1ProfileRepository(harness.database, {
+    const repository = new DrizzleProfileRepository(harness.database, {
       sleep,
       random: () => 0,
     });
 
     await expect(
-      repository.update("subject-1", { first_name: "Grace" }, "2026-07-22T11:00:00.000Z"),
-    ).resolves.toMatchObject({ first_name: "Grace" });
+      repository.update("subject-1", { firstName: "Grace" }, new Date("2026-07-22T11:00:00.000Z")),
+    ).resolves.toMatchObject({ firstName: "Grace" });
 
-    expect(harness.batch).toHaveBeenCalledTimes(3);
+    expect(harness.prepare).toHaveBeenCalledTimes(3);
     expect(sleep.mock.calls).toEqual([[25], [50]]);
-    expect(harness.calls.filter((_, index) => index % 2 === 0)).toEqual([
-      {
-        sql: "UPDATE profiles SET first_name = ?, updated_at = ? WHERE id = ?",
-        bindings: ["Grace", "2026-07-22T11:00:00.000Z", "subject-1"],
-      },
-      {
-        sql: "UPDATE profiles SET first_name = ?, updated_at = ? WHERE id = ?",
-        bindings: ["Grace", "2026-07-22T11:00:00.000Z", "subject-1"],
-      },
-      {
-        sql: "UPDATE profiles SET first_name = ?, updated_at = ? WHERE id = ?",
-        bindings: ["Grace", "2026-07-22T11:00:00.000Z", "subject-1"],
-      },
-    ]);
+    for (const call of harness.calls) {
+      expect(call.bindings).toContain(Date.parse("2026-07-22T11:00:00.000Z"));
+    }
   });
 
   it("stops PATCH after two retries and maps the transient failure", async () => {
     const harness = databaseHarness({
-      batch: async () => {
+      raw: async () => {
         throw new Error("Cannot resolve D1 DB due to transient issue on remote node.");
       },
     });
-    const repository = new D1ProfileRepository(harness.database, {
+    const repository = new DrizzleProfileRepository(harness.database, {
       sleep: async () => undefined,
       random: () => 1,
     });
 
     await expect(
-      repository.update("subject-1", { first_name: "Grace" }, "2026-07-22T11:00:00.000Z"),
+      repository.update("subject-1", { firstName: "Grace" }, new Date("2026-07-22T11:00:00.000Z")),
     ).rejects.toBeInstanceOf(ProfileRepositoryUnavailableError);
-    expect(harness.batch).toHaveBeenCalledTimes(3);
+    expect(harness.prepare).toHaveBeenCalledTimes(3);
   });
 
-  it("leaves transient read retry ownership to D1 and maps one failed run", async () => {
-    const harness = databaseHarness({
-      run: async () => {
+  it("does not retry reads, creates, deletes, or unknown PATCH failures", async () => {
+    const transient = databaseHarness({
+      raw: async () => {
         throw new Error("Network connection lost.");
       },
     });
-    const repository = new D1ProfileRepository(harness.database);
-
-    await expect(repository.get("subject-1")).rejects.toBeInstanceOf(
-      ProfileRepositoryUnavailableError,
-    );
-    expect(harness.calls).toHaveLength(1);
-  });
-
-  it("does not retry unknown PATCH failures", async () => {
-    const harness = databaseHarness({
-      batch: async () => {
+    const unknown = databaseHarness({
+      raw: async () => {
         throw new Error("no such table: profiles");
       },
     });
     const sleep = vi.fn(async () => undefined);
-    const repository = new D1ProfileRepository(harness.database, { sleep });
 
     await expect(
-      repository.update("subject-1", { first_name: "Grace" }, "2026-07-22T11:00:00.000Z"),
-    ).rejects.toMatchObject({ operatorCode: "profile_repository_failure" });
-    expect(harness.batch).toHaveBeenCalledOnce();
-    expect(sleep).not.toHaveBeenCalled();
-  });
-
-  it("never retries create or delete after an ambiguous transient failure", async () => {
-    const createHarness = databaseHarness({
-      batch: async () => {
-        throw new Error("Network connection lost.");
-      },
-    });
-    const deleteHarness = databaseHarness({
-      run: async () => {
-        throw new Error("D1 DB reset because its code was updated.");
-      },
-    });
-
+      new DrizzleProfileRepository(transient.database).get("subject-1"),
+    ).rejects.toBeInstanceOf(ProfileRepositoryUnavailableError);
     await expect(
-      new D1ProfileRepository(createHarness.database).create(
+      new DrizzleProfileRepository(transient.database).create(
         "subject-1",
         INPUT,
-        "2026-07-22T10:00:00.000Z",
+        new Date("2026-07-22T10:00:00.000Z"),
       ),
     ).rejects.toBeInstanceOf(ProfileRepositoryUnavailableError);
     await expect(
-      new D1ProfileRepository(deleteHarness.database).delete("subject-1"),
+      new DrizzleProfileRepository(transient.database).delete("subject-1"),
     ).rejects.toBeInstanceOf(ProfileRepositoryUnavailableError);
-    expect(createHarness.batch).toHaveBeenCalledOnce();
-    expect(deleteHarness.calls[0]?.bindings).toEqual(["subject-1"]);
-  });
-
-  it("uses delete changes metadata for the lifecycle result", async () => {
-    const missingHarness = databaseHarness({ run: async () => result([], 0) });
-    const deletedHarness = databaseHarness({ run: async () => result([], 1) });
-
-    await expect(new D1ProfileRepository(missingHarness.database).delete("missing")).resolves.toBe(
-      false,
-    );
     await expect(
-      new D1ProfileRepository(deletedHarness.database).delete("subject-1"),
-    ).resolves.toBe(true);
+      new DrizzleProfileRepository(unknown.database, { sleep }).update(
+        "subject-1",
+        { firstName: "Grace" },
+        new Date("2026-07-22T11:00:00.000Z"),
+      ),
+    ).rejects.toMatchObject({ operatorCode: "profile_repository_failure" });
+
+    expect(transient.prepare).toHaveBeenCalledTimes(3);
+    expect(unknown.prepare).toHaveBeenCalledOnce();
+    expect(sleep).not.toHaveBeenCalled();
   });
 
-  it("does not allow a metadata observer failure to change a committed result", async () => {
-    const harness = databaseHarness({
-      batch: async () => [result([], 1), result([STORED_PROFILE])],
-    });
-    const repository = new D1ProfileRepository(harness.database, {
-      onMetadata: () => {
+  it("uses typed DELETE RETURNING and isolates metrics observer failures", async () => {
+    const missing = new DrizzleProfileRepository(databaseHarness().database);
+    const deletedHarness = databaseHarness({ raw: async () => [["subject-1"]] });
+    const deleted = new DrizzleProfileRepository(deletedHarness.database, {
+      onMetrics: () => {
         throw new Error("observer failed");
       },
     });
 
-    await expect(
-      repository.create("subject-1", INPUT, "2026-07-22T10:00:00.000Z"),
-    ).resolves.toEqual(PROFILE);
+    await expect(missing.delete("missing")).resolves.toBe(false);
+    await expect(deleted.delete("subject-1")).resolves.toBe(true);
+    expect(deletedHarness.calls[0]?.sql.toLowerCase()).toContain("returning");
   });
 });
 
@@ -403,7 +332,7 @@ describe("ProfileService", () => {
       code: "not_found",
       detail: "Profile not found",
     });
-    await expect(service.update("subject-1", { first_name: "Grace" })).rejects.toMatchObject({
+    await expect(service.update("subject-1", { firstName: "Grace" })).rejects.toMatchObject({
       status: 404,
       code: "not_found",
     });
@@ -467,7 +396,7 @@ describe("ProfileService", () => {
 
     const create = await capture(service.create("subject-1", INPUT));
     const get = await capture(service.get("subject-1"));
-    const update = await capture(service.update("subject-1", { first_name: "Grace" }));
+    const update = await capture(service.update("subject-1", { firstName: "Grace" }));
     const remove = await capture(service.delete("subject-1"));
 
     expect(create.headers.has("Retry-After")).toBe(false);
@@ -488,21 +417,21 @@ describe("ProfileService", () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it("uses one precomputed ISO timestamp per mutation", async () => {
+  it("uses one precomputed Date per mutation", async () => {
     const create = vi.fn(async () => PROFILE);
     const update = vi.fn(async () => PROFILE);
     const now = vi.fn(() => new Date("2026-07-22T10:00:00.000Z"));
     const service = new ProfileService(repository({ create, update }), now);
 
     await service.create("subject-1", INPUT);
-    await service.update("subject-1", { first_name: "Grace" });
+    await service.update("subject-1", { firstName: "Grace" });
 
     expect(now).toHaveBeenCalledTimes(2);
-    expect(create).toHaveBeenCalledWith("subject-1", INPUT, "2026-07-22T10:00:00.000Z");
+    expect(create).toHaveBeenCalledWith("subject-1", INPUT, new Date("2026-07-22T10:00:00.000Z"));
     expect(update).toHaveBeenCalledWith(
       "subject-1",
-      { first_name: "Grace" },
-      "2026-07-22T10:00:00.000Z",
+      { firstName: "Grace" },
+      new Date("2026-07-22T10:00:00.000Z"),
     );
   });
 

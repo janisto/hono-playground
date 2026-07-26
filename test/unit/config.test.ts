@@ -10,9 +10,6 @@ const STRONG_KEY = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f0
 const TEST_BINDINGS = {
   DB: {} as D1Database,
   ENVIRONMENT: "test",
-  DEPLOYMENT_PROFILE: "workers-dev-demo",
-  LOG_LEVEL: "error",
-  MANAGED_OAUTH_ENABLED: "false",
   RATE_LIMIT_MODE: "none",
 } satisfies RuntimeBindings;
 
@@ -36,60 +33,62 @@ describe("runtime configuration", () => {
   it("parses the explicit supported test configuration", () => {
     expect(parseRuntimeConfig(TEST_BINDINGS)).toEqual({
       environment: "test",
-      deploymentProfile: "workers-dev-demo",
-      logLevel: "error",
       maximumRequestBytes: 1_000_000,
-      managedOauthEnabled: false,
       rateLimitMode: "none",
     });
   });
 
-  it("requires deployment truth values and rejects impossible topology combinations", () => {
-    for (const name of ["ENVIRONMENT", "DEPLOYMENT_PROFILE", "RATE_LIMIT_MODE"] as const) {
+  it("parses staging as a production-like deployment with its own honest identity", () => {
+    expect(
+      parseRuntimeConfig({
+        ...TEST_BINDINGS,
+        ENVIRONMENT: "staging",
+        RATE_LIMIT_MODE: "workers-binding",
+      }),
+    ).toEqual({
+      environment: "staging",
+      maximumRequestBytes: 1_000_000,
+      rateLimitMode: "workers-binding",
+    });
+  });
+
+  it("requires the runtime values that change request behavior", () => {
+    for (const name of ["ENVIRONMENT", "RATE_LIMIT_MODE"] as const) {
       const candidate: RuntimeBindings = { ...TEST_BINDINGS };
       delete candidate[name];
       expectConfigurationFailure(() => parseRuntimeConfig(candidate));
     }
-    expectConfigurationFailure(() =>
-      parseRuntimeConfig({
-        ...TEST_BINDINGS,
-        RATE_LIMIT_MODE: "workers-binding+waf",
-      }),
-    );
-    expect(
-      parseRuntimeConfig({
-        ...TEST_BINDINGS,
-        DEPLOYMENT_PROFILE: "custom-domain-production",
-        RATE_LIMIT_MODE: "workers-binding+waf",
-      }).rateLimitMode,
-    ).toBe("workers-binding+waf");
   });
 
   it.each([
     [{ ENVIRONMENT: "invalid" }, "invalid environment"],
-    [{ DEPLOYMENT_PROFILE: "invalid" }, "invalid deployment profile"],
-    [{ LOG_LEVEL: "verbose" }, "invalid log level"],
     [{ RATE_LIMIT_MODE: "invalid" }, "invalid rate-limit mode"],
-    [{ MANAGED_OAUTH_ENABLED: "yes" }, "invalid boolean"],
-    [{ MAX_REQUEST_SIZE_BYTES: "0" }, "zero request limit"],
-    [{ MAX_REQUEST_SIZE_BYTES: "1.5" }, "fractional request limit"],
-    [{ MAX_REQUEST_SIZE_BYTES: "10000001" }, "oversized request limit"],
+    [{ MAX_REQUEST_SIZE_BYTES: 0 }, "zero request limit"],
+    [{ MAX_REQUEST_SIZE_BYTES: 1.5 }, "fractional request limit"],
+    [{ MAX_REQUEST_SIZE_BYTES: 10_000_001 }, "oversized request limit"],
     [{ MAX_REQUEST_SIZE_BYTES: "not-a-number" }, "non-numeric request limit"],
-    [
-      { ENVIRONMENT: "production", LOG_LEVEL: "debug", RATE_LIMIT_MODE: "workers-binding" },
-      "production debug",
-    ],
     [{ ENVIRONMENT: "production", RATE_LIMIT_MODE: "none" }, "production limiter disabled"],
+    [{ ENVIRONMENT: "staging", RATE_LIMIT_MODE: "none" }, "staging limiter disabled"],
     [
       {
         ENVIRONMENT: "production",
         RATE_LIMIT_MODE: "workers-binding",
-        MAX_REQUEST_SIZE_BYTES: "999999",
+        MAX_REQUEST_SIZE_BYTES: 999_999,
       },
       "production request limit drift",
     ],
+    [
+      {
+        ENVIRONMENT: "staging",
+        RATE_LIMIT_MODE: "workers-binding",
+        MAX_REQUEST_SIZE_BYTES: 999_999,
+      },
+      "staging request limit drift",
+    ],
   ])("rejects invalid common configuration: $1", (overrides, _caseName) => {
-    expectConfigurationFailure(() => parseRuntimeConfig({ ...TEST_BINDINGS, ...overrides }));
+    expectConfigurationFailure(() =>
+      parseRuntimeConfig({ ...TEST_BINDINGS, ...overrides } as RuntimeBindings),
+    );
   });
 
   it("requires a canonical visible-ASCII Access verifier configuration", () => {

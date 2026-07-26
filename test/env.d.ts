@@ -1,8 +1,9 @@
 import type { D1Migration } from "@cloudflare/vitest-pool-workers";
+import type { WorkerEnv } from "../alchemy.run.js";
 
 declare global {
   namespace Cloudflare {
-    interface Env {
+    interface Env extends WorkerEnv {
       TEST_MIGRATIONS: D1Migration[];
     }
   }

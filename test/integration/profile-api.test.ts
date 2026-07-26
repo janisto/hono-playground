@@ -9,7 +9,12 @@ import {
   InvalidAccessTokenError,
 } from "../../src/auth/types.js";
 import type { RuntimeBindings } from "../../src/core/types.js";
+import type { Profile } from "../../src/models/profile.js";
 import type { ProfileRepository } from "../../src/repositories/profile-repository.js";
+
+const JSON_API_MEDIA_TYPE = "application/vnd.api+json";
+const CURRENT_PROFILE_PATH = "/v1/profiles/current";
+const PROFILES_PATH = "/v1/profiles";
 
 const subject = (): string => `profile-api-${crypto.randomUUID()}`;
 const trackedSubjects = new Set<string>();
@@ -38,15 +43,65 @@ const authenticatedApp = (owner: string, now: () => Date = () => new Date()) =>
     now,
   });
 
-const jsonRequest = (method: string, body: unknown, headers: HeadersInit = {}): RequestInit => ({
-  method,
-  headers: {
-    Accept: "application/json",
+const authenticatedHeaders = (headers: HeadersInit = {}): Headers => {
+  const result = new Headers({
+    Accept: JSON_API_MEDIA_TYPE,
     "Cf-Access-Jwt-Assertion": "signed-test-assertion",
-    "Content-Type": "application/json",
+  });
+  new Headers(headers).forEach((value, name) => {
+    result.set(name, value);
+  });
+  return result;
+};
+
+const jsonApiRequest = (
+  method: string,
+  document: unknown,
+  headers: HeadersInit = {},
+): RequestInit => ({
+  method,
+  headers: authenticatedHeaders({
+    "Content-Type": JSON_API_MEDIA_TYPE,
     ...Object.fromEntries(new Headers(headers)),
+  }),
+  body: JSON.stringify(document),
+});
+
+const createDocument = (attributes: Record<string, unknown>, extraData = {}) => ({
+  data: {
+    type: "profiles",
+    attributes,
+    ...extraData,
   },
-  body: JSON.stringify(body),
+});
+
+const updateDocument = (id: string, attributes?: Record<string, unknown>, extraData = {}) => ({
+  data: {
+    type: "profiles",
+    id,
+    ...(attributes === undefined ? {} : { attributes }),
+    ...extraData,
+  },
+});
+
+const validCreateAttributes = {
+  firstName: "Ada",
+  lastName: "Lovelace",
+  email: " ADA@example.com ",
+  phoneNumber: " +358401234567 ",
+  termsAccepted: true,
+};
+
+const storedProfile = (id: string): Profile => ({
+  id,
+  firstName: "Ada",
+  lastName: "Lovelace",
+  email: "ada@example.com",
+  phoneNumber: "+358401234567",
+  marketingOptIn: false,
+  termsAccepted: true,
+  createdAt: "2026-07-22T12:00:00.000Z",
+  updatedAt: "2026-07-22T12:00:00.000Z",
 });
 
 afterEach(async () => {
@@ -60,8 +115,8 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe("profile API", () => {
-  it("denies outbound fetch by default and allows only the derived Access JWKS endpoint", async () => {
+describe("JSON:API profile resources", () => {
+  it("denies arbitrary outbound fetch and allows only the derived Access JWKS endpoint", async () => {
     const teamDomain = "https://integration.cloudflareaccess.com";
     const audience = "integration-audience";
     const owner = "remote-jwks-owner";
@@ -90,24 +145,14 @@ describe("profile API", () => {
     const app = createApp({
       profileRepositoryFactory: () => ({
         create: async () => undefined,
-        get: async () => ({
-          id: owner,
-          first_name: "Ada",
-          last_name: "Lovelace",
-          email: "ada@example.com",
-          phone_number: "+12025550123",
-          marketing: false,
-          terms: true,
-          created_at: "2026-07-22T12:00:00.000Z",
-          updated_at: "2026-07-22T12:00:00.000Z",
-        }),
+        get: async () => storedProfile(owner),
         update: async () => undefined,
         delete: async () => false,
       }),
     });
     const response = await app.request(
-      new Request("https://worker.example/v1/profile", {
-        headers: { "Cf-Access-Jwt-Assertion": assertion },
+      new Request(`https://worker.example${CURRENT_PROFILE_PATH}`, {
+        headers: { Accept: JSON_API_MEDIA_TYPE, "Cf-Access-Jwt-Assertion": assertion },
       }),
       undefined,
       {
@@ -118,7 +163,9 @@ describe("profile API", () => {
     );
 
     expect(response.status).toBe(200);
-    expect((await response.json()) as { id: string }).toMatchObject({ id: owner });
+    expect(await response.json()).toMatchObject({
+      data: { type: "profiles", id: owner },
+    });
     expect(outbound).toHaveBeenCalledOnce();
     expect(outbound.mock.calls[0]?.[0].toString()).toBe(`${teamDomain}/cdn-cgi/access/certs`);
   });
@@ -152,7 +199,7 @@ describe("profile API", () => {
       "access_verifier_configuration_invalid",
     ],
   ])(
-    "maps an injected %s failure through the Worker boundary",
+    "maps an injected %s failure through the JSON:API boundary",
     async (_name, failure, status, detail, header, headerValue, operatorCode) => {
       const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
       vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -168,12 +215,20 @@ describe("profile API", () => {
           delete: async () => false,
         }),
       });
-      const response = await request(app, "/v1/profile", {
-        headers: { "Cf-Access-Jwt-Assertion": "test" },
+      const response = await request(app, CURRENT_PROFILE_PATH, {
+        headers: {
+          Accept: JSON_API_MEDIA_TYPE,
+          "Cf-Access-Jwt-Assertion": "test",
+          "X-Request-ID": "profile-dependency-failure-id",
+        },
       });
+      const payload = (await response.json()) as {
+        errors: Array<{ status: string; detail: string }>;
+      };
 
       expect(response.status).toBe(status);
-      expect(await response.json()).toMatchObject({ status, detail });
+      expect(response.headers.get("Content-Type")).toBe(JSON_API_MEDIA_TYPE);
+      expect(payload.errors[0]).toMatchObject({ status: String(status), detail });
       if (header === undefined) {
         expect(response.headers.has("WWW-Authenticate")).toBe(false);
         expect(response.headers.has("Retry-After")).toBe(false);
@@ -187,12 +242,13 @@ describe("profile API", () => {
           event: "operator.error",
           level: "error",
           code: operatorCode,
+          request_id: "profile-dependency-failure-id",
         });
       }
     },
   );
 
-  it("runs normalized create/get/empty patch/update/delete with stable headers", async () => {
+  it("runs normalized create/get/no-op patch/update/delete against real D1", async () => {
     const owner = subject();
     trackedSubjects.add(owner);
     const times = [
@@ -208,153 +264,180 @@ describe("profile API", () => {
 
     const created = await request(
       app,
-      "/v1/profile",
-      jsonRequest("POST", {
-        first_name: "Ada",
-        last_name: "Lovelace",
-        email: " ADA@example.com ",
-        phone_number: " +358401234567 ",
-        terms: true,
-      }),
+      PROFILES_PATH,
+      jsonApiRequest("POST", createDocument(validCreateAttributes)),
     );
     expect(created.status).toBe(201);
-    expect(created.headers.get("Location")).toBe("/v1/profile");
-    expect(created.headers.get("Link")).toContain("/schemas/Profile.json");
+    expect(created.headers.get("Content-Type")).toBe(JSON_API_MEDIA_TYPE);
+    expect(created.headers.get("Location")).toBe(CURRENT_PROFILE_PATH);
     expect(created.headers.get("Access-Control-Allow-Origin")).toBeNull();
     const initial = await created.json();
     expect(initial).toEqual({
-      id: owner,
-      first_name: "Ada",
-      last_name: "Lovelace",
-      email: "ada@example.com",
-      phone_number: "+358401234567",
-      marketing: false,
-      terms: true,
-      created_at: "2026-07-22T10:00:00.000Z",
-      updated_at: "2026-07-22T10:00:00.000Z",
+      jsonapi: { version: "1.1" },
+      links: {
+        self: CURRENT_PROFILE_PATH,
+      },
+      data: {
+        type: "profiles",
+        id: owner,
+        attributes: {
+          firstName: "Ada",
+          lastName: "Lovelace",
+          email: "ada@example.com",
+          phoneNumber: "+358401234567",
+          marketingOptIn: false,
+          termsAccepted: true,
+          createdAt: "2026-07-22T10:00:00.000Z",
+          updatedAt: "2026-07-22T10:00:00.000Z",
+        },
+        links: { self: CURRENT_PROFILE_PATH },
+      },
     });
 
     const conflict = await request(
       app,
-      "/v1/profile",
-      jsonRequest("POST", {
-        first_name: "Grace",
-        last_name: "Hopper",
-        email: "grace@example.com",
-        phone_number: "+12025550123",
-        terms: true,
-      }),
+      PROFILES_PATH,
+      jsonApiRequest(
+        "POST",
+        createDocument({
+          ...validCreateAttributes,
+          firstName: "Grace",
+          lastName: "Hopper",
+          email: "grace@example.com",
+        }),
+      ),
     );
     expect(conflict.status).toBe(409);
-    expect(await conflict.json()).toMatchObject({
-      title: "Conflict",
-      status: 409,
-      detail: "Profile already exists",
+    await expect(conflict.json()).resolves.toMatchObject({
+      errors: [
+        {
+          status: "409",
+          code: "profile_conflict",
+          detail: "Profile already exists",
+        },
+      ],
     });
 
-    const get = await request(app, "/v1/profile", {
-      headers: {
-        Accept: "application/json",
-        "Cf-Access-Jwt-Assertion": "signed-test-assertion",
-      },
+    const get = await request(app, CURRENT_PROFILE_PATH, {
+      headers: authenticatedHeaders(),
     });
     expect(get.status).toBe(200);
-    expect(await get.json()).toEqual(initial);
+    await expect(get.json()).resolves.toEqual(initial);
 
-    const emptyPatch = await request(app, "/v1/profile", jsonRequest("PATCH", {}));
-    expect(emptyPatch.status).toBe(200);
-    expect(await emptyPatch.json()).toEqual(initial);
+    const noOpPatch = await request(
+      app,
+      CURRENT_PROFILE_PATH,
+      jsonApiRequest("PATCH", updateDocument(owner)),
+    );
+    expect(noOpPatch.status).toBe(200);
+    await expect(noOpPatch.json()).resolves.toEqual(initial);
 
     const updated = await request(
       app,
-      "/v1/profile",
-      jsonRequest("PATCH", { first_name: "Grace", marketing: true }),
+      CURRENT_PROFILE_PATH,
+      jsonApiRequest("PATCH", updateDocument(owner, { firstName: "Grace", marketingOptIn: true })),
     );
     expect(updated.status).toBe(200);
-    expect(await updated.json()).toMatchObject({
-      first_name: "Grace",
-      marketing: true,
-      created_at: "2026-07-22T10:00:00.000Z",
-      updated_at: "2026-07-22T11:00:00.000Z",
-    });
-
-    const deleted = await request(app, "/v1/profile", {
-      method: "DELETE",
-      headers: {
-        Accept: "text/plain",
-        "Cf-Access-Jwt-Assertion": "signed-test-assertion",
+    await expect(updated.json()).resolves.toMatchObject({
+      data: {
+        id: owner,
+        attributes: {
+          firstName: "Grace",
+          marketingOptIn: true,
+          createdAt: "2026-07-22T10:00:00.000Z",
+          updatedAt: "2026-07-22T11:00:00.000Z",
+        },
       },
     });
+
+    const deleted = await request(app, CURRENT_PROFILE_PATH, {
+      method: "DELETE",
+      headers: authenticatedHeaders(),
+    });
     expect(deleted.status).toBe(204);
+    expect(deleted.headers.get("Content-Type")).toBeNull();
     expect(await deleted.text()).toBe("");
 
-    const missing = await request(app, "/v1/profile", {
-      headers: { "Cf-Access-Jwt-Assertion": "signed-test-assertion" },
+    const missing = await request(app, CURRENT_PROFILE_PATH, {
+      headers: authenticatedHeaders(),
     });
     expect(missing.status).toBe(404);
     expect(times).toHaveLength(0);
   });
 
-  it("rejects method, negotiation, origin, and content policy before authentication", async () => {
+  it("enforces method, negotiation, origin, and content policy before authentication", async () => {
     const verifier = vi.fn(async () => ({ sub: "unreachable" }));
-    const app = createApp({ accessVerifier: verifier, maximumRequestBytes: 16 });
+    const app = createApp({ accessVerifier: verifier, maximumRequestBytes: 32 });
 
-    const method = await request(app, "/v1/profile", { method: "OPTIONS" });
-    expect(method.status).toBe(405);
-    expect(method.headers.get("Allow")).toBe("GET, POST, PATCH, DELETE");
+    const collectionMethod = await request(app, PROFILES_PATH, {
+      method: "OPTIONS",
+      headers: { Accept: JSON_API_MEDIA_TYPE },
+    });
+    expect(collectionMethod.status).toBe(405);
+    expect(collectionMethod.headers.get("Allow")).toBe("POST");
 
-    const unacceptable = await request(app, "/v1/profile", {
+    const resourceMethod = await request(app, CURRENT_PROFILE_PATH, {
+      method: "OPTIONS",
+      headers: { Accept: JSON_API_MEDIA_TYPE },
+    });
+    expect(resourceMethod.status).toBe(405);
+    expect(resourceMethod.headers.get("Allow")).toBe("GET, PATCH, DELETE");
+
+    const unacceptable = await request(app, PROFILES_PATH, {
       method: "POST",
-      headers: { Accept: "text/plain" },
+      headers: { Accept: "application/json" },
     });
     expect(unacceptable.status).toBe(406);
 
-    const crossOrigin = await request(app, "/v1/profile", {
+    const crossOrigin = await request(app, PROFILES_PATH, {
       method: "POST",
-      headers: { Accept: "application/json", Origin: "https://attacker.invalid" },
+      headers: { Accept: JSON_API_MEDIA_TYPE, Origin: "https://attacker.invalid" },
     });
     expect(crossOrigin.status).toBe(403);
 
-    const unsupported = await request(app, "/v1/profile", {
+    const unsupported = await request(app, PROFILES_PATH, {
       method: "POST",
-      headers: { Accept: "application/json", "Content-Type": "text/plain" },
-      body: "not json",
+      headers: {
+        Accept: JSON_API_MEDIA_TYPE,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
     });
     expect(unsupported.status).toBe(415);
 
-    const oversized = await request(app, "/v1/profile", {
+    const oversized = await request(app, PROFILES_PATH, {
       method: "POST",
-      headers: { Accept: "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({ value: "larger than sixteen bytes" }),
+      headers: {
+        Accept: JSON_API_MEDIA_TYPE,
+        "Content-Type": JSON_API_MEDIA_TYPE,
+      },
+      body: JSON.stringify({ data: { value: "larger than thirty-two bytes" } }),
     });
     expect(oversized.status).toBe(413);
     expect(verifier).not.toHaveBeenCalled();
   });
 
-  it("authenticates before JSON syntax validation and never mutates on malformed input", async () => {
+  it("authenticates before JSON syntax validation and never mutates malformed input", async () => {
     const owner = subject();
     trackedSubjects.add(owner);
     const verifier = vi.fn(async () => ({ sub: owner }));
     const app = createApp({ accessVerifier: verifier });
-    const malformed = await request(app, "/v1/profile", {
+    const headers = {
+      Accept: JSON_API_MEDIA_TYPE,
+      "Cf-Access-Jwt-Assertion": "value-is-verified-by-test-seam",
+      "Content-Type": JSON_API_MEDIA_TYPE,
+    };
+    const malformed = await request(app, PROFILES_PATH, {
       method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Cf-Access-Jwt-Assertion": "value-is-verified-by-test-seam",
-        "Content-Type": "application/json",
-      },
+      headers,
       body: "{",
     });
-    expect(malformed.status).toBe(422);
-    const empty = await request(app, "/v1/profile", {
+    expect(malformed.status).toBe(400);
+    const empty = await request(app, PROFILES_PATH, {
       method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Cf-Access-Jwt-Assertion": "value-is-verified-by-test-seam",
-        "Content-Type": "application/json",
-      },
+      headers,
     });
-    expect(empty.status).toBe(422);
+    expect(empty.status).toBe(400);
     expect(verifier).toHaveBeenCalledTimes(2);
     const count = await database
       .prepare("SELECT COUNT(*) AS count FROM profiles WHERE id = ?")
@@ -365,65 +448,113 @@ describe("profile API", () => {
 
   it.each([
     [
-      "POST terms string",
+      "create termsAccepted string",
+      PROFILES_PATH,
       "POST",
-      {
-        first_name: "Ada",
-        last_name: "Lovelace",
-        email: "ada@example.com",
-        phone_number: "+12025550123",
-        terms: "true",
-      },
-      "body.terms",
+      createDocument({ ...validCreateAttributes, termsAccepted: "true" }),
+      "/data/attributes/termsAccepted",
     ],
     [
-      "POST numeric marketing",
+      "create numeric marketingOptIn",
+      PROFILES_PATH,
       "POST",
-      {
-        first_name: "Ada",
-        last_name: "Lovelace",
-        email: "ada@example.com",
-        phone_number: "+12025550123",
-        marketing: 1,
-        terms: true,
-      },
-      "body.marketing",
+      createDocument({ ...validCreateAttributes, marketingOptIn: 1 }),
+      "/data/attributes/marketingOptIn",
     ],
     [
-      "POST Unicode phone digits",
+      "create Unicode phone digits",
+      PROFILES_PATH,
       "POST",
-      {
-        first_name: "Ada",
-        last_name: "Lovelace",
-        email: "ada@example.com",
-        phone_number: "+1١٢٣٤٥٦",
-        terms: true,
-      },
-      "body.phone_number",
+      createDocument({ ...validCreateAttributes, phoneNumber: "+1١٢٣٤٥٦" }),
+      "/data/attributes/phoneNumber",
     ],
     [
-      "POST unknown camelCase field",
+      "create name with surrounding whitespace",
+      PROFILES_PATH,
       "POST",
-      {
-        first_name: "Ada",
-        last_name: "Lovelace",
-        email: "ada@example.com",
-        phone_number: "+12025550123",
-        terms: true,
-        firstName: "caller override",
-      },
-      "body.firstName",
+      createDocument({ ...validCreateAttributes, firstName: " Ada " }),
+      "/data/attributes/firstName",
     ],
-    ["PATCH explicit null", "PATCH", { first_name: null }, "body.first_name"],
-    ["PATCH forbidden terms", "PATCH", { terms: true }, "body.terms"],
-    ["PATCH caller id", "PATCH", { id: "caller-id" }, "body.id"],
     [
-      "PATCH caller timestamp",
+      "create name with a control character",
+      PROFILES_PATH,
+      "POST",
+      createDocument({ ...validCreateAttributes, firstName: "Ada\nLovelace" }),
+      "/data/attributes/firstName",
+    ],
+    [
+      "create legacy snake-case member",
+      PROFILES_PATH,
+      "POST",
+      createDocument({ ...validCreateAttributes, first_name: "legacy" }),
+      "/data/attributes/first_name",
+    ],
+    [
+      "patch explicit null",
+      CURRENT_PROFILE_PATH,
       "PATCH",
-      { updated_at: "2026-07-22T12:00:00.000Z" },
-      "body.updated_at",
+      updateDocument("strict-shape-subject", { firstName: null }),
+      "/data/attributes/firstName",
     ],
-  ])("rejects strict wire shape without coercion: %s", async (_name, method, body, location) => {
+    [
+      "patch immutable termsAccepted",
+      CURRENT_PROFILE_PATH,
+      "PATCH",
+      updateDocument("strict-shape-subject", { termsAccepted: true }),
+      "/data/attributes/termsAccepted",
+    ],
+    [
+      "patch caller timestamp",
+      CURRENT_PROFILE_PATH,
+      "PATCH",
+      updateDocument("strict-shape-subject", {
+        updatedAt: "2026-07-22T12:00:00.000Z",
+      }),
+      "/data/attributes/updatedAt",
+    ],
+  ])(
+    "rejects strict camelCase resource attributes without coercion: %s",
+    async (_name, path, method, document, pointer) => {
+      const profileRepository: ProfileRepository = {
+        create: vi.fn(async () => undefined),
+        get: vi.fn(async () => undefined),
+        update: vi.fn(async () => undefined),
+        delete: vi.fn(async () => false),
+      };
+      const app = createApp({
+        accessVerifier: async () => ({ sub: "strict-shape-subject" }),
+        profileRepositoryFactory: () => profileRepository,
+      });
+      const response = await request(app, path, {
+        method,
+        headers: {
+          Accept: JSON_API_MEDIA_TYPE,
+          "Cf-Access-Jwt-Assertion": "test",
+          "Content-Type": JSON_API_MEDIA_TYPE,
+        },
+        body: JSON.stringify(document),
+      });
+      const payload = (await response.json()) as {
+        errors: Array<{ source?: { pointer?: string } }>;
+      };
+
+      expect(response.status).toBe(422);
+      expect(payload.errors).toContainEqual(expect.objectContaining({ source: { pointer } }));
+      expect(profileRepository.create).not.toHaveBeenCalled();
+      expect(profileRepository.get).not.toHaveBeenCalled();
+      expect(profileRepository.update).not.toHaveBeenCalled();
+      expect(profileRepository.delete).not.toHaveBeenCalled();
+    },
+  );
+
+  it("caps adversarial validation output without echoing submitted values or touching storage", async () => {
+    const privateValue = "private-validation-value-marker";
+    const unknownAttributes = Object.fromEntries(
+      Array.from({ length: 100 }, (_, index) => [
+        `unknown${String(index).padStart(3, "0")}`,
+        privateValue,
+      ]),
+    );
     const profileRepository: ProfileRepository = {
       create: vi.fn(async () => undefined),
       get: vi.fn(async () => undefined),
@@ -431,31 +562,112 @@ describe("profile API", () => {
       delete: vi.fn(async () => false),
     };
     const app = createApp({
-      accessVerifier: async () => ({ sub: "strict-shape-subject" }),
+      accessVerifier: async () => ({ sub: "validation-limit-subject" }),
       profileRepositoryFactory: () => profileRepository,
     });
-    const response = await request(app, "/v1/profile", {
-      method,
-      headers: {
-        Accept: "application/json",
+
+    const response = await request(
+      app,
+      PROFILES_PATH,
+      jsonApiRequest("POST", createDocument({ ...validCreateAttributes, ...unknownAttributes }), {
         "Cf-Access-Jwt-Assertion": "test",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    const problem = (await response.json()) as {
-      errors: Array<{ location: string; message: string }>;
+      }),
+    );
+    const document = (await response.json()) as {
+      errors: Array<{ status: string; code: string; detail: string }>;
     };
 
     expect(response.status).toBe(422);
-    expect(problem.errors).toContainEqual(expect.objectContaining({ location }));
+    expect(document.errors).toHaveLength(32);
+    expect(document.errors.at(-1)).toMatchObject({
+      status: "422",
+      code: "validation_failed",
+      detail: "Additional validation errors omitted",
+    });
+    expect(JSON.stringify(document)).not.toContain(privateValue);
     expect(profileRepository.create).not.toHaveBeenCalled();
     expect(profileRepository.get).not.toHaveBeenCalled();
     expect(profileRepository.update).not.toHaveBeenCalled();
     expect(profileRepository.delete).not.toHaveBeenCalled();
   });
 
-  it("turns corrupt repository output into a generic 500 before serialization", async () => {
+  it.each([
+    [
+      "client-generated create ID",
+      PROFILES_PATH,
+      "POST",
+      createDocument(validCreateAttributes, { id: crypto.randomUUID() }),
+      403,
+      "client_generated_id_unsupported",
+    ],
+    [
+      "wrong create type",
+      PROFILES_PATH,
+      "POST",
+      {
+        data: {
+          type: "people",
+          attributes: validCreateAttributes,
+        },
+      },
+      409,
+      "resource_type_mismatch",
+    ],
+    [
+      "wrong update type",
+      CURRENT_PROFILE_PATH,
+      "PATCH",
+      {
+        data: {
+          type: "people",
+          id: "strict-shape-subject",
+          attributes: { firstName: "Grace" },
+        },
+      },
+      409,
+      "resource_type_mismatch",
+    ],
+    [
+      "wrong update ID",
+      CURRENT_PROFILE_PATH,
+      "PATCH",
+      updateDocument("another-subject", { firstName: "Grace" }),
+      409,
+      "resource_identity_mismatch",
+    ],
+  ])(
+    "implements JSON:API identity conflict semantics: %s",
+    async (_name, path, method, document, status, code) => {
+      const profileRepository: ProfileRepository = {
+        create: vi.fn(async () => undefined),
+        get: vi.fn(async () => undefined),
+        update: vi.fn(async () => undefined),
+        delete: vi.fn(async () => false),
+      };
+      const app = createApp({
+        accessVerifier: async () => ({ sub: "strict-shape-subject" }),
+        profileRepositoryFactory: () => profileRepository,
+      });
+      const response = await request(
+        app,
+        path,
+        jsonApiRequest(method, document, {
+          "Cf-Access-Jwt-Assertion": "test",
+        }),
+      );
+
+      expect(response.status).toBe(status);
+      await expect(response.json()).resolves.toMatchObject({
+        errors: [{ status: String(status), code }],
+      });
+      expect(profileRepository.create).not.toHaveBeenCalled();
+      expect(profileRepository.get).not.toHaveBeenCalled();
+      expect(profileRepository.update).not.toHaveBeenCalled();
+      expect(profileRepository.delete).not.toHaveBeenCalled();
+    },
+  );
+
+  it("turns corrupt repository output into a generic JSON:API 500", async () => {
     const corruptRepository: ProfileRepository = {
       create: async () => undefined,
       get: async () => ({ id: "leak-marker" }) as never,
@@ -466,31 +678,21 @@ describe("profile API", () => {
       accessVerifier: async () => ({ sub: "subject" }),
       profileRepositoryFactory: () => corruptRepository,
     });
-    const response = await request(app, "/v1/profile", {
-      headers: { "Cf-Access-Jwt-Assertion": "test" },
+    const response = await request(app, CURRENT_PROFILE_PATH, {
+      headers: { Accept: JSON_API_MEDIA_TYPE, "Cf-Access-Jwt-Assertion": "test" },
     });
     expect(response.status).toBe(500);
+    expect(response.headers.get("Content-Type")).toBe(JSON_API_MEDIA_TYPE);
     expect(await response.text()).not.toContain("leak-marker");
   });
 
   it.each([
     [{ email: "ADA@EXAMPLE.COM" }, "ADA@EXAMPLE.COM"],
-    [{ phone_number: " +358401234567 " }, "+358401234567"],
-  ])("rejects output that would require request-style normalization", async (override, marker) => {
+    [{ phoneNumber: " +358401234567 " }, "+358401234567"],
+  ])("rejects output that would require request normalization", async (override, marker) => {
     const corruptRepository: ProfileRepository = {
       create: async () => undefined,
-      get: async () => ({
-        id: "subject",
-        first_name: "Ada",
-        last_name: "Lovelace",
-        email: "ada@example.com",
-        phone_number: "+358401234567",
-        marketing: false,
-        terms: true,
-        created_at: "2026-07-22T12:00:00.000Z",
-        updated_at: "2026-07-22T12:00:00.000Z",
-        ...override,
-      }),
+      get: async () => ({ ...storedProfile("subject"), ...override }),
       update: async () => undefined,
       delete: async () => false,
     };
@@ -498,8 +700,8 @@ describe("profile API", () => {
       accessVerifier: async () => ({ sub: "subject" }),
       profileRepositoryFactory: () => corruptRepository,
     });
-    const response = await request(app, "/v1/profile", {
-      headers: { "Cf-Access-Jwt-Assertion": "test" },
+    const response = await request(app, CURRENT_PROFILE_PATH, {
+      headers: { Accept: JSON_API_MEDIA_TYPE, "Cf-Access-Jwt-Assertion": "test" },
     });
 
     expect(response.status).toBe(500);

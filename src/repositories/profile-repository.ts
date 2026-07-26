@@ -1,35 +1,16 @@
+import { and, eq, ne, or, type SQL } from "drizzle-orm";
+import { type DrizzleD1Database, drizzle } from "drizzle-orm/d1";
 import { z } from "zod";
 
 import type { OperatorCode } from "../core/errors.js";
 import type { D1Metrics } from "../core/types.js";
+import { type NewProfileRow, type ProfileRow, profiles } from "../db/schema.js";
 import {
   type Profile,
   type ProfileCreate,
   ProfileSchema,
   type ProfileUpdate,
 } from "../models/profile.js";
-
-const PROFILE_COLUMNS =
-  "id, first_name, last_name, email, phone_number, marketing, terms, created_at, updated_at";
-
-const SELECT_PROFILE_BY_ID = `SELECT ${PROFILE_COLUMNS} FROM profiles WHERE id = ?`;
-
-const INSERT_PROFILE = `
-  INSERT INTO profiles (
-    id, first_name, last_name, email, phone_number, marketing, terms, created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  ON CONFLICT(id) DO NOTHING
-`;
-
-const DELETE_PROFILE = "DELETE FROM profiles WHERE id = ?";
-
-const UPDATE_FIELDS = [
-  "first_name",
-  "last_name",
-  "email",
-  "phone_number",
-  "marketing",
-] as const satisfies readonly (keyof ProfileUpdate)[];
 
 const MAX_PATCH_RETRIES = 2;
 const PATCH_RETRY_BASE_DELAY_MS = 25;
@@ -45,33 +26,31 @@ export const TRANSIENT_D1_ERROR_MESSAGES = [
 
 const transientD1ErrorMessages = new Set<string>(TRANSIENT_D1_ERROR_MESSAGES);
 
-const D1ProfileRowSchema = z
+const StoredProfileSchema = z
   .object({
     id: z.string(),
-    first_name: z.string(),
-    last_name: z.string(),
+    firstName: z.string(),
+    lastName: z.string(),
     email: z.string(),
-    phone_number: z.string(),
-    marketing: z.union([z.literal(0), z.literal(1)]),
-    terms: z.literal(1),
-    created_at: z.string(),
-    updated_at: z.string(),
+    phoneNumber: z.string(),
+    marketingOptIn: z.boolean(),
+    termsAccepted: z.literal(true),
+    createdAt: z.date(),
+    updatedAt: z.date(),
   })
   .strict();
 
-type D1ProfileRow = z.infer<typeof D1ProfileRowSchema>;
-
-export type D1MetadataCallback = (metadata: D1Metrics) => void;
+export type D1MetricsCallback = (metrics: D1Metrics) => void;
 
 export interface ProfileRepository {
-  create(id: string, input: ProfileCreate, timestamp: string): Promise<Profile | undefined>;
+  create(id: string, input: ProfileCreate, timestamp: Date): Promise<Profile | undefined>;
   get(id: string): Promise<Profile | undefined>;
-  update(id: string, input: ProfileUpdate, timestamp: string): Promise<Profile | undefined>;
+  update(id: string, input: ProfileUpdate, timestamp: Date): Promise<Profile | undefined>;
   delete(id: string): Promise<boolean>;
 }
 
-export interface D1ProfileRepositoryOptions {
-  readonly onMetadata?: D1MetadataCallback;
+export interface DrizzleProfileRepositoryOptions {
+  readonly onMetrics?: D1MetricsCallback;
   readonly sleep?: (milliseconds: number) => Promise<void>;
   readonly random?: () => number;
 }
@@ -127,82 +106,76 @@ const repositoryError = (error: unknown): ProfileRepositoryError => {
 };
 
 const profileFromRow = (value: unknown): Profile => {
-  const stored = D1ProfileRowSchema.safeParse(value);
+  const stored = StoredProfileSchema.safeParse(value);
   if (!stored.success) throw new ProfileRepositoryError();
 
-  const row: D1ProfileRow = stored.data;
+  const row = stored.data;
   const profile = ProfileSchema.safeParse({
-    ...row,
-    marketing: row.marketing === 1,
-    terms: true,
+    id: row.id,
+    firstName: row.firstName,
+    lastName: row.lastName,
+    email: row.email,
+    phoneNumber: row.phoneNumber,
+    marketingOptIn: row.marketingOptIn,
+    termsAccepted: row.termsAccepted,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   });
   if (!profile.success) throw new ProfileRepositoryError();
-  if (profile.data.email !== row.email || profile.data.phone_number !== row.phone_number) {
+  if (profile.data.email !== row.email || profile.data.phoneNumber !== row.phoneNumber) {
     throw new ProfileRepositoryError();
   }
   return profile.data;
 };
 
-const profilesFromResult = (result: D1Result<unknown>): Profile[] =>
-  result.results.map(profileFromRow);
-
-const oneProfile = (profiles: readonly Profile[]): Profile => {
-  const profile = profiles[0];
-  if (profiles.length !== 1 || profile === undefined) throw new ProfileRepositoryError();
-  return profile;
+const oneProfile = (rows: readonly ProfileRow[]): Profile => {
+  const row = rows[0];
+  if (rows.length !== 1 || row === undefined) throw new ProfileRepositoryError();
+  return profileFromRow(row);
 };
-
-const integerBoolean = (value: boolean): 0 | 1 => (value ? 1 : 0);
 
 const defaultSleep = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-export class D1ProfileRepository implements ProfileRepository {
-  readonly #database: D1Database;
-  readonly #onMetadata: D1MetadataCallback | undefined;
+export class DrizzleProfileRepository implements ProfileRepository {
+  readonly #database: DrizzleD1Database;
+  readonly #onMetrics: D1MetricsCallback | undefined;
   readonly #sleep: (milliseconds: number) => Promise<void>;
   readonly #random: () => number;
 
-  constructor(database: D1Database, options: D1ProfileRepositoryOptions = {}) {
-    this.#database = database;
-    this.#onMetadata = options.onMetadata;
+  constructor(database: D1Database, options: DrizzleProfileRepositoryOptions = {}) {
+    this.#database = drizzle(database);
+    this.#onMetrics = options.onMetrics;
     this.#sleep = options.sleep ?? defaultSleep;
     this.#random = options.random ?? Math.random;
   }
 
-  async create(id: string, input: ProfileCreate, timestamp: string): Promise<Profile | undefined> {
+  async create(id: string, input: ProfileCreate, timestamp: Date): Promise<Profile | undefined> {
+    const row: NewProfileRow = {
+      id,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      email: input.email,
+      phoneNumber: input.phoneNumber,
+      marketingOptIn: input.marketingOptIn,
+      termsAccepted: input.termsAccepted,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+
     try {
-      const results = await this.#database.batch<unknown>([
-        this.#database
-          .prepare(INSERT_PROFILE)
-          .bind(
-            id,
-            input.first_name,
-            input.last_name,
-            input.email,
-            input.phone_number,
-            integerBoolean(input.marketing),
-            integerBoolean(input.terms),
-            timestamp,
-            timestamp,
-          ),
-        this.#database.prepare(SELECT_PROFILE_BY_ID).bind(id),
-      ]);
-      this.#recordMetadata(results);
-
-      const mutation = results[0];
-      const selection = results[1];
-      if (mutation === undefined || selection === undefined || results.length !== 2) {
-        throw new ProfileRepositoryError();
-      }
-
-      const selectedProfiles = profilesFromResult(selection);
-      if (mutation.meta.changes === 0) {
-        oneProfile(selectedProfiles);
-        return undefined;
-      }
-      if (mutation.meta.changes !== 1) throw new ProfileRepositoryError();
-      return oneProfile(selectedProfiles);
+      const inserted = await this.#database
+        .insert(profiles)
+        .values(row)
+        .onConflictDoNothing({ target: profiles.id })
+        .returning();
+      this.#recordMetrics({
+        queryCount: 1,
+        rowsRead: inserted.length,
+        rowsWritten: inserted.length,
+      });
+      if (inserted.length === 0) return undefined;
+      return oneProfile(inserted);
     } catch (error) {
       throw repositoryError(error);
     }
@@ -210,51 +183,59 @@ export class D1ProfileRepository implements ProfileRepository {
 
   async get(id: string): Promise<Profile | undefined> {
     try {
-      const result = await this.#database.prepare(SELECT_PROFILE_BY_ID).bind(id).run<unknown>();
-      this.#recordMetadata([result]);
-
-      const profiles = profilesFromResult(result);
-      if (profiles.length === 0) return undefined;
-      return oneProfile(profiles);
+      const selected = await this.#database
+        .select()
+        .from(profiles)
+        .where(eq(profiles.id, id))
+        .limit(2);
+      this.#recordMetrics({ queryCount: 1, rowsRead: selected.length, rowsWritten: 0 });
+      if (selected.length === 0) return undefined;
+      return oneProfile(selected);
     } catch (error) {
       throw repositoryError(error);
     }
   }
 
-  async update(id: string, input: ProfileUpdate, timestamp: string): Promise<Profile | undefined> {
-    const fields = UPDATE_FIELDS.filter((field) => Object.hasOwn(input, field));
-    if (fields.length === 0) return this.get(id);
+  async update(id: string, input: ProfileUpdate, timestamp: Date): Promise<Profile | undefined> {
+    const changes: Partial<NewProfileRow> = { updatedAt: timestamp };
+    const changedPredicates: SQL[] = [];
+    if (input.firstName !== undefined) {
+      changes.firstName = input.firstName;
+      changedPredicates.push(ne(profiles.firstName, input.firstName));
+    }
+    if (input.lastName !== undefined) {
+      changes.lastName = input.lastName;
+      changedPredicates.push(ne(profiles.lastName, input.lastName));
+    }
+    if (input.email !== undefined) {
+      changes.email = input.email;
+      changedPredicates.push(ne(profiles.email, input.email));
+    }
+    if (input.phoneNumber !== undefined) {
+      changes.phoneNumber = input.phoneNumber;
+      changedPredicates.push(ne(profiles.phoneNumber, input.phoneNumber));
+    }
+    if (input.marketingOptIn !== undefined) {
+      changes.marketingOptIn = input.marketingOptIn;
+      changedPredicates.push(ne(profiles.marketingOptIn, input.marketingOptIn));
+    }
 
-    const assignments = fields.map((field) => `${field} = ?`);
-    assignments.push("updated_at = ?");
-    const sql = `UPDATE profiles SET ${assignments.join(", ")} WHERE id = ?`;
-    const values = fields.map((field) => {
-      const value = input[field];
-      return field === "marketing" && typeof value === "boolean" ? integerBoolean(value) : value;
-    });
-    const bindings = [...values, timestamp, id];
+    if (changedPredicates.length === 0) return this.get(id);
 
     for (let attempt = 0; attempt <= MAX_PATCH_RETRIES; attempt += 1) {
       try {
-        const results = await this.#database.batch<unknown>([
-          this.#database.prepare(sql).bind(...bindings),
-          this.#database.prepare(SELECT_PROFILE_BY_ID).bind(id),
-        ]);
-        this.#recordMetadata(results);
-
-        const mutation = results[0];
-        const selection = results[1];
-        if (mutation === undefined || selection === undefined || results.length !== 2) {
-          throw new ProfileRepositoryError();
-        }
-
-        const selectedProfiles = profilesFromResult(selection);
-        if (mutation.meta.changes === 0) {
-          if (selectedProfiles.length !== 0) throw new ProfileRepositoryError();
-          return undefined;
-        }
-        if (mutation.meta.changes !== 1) throw new ProfileRepositoryError();
-        return oneProfile(selectedProfiles);
+        const updated = await this.#database
+          .update(profiles)
+          .set(changes)
+          .where(and(eq(profiles.id, id), or(...changedPredicates)))
+          .returning();
+        this.#recordMetrics({
+          queryCount: 1,
+          rowsRead: updated.length,
+          rowsWritten: updated.length,
+        });
+        if (updated.length === 0) return this.get(id);
+        return oneProfile(updated);
       } catch (error) {
         if (error instanceof ProfileRepositoryError || !isRetryableD1Error(error)) {
           throw repositoryError(error);
@@ -276,12 +257,17 @@ export class D1ProfileRepository implements ProfileRepository {
 
   async delete(id: string): Promise<boolean> {
     try {
-      const result = await this.#database.prepare(DELETE_PROFILE).bind(id).run();
-      this.#recordMetadata([result]);
-
-      if (result.meta.changes === 0) return false;
-      if (result.meta.changes !== 1) throw new ProfileRepositoryError();
-      return true;
+      const deleted = await this.#database
+        .delete(profiles)
+        .where(eq(profiles.id, id))
+        .returning({ id: profiles.id });
+      this.#recordMetrics({
+        queryCount: 1,
+        rowsRead: deleted.length,
+        rowsWritten: deleted.length,
+      });
+      if (deleted.length > 1) throw new ProfileRepositoryError();
+      return deleted.length === 1;
     } catch (error) {
       throw repositoryError(error);
     }
@@ -294,20 +280,9 @@ export class D1ProfileRepository implements ProfileRepository {
     return Math.min(baseDelay + jitter, PATCH_RETRY_MAX_DELAY_MS);
   }
 
-  #recordMetadata(results: readonly D1Result<unknown>[]): void {
-    if (this.#onMetadata === undefined) return;
-
-    const metadata = results.reduce<D1Metrics>(
-      (total, result) => ({
-        durationMs: total.durationMs + result.meta.duration,
-        rowsRead: total.rowsRead + result.meta.rows_read,
-        rowsWritten: total.rowsWritten + result.meta.rows_written,
-      }),
-      { durationMs: 0, rowsRead: 0, rowsWritten: 0 },
-    );
-
+  #recordMetrics(metrics: D1Metrics): void {
     try {
-      this.#onMetadata(metadata);
+      this.#onMetrics?.(metrics);
     } catch {
       // Observability must never change a committed database outcome.
     }

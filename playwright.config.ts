@@ -24,17 +24,12 @@ export default defineConfig({
     video: "retain-on-failure",
   },
   webServer: {
-    command:
-      "pnpm exec wrangler dev --local --ip 127.0.0.1 --port 8787 --log-level error --show-interactive-dev-session=false --persist-to .wrangler/state/e2e --var ENVIRONMENT:test --var RATE_LIMIT_MODE:none",
+    command: "node test/e2e/server.mjs",
     url: `${baseURL}/health`,
     timeout: 120_000,
-    reuseExistingServer: !isCI,
+    reuseExistingServer: false,
     stdout: "pipe",
     stderr: "pipe",
-    env: {
-      WRANGLER_REGISTRY_PATH: ".wrangler/registry/e2e",
-      WRANGLER_WRITE_LOGS: "false",
-    },
   },
   projects: [
     {

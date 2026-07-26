@@ -22,8 +22,8 @@
     "noUnusedParameters": true,
     "useUnknownInCatchVariables": true,
     "isolatedModules": true,
-    "skipLibCheck": false,
-    "types": ["./worker-configuration.d.ts"]
+    "skipLibCheck": true,
+    "types": ["@cloudflare/workers-types"]
   },
   "include": ["src/**/*.ts"]
 }

@@ -8,14 +8,11 @@ import { requestId } from "../../src/core/request-context.js";
 import type { RuntimeBindings } from "../../src/core/types.js";
 import { ProfileCreateSchema } from "../../src/models/profile.js";
 import { decodeCursor, encodeCursor, InvalidCursorError } from "../../src/pagination/cursor.js";
-import { buildLinkHeader } from "../../src/pagination/link.js";
+import { buildPaginationLinks } from "../../src/pagination/link.js";
 
 const TEST_BINDINGS = {
   DB: {} as D1Database,
   ENVIRONMENT: "test",
-  DEPLOYMENT_PROFILE: "workers-dev-demo",
-  LOG_LEVEL: "error",
-  MANAGED_OAUTH_ENABLED: "false",
   RATE_LIMIT_MODE: "none",
 } satisfies RuntimeBindings;
 
@@ -74,29 +71,24 @@ describe("bounded contract properties", () => {
         (limit, category, nextItem, previousItem) => {
           const next = encodeCursor("item", `item-${String(nextItem).padStart(3, "0")}`);
           const previous = encodeCursor("item", `item-${String(previousItem).padStart(3, "0")}`);
-          const header = buildLinkHeader(
+          const links = buildPaginationLinks(
             "/v1/items",
-            { category, limit: String(limit) },
+            { filterCategory: category, pageLimit: String(limit) },
+            null,
             next,
             previous,
           );
-          const entries = header.split(", ");
-
-          expect(entries).toHaveLength(2);
-          expect(entries[0]).toContain('rel="next"');
-          expect(entries[1]).toContain('rel="prev"');
-          for (const [entry, cursor] of [
-            [entries[0], next],
-            [entries[1], previous],
+          for (const [target, cursor] of [
+            [links.next, next],
+            [links.prev, previous],
           ] as const) {
-            const target = entry?.match(/^<([^>]+)>;/u)?.[1];
-            if (target === undefined) throw new Error("Generated Link entry has no target");
+            if (target === undefined) throw new Error("Generated pagination link is missing");
             const url = new URL(target, "https://worker.example");
             expect(url.origin).toBe("https://worker.example");
             expect(url.pathname).toBe("/v1/items");
-            expect(url.searchParams.getAll("category")).toEqual([category]);
-            expect(url.searchParams.getAll("limit")).toEqual([String(limit)]);
-            expect(url.searchParams.getAll("cursor")).toEqual([cursor]);
+            expect(url.searchParams.getAll("filter[category]")).toEqual([category]);
+            expect(url.searchParams.getAll("page[limit]")).toEqual([String(limit)]);
+            expect(url.searchParams.getAll("page[cursor]")).toEqual([cursor]);
           }
         },
       ),
@@ -155,12 +147,12 @@ describe("bounded contract properties", () => {
         const origin = `https://${hostLabel}.example`;
         expect(() =>
           requireSameOriginForUnsafeProfile(
-            new Request(`${origin}/v1/profile`, { method: "POST", headers: { Origin: origin } }),
+            new Request(`${origin}/v1/profiles`, { method: "POST", headers: { Origin: origin } }),
           ),
         ).not.toThrow();
         expect(() =>
           requireSameOriginForUnsafeProfile(
-            new Request(`${origin}/v1/profile`, {
+            new Request(`${origin}/v1/profiles`, {
               method: "POST",
               headers: { Origin: `https://${hostLabel}.invalid` },
             }),
@@ -176,7 +168,7 @@ describe("bounded contract properties", () => {
       fc.property(
         fc
           .string({ maxLength: 32 })
-          .filter((value) => !["none", "workers-binding", "workers-binding+waf"].includes(value)),
+          .filter((value) => !["none", "workers-binding"].includes(value)),
         (rateLimitMode) => {
           expect(() =>
             parseRuntimeConfig({ ...TEST_BINDINGS, RATE_LIMIT_MODE: rateLimitMode }),
@@ -195,23 +187,23 @@ describe("bounded contract properties", () => {
         (countryDigit, remainder) => {
           const digits = `${countryDigit}${remainder.join("")}`;
           const base = {
-            first_name: "🙂".repeat(100),
-            last_name: "Lovelace",
+            firstName: "🙂".repeat(100),
+            lastName: "Lovelace",
             email: "ada@example.com",
-            phone_number: `+${digits}`,
-            terms: true,
+            phoneNumber: `+${digits}`,
+            termsAccepted: true,
           };
           expect(ProfileCreateSchema.safeParse(base).success).toBe(true);
           expect(
             ProfileCreateSchema.safeParse({
               ...base,
-              phone_number: `+${[...digits]
+              phoneNumber: `+${[...digits]
                 .map((digit) => String.fromCodePoint(0x0660 + Number(digit)))
                 .join("")}`,
             }).success,
           ).toBe(false);
           expect(
-            ProfileCreateSchema.safeParse({ ...base, first_name: "🙂".repeat(101) }).success,
+            ProfileCreateSchema.safeParse({ ...base, firstName: "🙂".repeat(101) }).success,
           ).toBe(false);
         },
       ),
@@ -233,11 +225,11 @@ describe("bounded contract properties", () => {
     ["user..dots@example.com", false, undefined],
   ])("freezes the pinned Zod email corpus for %s", (email, accepted, normalized) => {
     const result = ProfileCreateSchema.safeParse({
-      first_name: "Ada",
-      last_name: "Lovelace",
+      firstName: "Ada",
+      lastName: "Lovelace",
       email,
-      phone_number: "+12025550123",
-      terms: true,
+      phoneNumber: "+12025550123",
+      termsAccepted: true,
     });
     expect(result.success).toBe(accepted);
     if (result.success) expect(result.data.email).toBe(normalized);

@@ -1,4 +1,5 @@
-import { applyD1Migrations } from "cloudflare:test";
-import { env } from "cloudflare:workers";
+import { applyD1Migrations, env } from "cloudflare:test";
 
-await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+import { MIGRATIONS_TABLE } from "../infra/config.js";
+
+await applyD1Migrations(env.DB, env.TEST_MIGRATIONS, MIGRATIONS_TABLE);

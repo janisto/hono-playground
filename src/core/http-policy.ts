@@ -1,12 +1,12 @@
 import type { MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 
-import { precheckJsonBody } from "./body.js";
-import { requireAccept } from "./content-negotiation.js";
+import { precheckJsonApiBody } from "./body.js";
+import { requireAccept, requireJsonApiAccept } from "./content-negotiation.js";
 import { AppError } from "./errors.js";
 import { requireSameOriginForUnsafeProfile } from "./origin.js";
 import { enforcePublicRateLimit } from "./rate-limit.js";
-import { isRepresentationBearing, resolveRoute } from "./routes.js";
+import { isJsonApiRoute, isRepresentationBearing, resolveRoute } from "./routes.js";
 import type { AppEnvironment, RouteMetadata } from "./types.js";
 
 const BODY_METHODS = new Set(["POST", "PATCH"]);
@@ -15,15 +15,11 @@ const requiredRepresentation = (
   metadata: RouteMetadata,
 ): { mediaType: string; advertised: string } | undefined => {
   if (metadata.template === "/api-docs") return { mediaType: "text/html", advertised: "text/html" };
-  if (metadata.template === "/schemas/{schemaName}") {
-    return { mediaType: "application/schema+json", advertised: "application/schema+json" };
-  }
   if (metadata.template === "/openapi.json") {
     return { mediaType: "application/json", advertised: "application/json" };
   }
-  if (metadata.kind === "public" || metadata.kind.startsWith("profile")) {
+  if (metadata.kind === "public")
     return { mediaType: "application/json", advertised: "application/json" };
-  }
   return undefined;
 };
 
@@ -48,30 +44,38 @@ export const httpPolicy = (): MiddlewareHandler<AppEnvironment> => {
       });
     }
 
-    if (isRepresentationBearing(resolution.metadata, c.req.method)) {
-      const representation = requiredRepresentation(resolution.metadata);
-      if (representation !== undefined) {
-        requireAccept(
-          c.req.header("Accept") ?? null,
-          representation.mediaType,
-          representation.advertised,
-        );
+    if (isRepresentationBearing(resolution.metadata)) {
+      if (isJsonApiRoute(resolution.metadata)) {
+        requireJsonApiAccept(c.req.header("Accept") ?? null);
+      } else {
+        const representation = requiredRepresentation(resolution.metadata);
+        if (representation !== undefined) {
+          requireAccept(
+            c.req.header("Accept") ?? null,
+            representation.mediaType,
+            representation.advertised,
+          );
+        }
       }
     }
 
-    if (resolution.metadata.template === "/v1/profile") {
+    if (resolution.metadata.template.startsWith("/v1/profiles")) {
       requireSameOriginForUnsafeProfile(c.req.raw);
     }
 
-    if (resolution.metadata.kind === "public" || resolution.metadata.kind === "docs") {
+    if (
+      resolution.metadata.kind === "public" ||
+      resolution.metadata.kind === "resource" ||
+      resolution.metadata.kind === "docs"
+    ) {
       await enforcePublicRateLimit(c);
     }
 
-    const expectsJsonBody =
+    const expectsJsonApiBody =
       BODY_METHODS.has(c.req.method) &&
-      (resolution.metadata.template === "/v1/hello" ||
-        resolution.metadata.template === "/v1/profile");
-    if (!expectsJsonBody) {
+      (resolution.metadata.template === "/v1/profiles" ||
+        resolution.metadata.template === "/v1/profiles/current");
+    if (!expectsJsonApiBody) {
       await next();
       return;
     }
@@ -83,7 +87,7 @@ export const httpPolicy = (): MiddlewareHandler<AppEnvironment> => {
         throw payloadTooLarge();
       },
     })(c, async () => {
-      await precheckJsonBody(c.req.raw.clone(), maximumBytes);
+      await precheckJsonApiBody(c.req.raw.clone(), maximumBytes);
       await next();
     });
   };

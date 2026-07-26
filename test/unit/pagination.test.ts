@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import { ITEMS } from "../../src/data/items.js";
-import { ItemListSchema, ItemSchema } from "../../src/models/items.js";
+import { ItemCollectionDocumentSchema, ItemSchema } from "../../src/models/items.js";
+import { JSON_API_OBJECT } from "../../src/models/json-api.js";
 import {
   decodeCursor,
   encodeCursor,
   InvalidCursorError,
   MAX_CURSOR_LENGTH,
 } from "../../src/pagination/cursor.js";
-import { buildLinkHeader } from "../../src/pagination/link.js";
-import { getLastQueryValue, paginate } from "../../src/pagination/paginate.js";
+import { buildPaginationLinks } from "../../src/pagination/link.js";
+import { paginate } from "../../src/pagination/paginate.js";
 
 const paginateItems = (cursor: string | null = null, limit = 5) =>
   paginate({
@@ -31,7 +32,7 @@ describe("item fixture", () => {
       byte.toString(16).padStart(2, "0"),
     ).join("");
 
-    expect(hexadecimal).toBe("0f4e58e17f19c095b73a6eebf590e079e6531d56f647d320f701f984d3e0784d");
+    expect(hexadecimal).toBe("178e4947cf07061f3ff47a7e9e949d10f297a59f8f768191d33a16ade5c861c3");
   });
 
   it("contains the exact ordered 30-item reference data", () => {
@@ -40,18 +41,18 @@ describe("item fixture", () => {
       id: "item-001",
       name: "Alpha Widget",
       category: "electronics",
-      price: 29.99,
-      in_stock: true,
-      created_at: "2024-01-15T10:30:00.000Z",
+      priceCents: 2999,
+      inStock: true,
+      createdAt: "2024-01-15T10:30:00.000Z",
       description: "A versatile electronic widget for everyday use",
     });
     expect(ITEMS.at(-1)).toEqual({
       id: "item-030",
       name: "Zeta Premium Cable",
       category: "accessories",
-      price: 19.99,
-      in_stock: true,
-      created_at: "2024-02-14T15:30:00.000Z",
+      priceCents: 1999,
+      inStock: true,
+      createdAt: "2024-02-14T15:30:00.000Z",
       description: "Gold-plated premium cable",
     });
     expect(ITEMS.map((item) => item.id)).toEqual(
@@ -75,10 +76,22 @@ describe("item fixture", () => {
 
   it("is runtime validated and immutable", () => {
     expect(ItemSchema.array().safeParse(ITEMS).success).toBe(true);
-    expect(ItemListSchema.safeParse({ items: ITEMS, total: 30 }).success).toBe(true);
+    const first = ITEMS[0];
+    if (first === undefined) throw new Error("missing fixture");
+    const { id, ...attributes } = first;
+    expect(
+      ItemCollectionDocumentSchema.safeParse({
+        jsonapi: JSON_API_OBJECT,
+        links: {
+          self: "/v1/items?page%5Blimit%5D=20",
+        },
+        data: [{ type: "items", id, attributes, links: { self: `/v1/items/${id}` } }],
+        meta: { total: 30 },
+      }).success,
+    ).toBe(true);
     expect(Object.isFrozen(ITEMS)).toBe(true);
     expect(ITEMS.every((item) => Object.isFrozen(item))).toBe(true);
-    expect(ItemSchema.safeParse({ ...ITEMS[0], price: -1 }).success).toBe(false);
+    expect(ItemSchema.safeParse({ ...ITEMS[0], priceCents: -1 }).success).toBe(false);
     expect(ItemSchema.safeParse({ ...ITEMS[0], unexpected: true }).success).toBe(false);
   });
 });
@@ -99,9 +112,9 @@ describe("cursor codec", () => {
     },
   );
 
-  it("treats an empty query value as the first-page sentinel", () => {
-    expect(decodeCursor("")).toEqual({ cursorType: "", value: "" });
-    expect(paginateItems("").items[0]?.id).toBe("item-001");
+  it("rejects an empty cursor instead of aliasing the first page", () => {
+    expect(() => decodeCursor("")).toThrowError(new InvalidCursorError("invalid cursor format"));
+    expect(() => paginateItems("")).toThrowError(new InvalidCursorError("invalid cursor format"));
   });
 
   it.each([
@@ -142,7 +155,10 @@ describe("pagination", () => {
     expect(result.total).toBe(30);
     expect(result.nextCursor).toBe("aXRlbTppdGVtLTAwNQ");
     expect(result.prevCursor).toBeNull();
-    expect(result.linkHeader).toBe('</v1/items?limit=5&cursor=aXRlbTppdGVtLTAwNQ>; rel="next"');
+    expect(result.links).toEqual({
+      self: "/v1/items?page%5Blimit%5D=5",
+      next: "/v1/items?page%5Blimit%5D=5&page%5Bcursor%5D=aXRlbTppdGVtLTAwNQ",
+    });
   });
 
   it("returns the second page with next followed by a cursorless prev", () => {
@@ -151,9 +167,11 @@ describe("pagination", () => {
     expect(result.items[0]?.id).toBe("item-006");
     expect(result.nextCursor).toBe("aXRlbTppdGVtLTAxMA");
     expect(result.prevCursor).toBe("");
-    expect(result.linkHeader).toBe(
-      '</v1/items?limit=5&cursor=aXRlbTppdGVtLTAxMA>; rel="next", </v1/items?limit=5>; rel="prev"',
-    );
+    expect(result.links).toEqual({
+      self: "/v1/items?page%5Blimit%5D=5&page%5Bcursor%5D=aXRlbTppdGVtLTAwNQ",
+      next: "/v1/items?page%5Blimit%5D=5&page%5Bcursor%5D=aXRlbTppdGVtLTAxMA",
+      prev: "/v1/items?page%5Blimit%5D=5",
+    });
   });
 
   it("preserves the reference prev calculation for an unaligned cursor", () => {
@@ -170,9 +188,10 @@ describe("pagination", () => {
     expect(result.total).toBe(30);
     expect(result.nextCursor).toBeNull();
     expect(result.prevCursor).toBe(encodeCursor("item", "item-010"));
-    expect(result.linkHeader).toBe(
-      `</v1/items?limit=20&cursor=${encodeCursor("item", "item-010")}>; rel="prev"`,
-    );
+    expect(result.links).toEqual({
+      self: `/v1/items?page%5Blimit%5D=20&page%5Bcursor%5D=${encodeCursor("item", "item-030")}`,
+      prev: `/v1/items?page%5Blimit%5D=20&page%5Bcursor%5D=${encodeCursor("item", "item-010")}`,
+    });
   });
 
   it("uses the filtered sequence for cursor lookup, slicing, and total", () => {
@@ -189,7 +208,9 @@ describe("pagination", () => {
 
     expect(result.items.map((item) => item.id)).toEqual(["item-008", "item-009", "item-010"]);
     expect(result.total).toBe(13);
-    expect(result.linkHeader).toContain("category=electronics&limit=3&cursor=");
+    expect(result.links.next).toContain(
+      "filter%5Bcategory%5D=electronics&page%5Blimit%5D=3&page%5Bcursor%5D=",
+    );
   });
 
   it.each([
@@ -206,27 +227,27 @@ describe("pagination", () => {
   });
 });
 
-describe("query and link helpers", () => {
-  it("selects the last repeated scalar query value and preserves empty values", () => {
-    const search = new URLSearchParams("limit=2&limit=5&cursor=first&cursor=&unknown=x");
-
-    expect(getLastQueryValue(search, "limit")).toBe("5");
-    expect(getLastQueryValue(search, "cursor")).toBe("");
-    expect(getLastQueryValue(search, "category")).toBeUndefined();
-  });
-
-  it("builds next before prev and emits each supported parameter once", () => {
+describe("pagination link helpers", () => {
+  it("builds self, next, and prev with each supported parameter once", () => {
     expect(
-      buildLinkHeader("/v1/items", { category: "electronics", limit: "5" }, "next-cursor", ""),
-    ).toBe(
-      '</v1/items?category=electronics&limit=5&cursor=next-cursor>; rel="next", </v1/items?category=electronics&limit=5>; rel="prev"',
-    );
+      buildPaginationLinks(
+        "/v1/items",
+        { filterCategory: "electronics", pageLimit: "5" },
+        "current-cursor",
+        "next-cursor",
+        "",
+      ),
+    ).toEqual({
+      self: "/v1/items?filter%5Bcategory%5D=electronics&page%5Blimit%5D=5&page%5Bcursor%5D=current-cursor",
+      next: "/v1/items?filter%5Bcategory%5D=electronics&page%5Blimit%5D=5&page%5Bcursor%5D=next-cursor",
+      prev: "/v1/items?filter%5Bcategory%5D=electronics&page%5Blimit%5D=5",
+    });
   });
 
   it.each(["https://example.com/v1/items", "//example.com/v1/items", "/v1/items?x=1"])(
     "rejects host-bearing or pre-queried base paths: %s",
     (basePath) => {
-      expect(() => buildLinkHeader(basePath, { limit: "5" }, null, null)).toThrow(
+      expect(() => buildPaginationLinks(basePath, { pageLimit: "5" }, null, null, null)).toThrow(
         "pagination base path must be a relative absolute-path reference",
       );
     },

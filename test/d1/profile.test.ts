@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AppError } from "../../src/core/errors.js";
 import { type ProfileCreate, ProfileCreateSchema } from "../../src/models/profile.js";
 import {
-  D1ProfileRepository,
+  DrizzleProfileRepository,
   ProfileRepositoryError,
 } from "../../src/repositories/profile-repository.js";
 import { ProfileService } from "../../src/services/profile-service.js";
@@ -20,11 +20,11 @@ const profileId = (): string => {
 
 const input = (overrides: Partial<ProfileCreate> = {}): ProfileCreate =>
   ProfileCreateSchema.parse({
-    first_name: "Ada",
-    last_name: "Lovelace",
+    firstName: "Ada",
+    lastName: "Lovelace",
     email: "ADA@example.com ",
-    phone_number: " +358401234567 ",
-    terms: true,
+    phoneNumber: " +358401234567 ",
+    termsAccepted: true,
     ...overrides,
   });
 
@@ -48,10 +48,14 @@ afterEach(async () => {
 });
 
 describe("D1 profile lifecycle", () => {
-  it("creates, reads, patches, preserves created_at, reads an empty patch, and deletes", async () => {
+  it("creates, reads, patches, preserves timestamps on no-ops, and deletes", async () => {
     const id = profileId();
-    const timestamps = [new Date("2026-07-22T10:00:00.000Z"), new Date("2026-07-22T11:00:00.000Z")];
-    const repository = new D1ProfileRepository(database);
+    const timestamps = [
+      new Date("2026-07-22T10:00:00.000Z"),
+      new Date("2026-07-22T11:00:00.000Z"),
+      new Date("2026-07-22T12:00:00.000Z"),
+    ];
+    const repository = new DrizzleProfileRepository(database);
     const service = new ProfileService(repository, () => {
       const timestamp = timestamps.shift();
       if (timestamp === undefined) throw new Error("unexpected clock read");
@@ -61,26 +65,29 @@ describe("D1 profile lifecycle", () => {
     const created = await service.create(id, input());
     expect(created).toEqual({
       id,
-      first_name: "Ada",
-      last_name: "Lovelace",
+      firstName: "Ada",
+      lastName: "Lovelace",
       email: "ada@example.com",
-      phone_number: "+358401234567",
-      marketing: false,
-      terms: true,
-      created_at: "2026-07-22T10:00:00.000Z",
-      updated_at: "2026-07-22T10:00:00.000Z",
+      phoneNumber: "+358401234567",
+      marketingOptIn: false,
+      termsAccepted: true,
+      createdAt: "2026-07-22T10:00:00.000Z",
+      updatedAt: "2026-07-22T10:00:00.000Z",
     });
     await expect(service.get(id)).resolves.toEqual(created);
 
-    const updated = await service.update(id, { first_name: "Grace", marketing: true });
+    const updated = await service.update(id, { firstName: "Grace", marketingOptIn: true });
     expect(updated).toMatchObject({
       id,
-      first_name: "Grace",
-      marketing: true,
-      created_at: created.created_at,
-      updated_at: "2026-07-22T11:00:00.000Z",
+      firstName: "Grace",
+      marketingOptIn: true,
+      createdAt: created.createdAt,
+      updatedAt: "2026-07-22T11:00:00.000Z",
     });
     await expect(service.update(id, {})).resolves.toEqual(updated);
+    await expect(service.update(id, { firstName: "Grace", marketingOptIn: true })).resolves.toEqual(
+      updated,
+    );
     expect(timestamps).toHaveLength(0);
 
     await expect(service.delete(id)).resolves.toBeUndefined();
@@ -96,13 +103,13 @@ describe("D1 profile lifecycle", () => {
   it("serializes concurrent creates into one success, one conflict, and one stored row", async () => {
     const id = profileId();
     const service = new ProfileService(
-      new D1ProfileRepository(database),
+      new DrizzleProfileRepository(database),
       () => new Date("2026-07-22T10:00:00.000Z"),
     );
 
     const outcomes = await Promise.allSettled([
-      service.create(id, input({ first_name: "Ada" })),
-      service.create(id, input({ first_name: "Grace" })),
+      service.create(id, input({ firstName: "Ada" })),
+      service.create(id, input({ firstName: "Grace" })),
     ]);
     const successes = outcomes.filter((outcome) => outcome.status === "fulfilled");
     const failures = outcomes.filter((outcome) => outcome.status === "rejected");
@@ -119,41 +126,41 @@ describe("D1 profile lifecycle", () => {
     expect(count).toBe(1);
     await expect(service.get(id)).resolves.toMatchObject({
       id,
-      first_name: expect.stringMatching(/^(Ada|Grace)$/),
+      firstName: expect.stringMatching(/^(Ada|Grace)$/),
     });
   });
 
   it("keeps concurrent PATCH behavior last-commit-wins with internally consistent snapshots", async () => {
     const id = profileId();
-    const repository = new D1ProfileRepository(database);
-    await repository.create(id, input(), "2026-07-22T10:00:00.000Z");
+    const repository = new DrizzleProfileRepository(database);
+    await repository.create(id, input(), new Date("2026-07-22T10:00:00.000Z"));
 
     const [first, second] = await Promise.all([
-      repository.update(id, { first_name: "First" }, "2026-07-22T11:00:00.001Z"),
-      repository.update(id, { first_name: "Second" }, "2026-07-22T11:00:00.002Z"),
+      repository.update(id, { firstName: "First" }, new Date("2026-07-22T11:00:00.001Z")),
+      repository.update(id, { firstName: "Second" }, new Date("2026-07-22T11:00:00.002Z")),
     ]);
 
     expect(first).toMatchObject({
-      first_name: "First",
-      updated_at: "2026-07-22T11:00:00.001Z",
+      firstName: "First",
+      updatedAt: "2026-07-22T11:00:00.001Z",
     });
     expect(second).toMatchObject({
-      first_name: "Second",
-      updated_at: "2026-07-22T11:00:00.002Z",
+      firstName: "Second",
+      updatedAt: "2026-07-22T11:00:00.002Z",
     });
 
     const final = await repository.get(id);
     expect([
       ["First", "2026-07-22T11:00:00.001Z"],
       ["Second", "2026-07-22T11:00:00.002Z"],
-    ]).toContainEqual([final?.first_name, final?.updated_at]);
+    ]).toContainEqual([final?.firstName, final?.updatedAt]);
   });
 
   it("does not resurrect a row across create/delete or PATCH/delete races", async () => {
     const createDeleteId = profileId();
-    const repository = new D1ProfileRepository(database);
+    const repository = new DrizzleProfileRepository(database);
     const createDelete = await Promise.all([
-      repository.create(createDeleteId, input(), "2026-07-22T10:00:00.000Z"),
+      repository.create(createDeleteId, input(), new Date("2026-07-22T10:00:00.000Z")),
       repository.delete(createDeleteId),
     ]);
     const [, deletedDuringCreate] = createDelete;
@@ -161,34 +168,37 @@ describe("D1 profile lifecycle", () => {
     expect(afterCreateDelete === undefined).toBe(deletedDuringCreate);
 
     const patchDeleteId = profileId();
-    await repository.create(patchDeleteId, input(), "2026-07-22T10:00:00.000Z");
+    await repository.create(patchDeleteId, input(), new Date("2026-07-22T10:00:00.000Z"));
     const [patched, deletedDuringPatch] = await Promise.all([
-      repository.update(patchDeleteId, { first_name: "Grace" }, "2026-07-22T11:00:00.000Z"),
+      repository.update(
+        patchDeleteId,
+        { firstName: "Grace" },
+        new Date("2026-07-22T11:00:00.000Z"),
+      ),
       repository.delete(patchDeleteId),
     ]);
     expect(deletedDuringPatch).toBe(true);
-    expect(patched === undefined || patched.first_name === "Grace").toBe(true);
+    expect(patched === undefined || patched.firstName === "Grace").toBe(true);
     await expect(repository.get(patchDeleteId)).resolves.toBeUndefined();
   });
 
   it("reports bounded real D1 metadata for each repository operation", async () => {
     const id = profileId();
-    const observed: Array<{ durationMs: number; rowsRead: number; rowsWritten: number }> = [];
-    const repository = new D1ProfileRepository(database, {
-      onMetadata: (metadata) => observed.push(metadata),
+    const observed: Array<{ queryCount: number; rowsRead: number; rowsWritten: number }> = [];
+    const repository = new DrizzleProfileRepository(database, {
+      onMetrics: (metrics) => observed.push(metrics),
     });
 
-    await repository.create(id, input(), "2026-07-22T10:00:00.000Z");
+    await repository.create(id, input(), new Date("2026-07-22T10:00:00.000Z"));
     await repository.get(id);
-    await repository.update(id, { marketing: true }, "2026-07-22T11:00:00.000Z");
+    await repository.update(id, { marketingOptIn: true }, new Date("2026-07-22T11:00:00.000Z"));
     await repository.delete(id);
 
     expect(observed).toHaveLength(4);
     for (const metadata of observed) {
-      expect(metadata.durationMs).toBeGreaterThanOrEqual(0);
+      expect(metadata.queryCount).toBe(1);
       expect(metadata.rowsRead).toBeGreaterThanOrEqual(0);
       expect(metadata.rowsWritten).toBeGreaterThanOrEqual(0);
-      expect(Number.isFinite(metadata.durationMs)).toBe(true);
     }
     expect(observed[0]?.rowsWritten).toBeGreaterThanOrEqual(1);
     expect(observed[1]?.rowsRead).toBeGreaterThanOrEqual(1);
@@ -200,13 +210,14 @@ describe("D1 profile lifecycle", () => {
     const insert = (
       id: string,
       phoneNumber: string,
-      marketing: number,
-      terms: number,
+      marketingOptIn: number,
+      termsAccepted: number,
     ): Promise<D1Result<unknown>> =>
       database
         .prepare(
           `INSERT INTO profiles (
-            id, first_name, last_name, email, phone_number, marketing, terms, created_at, updated_at
+            id, first_name, last_name, email, phone_number, marketing_opt_in,
+            terms_accepted, created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
@@ -215,10 +226,10 @@ describe("D1 profile lifecycle", () => {
           "Lovelace",
           "ada@example.com",
           phoneNumber,
-          marketing,
-          terms,
-          "2026-07-22T10:00:00.000Z",
-          "2026-07-22T10:00:00.000Z",
+          marketingOptIn,
+          termsAccepted,
+          Date.parse("2026-07-22T10:00:00.000Z"),
+          Date.parse("2026-07-22T10:00:00.000Z"),
         )
         .run();
 
@@ -230,11 +241,11 @@ describe("D1 profile lifecycle", () => {
   it("maps absent update and delete operations to not found", async () => {
     const id = profileId();
     const service = new ProfileService(
-      new D1ProfileRepository(database),
+      new DrizzleProfileRepository(database),
       () => new Date("2026-07-22T10:00:00.000Z"),
     );
 
-    await expect(service.update(id, { marketing: true })).rejects.toMatchObject({
+    await expect(service.update(id, { marketingOptIn: true })).rejects.toMatchObject({
       status: 404,
       code: "not_found",
     });
@@ -249,7 +260,8 @@ describe("D1 profile lifecycle", () => {
     await database
       .prepare(
         `INSERT INTO profiles (
-        id, first_name, last_name, email, phone_number, marketing, terms, created_at, updated_at
+        id, first_name, last_name, email, phone_number, marketing_opt_in,
+        terms_accepted, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
@@ -260,12 +272,12 @@ describe("D1 profile lifecycle", () => {
         "+358401234567",
         0,
         1,
-        "2026-07-22T10:00:00.000Z",
-        "2026-07-22T10:00:00.000Z",
+        Date.parse("2026-07-22T10:00:00.000Z"),
+        Date.parse("2026-07-22T10:00:00.000Z"),
       )
       .run();
 
-    const repository = new D1ProfileRepository(database);
+    const repository = new DrizzleProfileRepository(database);
     await expect(repository.get(id)).rejects.toBeInstanceOf(ProfileRepositoryError);
 
     const error = await appError(new ProfileService(repository).get(id));
@@ -280,7 +292,7 @@ describe("D1 profile lifecycle", () => {
   it("does not hide non-primary-key constraint failures as conflicts", async () => {
     const id = `${profileId()}-${"x".repeat(128)}`;
     const service = new ProfileService(
-      new D1ProfileRepository(database),
+      new DrizzleProfileRepository(database),
       () => new Date("2026-07-22T10:00:00.000Z"),
     );
 

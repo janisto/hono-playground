@@ -215,8 +215,3 @@ export function createAccessVerifier(
     }
   };
 }
-
-export const verifyAccessAssertion = (
-  assertion: string | null | undefined,
-  input: AccessVerifierConfigInput,
-): Promise<VerifiedAccessIdentity> => createAccessVerifier(input)(assertion);

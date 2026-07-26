@@ -2,10 +2,9 @@ import type { MiddlewareHandler } from "hono";
 import { parseRuntimeConfig } from "./config.js";
 import { parseTraceParent, requestId } from "./request-context.js";
 import { resolveRoute } from "./routes.js";
-import { appendVary } from "./schema-links.js";
 import type { AppEnvironment, D1Metrics, RuntimeBindings } from "./types.js";
 
-const ZERO_D1: D1Metrics = { durationMs: 0, rowsRead: 0, rowsWritten: 0 };
+const ZERO_D1: D1Metrics = { queryCount: 0, rowsRead: 0, rowsWritten: 0 };
 
 const API_CSP = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 const DOCS_CSP = [
@@ -14,16 +13,27 @@ const DOCS_CSP = [
   "frame-ancestors 'none'",
   "form-action 'none'",
   "object-src 'none'",
-  "script-src 'self'",
-  "script-src-elem 'self'",
+  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+  "script-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
   "script-src-attr 'none'",
-  "style-src 'self'",
-  "style-src-elem 'self'",
+  "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+  "style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
   "style-src-attr 'unsafe-inline'",
   "img-src 'self' data:",
-  "font-src 'self'",
+  "font-src 'self' https://cdn.jsdelivr.net",
   "connect-src 'self'",
 ].join("; ");
+
+const appendVary = (headers: Headers, fieldName: string): void => {
+  const fields = new Set(
+    (headers.get("Vary") ?? "")
+      .split(",")
+      .map((field) => field.trim())
+      .filter(Boolean),
+  );
+  fields.add(fieldName);
+  headers.set("Vary", [...fields].join(", "));
+};
 
 const applyFinalHeaders = (
   response: Response,
@@ -45,7 +55,7 @@ const applyFinalHeaders = (
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
 
-  if (bindings.ENVIRONMENT === "production") {
+  if (bindings.ENVIRONMENT === "staging" || bindings.ENVIRONMENT === "production") {
     headers.set("Strict-Transport-Security", "max-age=300");
   } else {
     headers.delete("Strict-Transport-Security");
@@ -68,14 +78,18 @@ const applyFinalHeaders = (
 
 const safeEnvironment = (bindings: RuntimeBindings): string => {
   const value = bindings.ENVIRONMENT;
-  return value === "development" || value === "test" || value === "production" ? value : "unknown";
+  return value === "development" ||
+    value === "staging" ||
+    value === "test" ||
+    value === "production"
+    ? value
+    : "unknown";
 };
 
 const safeCfRay = (value: string | undefined): string | undefined =>
   value !== undefined && /^[0-9a-f]{16,32}(?:-[A-Z]{3})?$/iu.test(value) ? value : undefined;
 
 export type LifecycleOptions = {
-  maximumRequestBytes?: number;
   now?: () => number;
 };
 
@@ -119,10 +133,10 @@ export const lifecycle = (options: LifecycleOptions = {}): MiddlewareHandler<App
       ...(version === undefined
         ? {}
         : { worker_version_id: version.id, worker_version_tag: version.tag }),
-      ...(d1.durationMs === 0 && d1.rowsRead === 0 && d1.rowsWritten === 0
+      ...(d1.queryCount === 0 && d1.rowsRead === 0 && d1.rowsWritten === 0
         ? {}
         : {
-            d1_duration_ms: d1.durationMs,
+            d1_query_count: d1.queryCount,
             d1_rows_read: d1.rowsRead,
             d1_rows_written: d1.rowsWritten,
           }),

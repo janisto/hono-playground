@@ -6,11 +6,6 @@ default:
 install:
     pnpm install --frozen-lockfile
 
-versions:
-    node --version
-    pnpm --version
-    pnpm exec wrangler --version
-
 dev:
     pnpm dev
 
@@ -29,41 +24,26 @@ coverage:
 e2e:
     pnpm test:e2e
 
-docs-assets:
-    pnpm docs:assets
+db-generate:
+    pnpm db:generate
 
-openapi:
-    pnpm openapi:generate
+db-check:
+    pnpm db:check
 
-types:
-    pnpm types
+plan stage="staging":
+    pnpm infra:plan -- --stage {{ stage }}
 
-config-check:
-    pnpm config:check
+deploy stage="staging":
+    pnpm infra:deploy -- --stage {{ stage }}
 
-production-check:
-    pnpm production:check
+logs stage="prod":
+    pnpm infra:logs -- --stage {{ stage }}
 
-licenses-check:
-    pnpm licenses:check
+tail stage="prod":
+    pnpm infra:tail -- --stage {{ stage }}
 
-db-migrations-list-local:
-    pnpm db:migrations:list:local
-
-db-migrations-apply-local:
-    pnpm db:migrations:apply:local
-
-db-migrations-list-remote:
-    pnpm db:migrations:list:remote
-
-deploy-dry-run:
-    pnpm deploy:dry-run
-
-deploy-production:
-    pnpm deploy:production
-
-tail:
-    pnpm tail
+audit:
+    pnpm audit
 
 qa:
     pnpm qa

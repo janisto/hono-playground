@@ -1,251 +1,278 @@
 import { createRoute, z } from "@hono/zod-openapi";
 
-import { ProblemResponseSchema, ValidationProblemResponseSchema } from "../models/error.js";
+import { JsonApiErrorDocumentSchema, ProblemResponseSchema } from "../models/error.js";
 import { HealthResponseSchema } from "../models/health.js";
-import { GreetingRequestSchema, GreetingSchema } from "../models/hello.js";
-import { ItemCategorySchema, ItemListSchema } from "../models/items.js";
-import { ProfileCreateSchema, ProfileSchema, ProfileUpdateSchema } from "../models/profile.js";
+import {
+  ItemCategorySchema,
+  ItemCollectionDocumentSchema,
+  ItemDocumentSchema,
+} from "../models/items.js";
+import { JSON_API_MEDIA_TYPE } from "../models/json-api.js";
+import {
+  ProfileCreateDocumentSchema,
+  ProfileDocumentSchema,
+  ProfileUpdateDocumentSchema,
+} from "../models/profile.js";
 
-const describedByHeaders = {
-  Link: { schema: { type: "string" as const }, description: "RFC 8288 schema link" },
+const commonHeaders = {
   "X-Request-ID": { schema: { type: "string" as const } },
   Vary: { schema: { type: "string" as const } },
 };
 
 const problem = (description: string) => ({
   description,
-  headers: describedByHeaders,
+  headers: commonHeaders,
   content: { "application/problem+json": { schema: ProblemResponseSchema } },
+});
+
+const jsonApiError = (description: string) => ({
+  description,
+  headers: commonHeaders,
+  content: { [JSON_API_MEDIA_TYPE]: { schema: JsonApiErrorDocumentSchema } },
 });
 
 const methodNotAllowedProblem = {
   ...problem("Method not allowed"),
   headers: {
-    ...describedByHeaders,
+    ...commonHeaders,
     Allow: { schema: { type: "string" as const }, description: "Complete allowed-method list" },
+  },
+};
+
+const methodNotAllowedJsonApi = {
+  ...jsonApiError("Method not allowed"),
+  headers: {
+    ...commonHeaders,
+    Allow: { schema: { type: "string" as const }, description: "Complete allowed-method list" },
+  },
+};
+
+const rateLimitJsonApi = {
+  ...jsonApiError("Application rate limit exceeded"),
+  headers: {
+    ...commonHeaders,
+    "Retry-After": { schema: { type: "string" as const }, description: "Retry delay in seconds" },
   },
 };
 
 const rateLimitProblem = {
   ...problem("Application rate limit exceeded"),
   headers: {
-    ...describedByHeaders,
+    ...commonHeaders,
     "Retry-After": { schema: { type: "string" as const }, description: "Retry delay in seconds" },
   },
 };
 
-const validationProblem = {
-  description: "Request validation failed",
-  headers: describedByHeaders,
-  content: { "application/problem+json": { schema: ValidationProblemResponseSchema } },
+const jsonApiCommon = {
+  405: methodNotAllowedJsonApi,
+  406: jsonApiError("No acceptable JSON:API representation"),
+  429: rateLimitJsonApi,
+  500: jsonApiError("Internal server error"),
 };
 
-const common = {
-  405: methodNotAllowedProblem,
-  406: problem("No acceptable success representation"),
-  429: rateLimitProblem,
-  500: problem("Internal server error"),
+const jsonApiBodyFailures = {
+  400: jsonApiError("Malformed JSON document"),
+  413: jsonApiError("Request body too large"),
+  415: jsonApiError("Unsupported request representation"),
+  422: jsonApiError("Request document validation failed"),
 };
 
-const bodyFailures = {
-  413: problem("Request body too large"),
-  415: problem("Unsupported request representation"),
-  422: validationProblem,
+const singletonQueryValue = (value: unknown): unknown =>
+  Array.isArray(value) && value.length === 1 ? value[0] : value;
+
+const positiveIntegerQuery = (value: unknown): unknown => {
+  const scalar = singletonQueryValue(value);
+  if (typeof scalar !== "string" || !/^[0-9]+$/u.test(scalar)) return scalar;
+  return Number(scalar);
 };
 
-const lastValue = (value: unknown): unknown => (Array.isArray(value) ? value.at(-1) : value);
-
-const referenceIntegerQuery = (value: unknown): unknown => {
-  const scalar = lastValue(value);
-  if (typeof scalar !== "string") return scalar;
-  const normalized = scalar.trim();
-  if (!/^[+-]?[0-9]+(?:\.0+)?$/u.test(normalized)) return scalar;
-  return Number(normalized);
-};
-
-export const ItemsQuerySchema = z.object({
-  limit: z.preprocess(
-    referenceIntegerQuery,
-    z
-      .number()
-      .int({ message: "Limit must be an integer" })
-      .min(1, { message: "Limit must be at least 1" })
-      .max(100, { message: "Limit must be at most 100" })
-      .default(20),
-  ),
-  category: z.preprocess(lastValue, ItemCategorySchema.optional()),
-  cursor: z.preprocess(
-    lastValue,
-    z.string().openapi({ maxLength: 2048, description: "Opaque item cursor" }).optional(),
-  ),
-});
+export const ItemsQuerySchema = z
+  .object({
+    "page[limit]": z.preprocess(
+      positiveIntegerQuery,
+      z
+        .number()
+        .int({ message: "Page limit must be an integer" })
+        .min(1, { message: "Page limit must be at least 1" })
+        .max(100, { message: "Page limit must be at most 100" })
+        .default(20),
+    ),
+    "page[cursor]": z.preprocess(
+      singletonQueryValue,
+      z
+        .string()
+        .min(1, { message: "Cursor must not be empty" })
+        .max(2048, { message: "Cursor is too long" })
+        .optional(),
+    ),
+    "filter[category]": z.preprocess(singletonQueryValue, ItemCategorySchema.optional()),
+  })
+  .strict();
 
 export const healthRoute = createRoute({
   method: "get",
   path: "/health",
-  operationId: "health_get",
-  tags: ["public"],
+  operationId: "getHealth",
+  tags: ["operations"],
   responses: {
     200: {
       description: "Worker process is healthy",
-      headers: describedByHeaders,
+      headers: commonHeaders,
       content: { "application/json": { schema: HealthResponseSchema } },
     },
-    ...common,
-  },
-});
-
-export const helloGetRoute = createRoute({
-  method: "get",
-  path: "/v1/hello",
-  operationId: "hello_get",
-  tags: ["public"],
-  responses: {
-    200: {
-      description: "Default greeting",
-      headers: describedByHeaders,
-      content: { "application/json": { schema: GreetingSchema } },
-    },
-    ...common,
-  },
-});
-
-export const helloPostRoute = createRoute({
-  method: "post",
-  path: "/v1/hello",
-  operationId: "hello_create",
-  tags: ["public"],
-  request: {
-    body: {
-      required: true,
-      content: { "application/json": { schema: GreetingRequestSchema } },
-    },
-  },
-  responses: {
-    200: {
-      description: "Requested greeting",
-      headers: describedByHeaders,
-      content: { "application/json": { schema: GreetingSchema } },
-    },
-    ...common,
-    ...bodyFailures,
+    405: methodNotAllowedProblem,
+    406: problem("No acceptable health representation"),
+    429: rateLimitProblem,
+    500: problem("Internal server error"),
   },
 });
 
 export const itemsRoute = createRoute({
   method: "get",
   path: "/v1/items",
-  operationId: "items_list",
-  tags: ["public"],
+  operationId: "listItems",
+  tags: ["items"],
   request: { query: ItemsQuerySchema },
   responses: {
     200: {
-      description: "Cursor-paginated items",
-      headers: { ...describedByHeaders, Link: describedByHeaders.Link },
-      content: { "application/json": { schema: ItemListSchema } },
+      description: "Cursor-paginated item collection",
+      headers: commonHeaders,
+      content: { [JSON_API_MEDIA_TYPE]: { schema: ItemCollectionDocumentSchema } },
     },
-    400: problem("Invalid cursor"),
-    422: validationProblem,
-    ...common,
+    400: jsonApiError("Invalid query parameter or cursor"),
+    ...jsonApiCommon,
+  },
+});
+
+export const itemGetRoute = createRoute({
+  method: "get",
+  path: "/v1/items/{itemId}",
+  operationId: "getItem",
+  tags: ["items"],
+  request: {
+    params: z
+      .object({
+        itemId: z.string().min(1).max(128),
+      })
+      .strict(),
+  },
+  responses: {
+    200: {
+      description: "Item resource",
+      headers: commonHeaders,
+      content: { [JSON_API_MEDIA_TYPE]: { schema: ItemDocumentSchema } },
+    },
+    404: jsonApiError("Item does not exist"),
+    ...jsonApiCommon,
   },
 });
 
 const profileErrors = {
   401: {
-    ...problem("Access assertion is missing or invalid"),
+    ...jsonApiError("Access assertion is missing or invalid"),
     headers: {
-      ...describedByHeaders,
+      ...commonHeaders,
       "WWW-Authenticate": { schema: { type: "string" as const } },
     },
   },
-  429: rateLimitProblem,
-  500: problem("Internal server error"),
+  429: rateLimitJsonApi,
+  500: jsonApiError("Internal server error"),
   503: {
-    ...problem("Profile dependency temporarily unavailable"),
-    headers: { ...describedByHeaders, "Retry-After": { schema: { type: "string" as const } } },
+    ...jsonApiError("Profile dependency temporarily unavailable"),
+    headers: { ...commonHeaders, "Retry-After": { schema: { type: "string" as const } } },
   },
 };
 
-export const profileGetRoute = createRoute({
-  method: "get",
-  path: "/v1/profile",
-  operationId: "profile_get",
-  tags: ["profile"],
-  responses: {
-    200: {
-      description: "Current identity profile",
-      headers: describedByHeaders,
-      content: { "application/json": { schema: ProfileSchema } },
-    },
-    404: problem("Profile does not exist"),
-    405: common[405],
-    406: common[406],
-    ...profileErrors,
-  },
-});
+const cloudflareAccess: Array<Record<string, string[]>> = [{ CloudflareAccess: [] }];
 
 export const profilePostRoute = createRoute({
   method: "post",
-  path: "/v1/profile",
-  operationId: "profile_create",
-  tags: ["profile"],
+  path: "/v1/profiles",
+  operationId: "createProfile",
+  tags: ["profiles"],
+  security: cloudflareAccess,
   request: {
-    body: { required: true, content: { "application/json": { schema: ProfileCreateSchema } } },
+    body: {
+      required: true,
+      content: { [JSON_API_MEDIA_TYPE]: { schema: ProfileCreateDocumentSchema } },
+    },
   },
   responses: {
     201: {
       description: "Profile created",
       headers: {
-        ...describedByHeaders,
+        ...commonHeaders,
         Location: { schema: { type: "string" as const } },
       },
-      content: { "application/json": { schema: ProfileSchema } },
+      content: { [JSON_API_MEDIA_TYPE]: { schema: ProfileDocumentSchema } },
     },
-    403: problem("Unsafe cross-origin request rejected"),
-    405: common[405],
-    406: common[406],
-    409: problem("Profile already exists"),
-    ...bodyFailures,
+    403: jsonApiError("Origin rejected or client-generated ID unsupported"),
+    409: jsonApiError("Profile already exists or resource type conflicts"),
+    ...jsonApiBodyFailures,
+    ...jsonApiCommon,
+    ...profileErrors,
+  },
+});
+
+export const profileGetRoute = createRoute({
+  method: "get",
+  path: "/v1/profiles/current",
+  operationId: "getCurrentProfile",
+  tags: ["profiles"],
+  security: cloudflareAccess,
+  responses: {
+    200: {
+      description: "Current identity profile",
+      headers: commonHeaders,
+      content: { [JSON_API_MEDIA_TYPE]: { schema: ProfileDocumentSchema } },
+    },
+    404: jsonApiError("Profile does not exist"),
+    ...jsonApiCommon,
     ...profileErrors,
   },
 });
 
 export const profilePatchRoute = createRoute({
   method: "patch",
-  path: "/v1/profile",
-  operationId: "profile_update",
-  tags: ["profile"],
+  path: "/v1/profiles/current",
+  operationId: "updateCurrentProfile",
+  tags: ["profiles"],
+  security: cloudflareAccess,
   request: {
-    body: { required: true, content: { "application/json": { schema: ProfileUpdateSchema } } },
+    body: {
+      required: true,
+      content: { [JSON_API_MEDIA_TYPE]: { schema: ProfileUpdateDocumentSchema } },
+    },
   },
   responses: {
     200: {
       description: "Profile updated",
-      headers: describedByHeaders,
-      content: { "application/json": { schema: ProfileSchema } },
+      headers: commonHeaders,
+      content: { [JSON_API_MEDIA_TYPE]: { schema: ProfileDocumentSchema } },
     },
-    403: problem("Unsafe cross-origin request rejected"),
-    404: problem("Profile does not exist"),
-    405: common[405],
-    406: common[406],
-    ...bodyFailures,
+    403: jsonApiError("Unsafe cross-origin request rejected"),
+    404: jsonApiError("Profile does not exist"),
+    409: jsonApiError("Resource type or ID does not match the endpoint"),
+    ...jsonApiBodyFailures,
+    ...jsonApiCommon,
     ...profileErrors,
   },
 });
 
 export const profileDeleteRoute = createRoute({
   method: "delete",
-  path: "/v1/profile",
-  operationId: "profile_delete",
-  tags: ["profile"],
+  path: "/v1/profiles/current",
+  operationId: "deleteCurrentProfile",
+  tags: ["profiles"],
+  security: cloudflareAccess,
   responses: {
     204: {
       description: "Profile deleted",
-      headers: { "X-Request-ID": describedByHeaders["X-Request-ID"] },
+      headers: { "X-Request-ID": commonHeaders["X-Request-ID"] },
     },
-    403: problem("Unsafe cross-origin request rejected"),
-    404: problem("Profile does not exist"),
-    405: common[405],
+    403: jsonApiError("Unsafe cross-origin request rejected"),
+    404: jsonApiError("Profile does not exist"),
+    ...jsonApiCommon,
     ...profileErrors,
   },
 });

@@ -68,10 +68,6 @@ export function decodeCursor(encodedCursor: string): Cursor {
   if (encodedCursor.length > MAX_CURSOR_LENGTH) {
     throw new InvalidCursorError("cursor exceeds maximum length");
   }
-  if (encodedCursor.length === 0) {
-    return { cursorType: "", value: "" };
-  }
-
   let decoded: string;
   try {
     decoded = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(

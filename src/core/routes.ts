@@ -15,39 +15,32 @@ const register = (
     policies.set(method, {
       template: path,
       methods,
-      operationId: operations[method] ?? "method_not_allowed",
+      operationId: operations[method] ?? "methodNotAllowed",
       kind: kindByMethod[method] ?? "public",
     });
   }
   ROUTES.set(path, policies);
 };
 
-register("/health", ["GET"], { GET: "health_get" }, {});
+register("/health", ["GET"], { GET: "getHealth" }, {});
+register("/v1/items", ["GET"], { GET: "listItems" }, { GET: "resource" });
+register("/v1/profiles", ["POST"], { POST: "createProfile" }, { POST: "profile-write" });
 register(
-  "/v1/hello",
-  ["GET", "POST"],
-  { GET: "hello_get", POST: "hello_create" },
-  { POST: "public" },
-);
-register("/v1/items", ["GET"], { GET: "items_list" }, {});
-register(
-  "/v1/profile",
-  ["GET", "POST", "PATCH", "DELETE"],
+  "/v1/profiles/current",
+  ["GET", "PATCH", "DELETE"],
   {
-    GET: "profile_get",
-    POST: "profile_create",
-    PATCH: "profile_update",
-    DELETE: "profile_delete",
+    GET: "getCurrentProfile",
+    PATCH: "updateCurrentProfile",
+    DELETE: "deleteCurrentProfile",
   },
   {
     GET: "profile-read",
-    POST: "profile-write",
     PATCH: "profile-write",
     DELETE: "profile-write",
   },
 );
-register("/openapi.json", ["GET"], { GET: "openapi_get" }, { GET: "docs" });
-register("/api-docs", ["GET"], { GET: "api_docs_get" }, { GET: "docs" });
+register("/openapi.json", ["GET"], { GET: "getOpenApi" }, { GET: "docs" });
+register("/api-docs", ["GET"], { GET: "getApiDocs" }, { GET: "docs" });
 
 const UNMATCHED: RouteMetadata = {
   template: "unmatched",
@@ -55,14 +48,34 @@ const UNMATCHED: RouteMetadata = {
   kind: "unmatched",
 };
 
-const schemaPolicy = (method: string): RoutePolicy | undefined => {
-  if (method !== "GET") return undefined;
-  return {
-    template: "/schemas/{schemaName}",
-    operationId: "schema_get",
-    kind: "docs",
-    methods: ["GET"],
-  };
+const fixedDynamicPolicy = (
+  template: string,
+  method: string,
+  allowedMethods: readonly string[],
+  operationId: string,
+  kind: RouteMetadata["kind"],
+): RoutePolicy | undefined =>
+  method === allowedMethods[0]
+    ? { template, methods: allowedMethods, operationId, kind }
+    : undefined;
+
+const dynamicRoute = (
+  pathname: string,
+  method: string,
+): { exact: RoutePolicy | undefined; fallback: RoutePolicy } | undefined => {
+  if (/^\/v1\/items\/[^/]+$/u.test(pathname)) {
+    const fallback: RoutePolicy = {
+      template: "/v1/items/{itemId}",
+      methods: ["GET"],
+      operationId: "methodNotAllowed",
+      kind: "resource",
+    };
+    return {
+      exact: fixedDynamicPolicy(fallback.template, method, fallback.methods, "getItem", "resource"),
+      fallback,
+    };
+  }
+  return undefined;
 };
 
 export type RouteResolution = {
@@ -82,7 +95,7 @@ export const resolveRoute = (pathname: string, method: string): RouteResolution 
     return {
       metadata: {
         template: first?.template ?? "unmatched",
-        operationId: "method_not_allowed",
+        operationId: "methodNotAllowed",
         kind: first?.kind ?? "unmatched",
       },
       allowedMethods: first?.methods,
@@ -90,17 +103,11 @@ export const resolveRoute = (pathname: string, method: string): RouteResolution 
     };
   }
 
-  if (/^\/schemas\/[^/]+$/.test(pathname)) {
-    const exact = schemaPolicy(method);
+  const dynamic = dynamicRoute(pathname, method);
+  if (dynamic !== undefined) {
     return {
-      metadata:
-        exact ??
-        ({
-          template: "/schemas/{schemaName}",
-          operationId: "method_not_allowed",
-          kind: "docs",
-        } satisfies RouteMetadata),
-      allowedMethods: ["GET"],
+      metadata: dynamic.exact ?? dynamic.fallback,
+      allowedMethods: dynamic.fallback.methods,
       knownResource: true,
     };
   }
@@ -108,8 +115,8 @@ export const resolveRoute = (pathname: string, method: string): RouteResolution 
   return { metadata: UNMATCHED, allowedMethods: undefined, knownResource: false };
 };
 
-export const isRepresentationBearing = (metadata: RouteMetadata, method: string): boolean =>
-  metadata.kind !== "unmatched" && !(metadata.template === "/v1/profile" && method === "DELETE");
+export const isRepresentationBearing = (metadata: RouteMetadata): boolean =>
+  metadata.kind !== "unmatched";
 
 export const isJsonApiRoute = (metadata: RouteMetadata): boolean =>
-  metadata.kind === "public" || metadata.kind.startsWith("profile");
+  metadata.kind === "resource" || metadata.kind.startsWith("profile");
