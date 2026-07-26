@@ -77,6 +77,9 @@ pnpm install --frozen-lockfile
 cp .env.example .env
 ```
 
+Install [just](https://just.systems/man/en/packages.html) for thin repository
+command aliases such as `just dev`.
+
 Populate `.env` with the three Cloudflare rate-limit namespace IDs, the exact
 Access team domain and audience, and two distinct HMAC keys. `WORKER_DOMAIN`
 is also required for `staging` and `prod` and must be a hostname within the
@@ -94,16 +97,34 @@ configuration, weak HMAC keys, and key reuse before creating the Worker.
 Start the Alchemy development loop:
 
 ```sh
-pnpm dev
+just dev
 ```
 
-This is not a cloud-free emulator. In the pinned Alchemy beta, the Worker runs
-locally in workerd while D1 and several other bindings resolve to real,
-stage-isolated Cloudflare resources. Development therefore requires
-Cloudflare authentication and can create remote state. Use the Vitest and
-Playwright suites for secretless local validation. Infrastructure accepts only
-`prod`, `staging`, and Alchemy's personal `dev_<name>` stages; a typo or
-pull-request stage fails before D1 or Worker provider operations can run.
+`just dev` is a thin alias for `pnpm dev`, which runs `alchemy dev` and serves
+the Worker at `http://localhost:8787`. With no `STAGE` environment override,
+Alchemy deploys development infrastructure into your personal
+[stage](https://alchemy.run/environments/stages/), `dev_$USER` by default.
+That stage has isolated state and physical resource names, so it does not
+overlap teammates, staging, or production. An explicit `STAGE` environment
+value takes precedence over `dev_$USER`; leave it unset for ordinary
+development.
+
+On first use, Alchemy prompts for Cloudflare authentication and saves the
+default provider profile outside this repository. Run
+`pnpm exec alchemy login` to refresh that profile.
+
+This is not a cloud-free emulator. In Alchemy's
+[local development loop](https://alchemy.run/environments/local-development/),
+the Worker runs locally in workerd with hot reloading, but D1 and several other
+bindings are real, stage-isolated Cloudflare resources. Development therefore
+requires Cloudflare authentication, can create remote state, and does not
+delete that state when the watcher stops. The source pins compatibility date
+`2026-07-11`, the newest date accepted by the local workerd nested under
+Alchemy `2.0.0-beta.64`; the hosted edge supports newer dates, but selecting
+one would break this development command. Use the Vitest and Playwright suites
+for secretless local validation. Infrastructure accepts only `prod`,
+`staging`, and Alchemy's personal `dev_<name>` stages; a typo or pull-request
+stage fails before D1 or Worker provider operations can run.
 
 ## Database migrations
 

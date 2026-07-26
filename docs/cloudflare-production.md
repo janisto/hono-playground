@@ -26,7 +26,7 @@ live state after an apply.
 | Zone | `hono-playground.dev`, Cloudflare Free plan | active; purchased 2026-07-26 |
 | Stack | `HonoPlayground`, explicit stage | staging deployed from `26af818`; production not created |
 | Worker | `hono-playground-<stage>`, `workers.dev` and previews disabled | staging Worker live; both direct surfaces read back disabled |
-| Runtime | compatibility date `2026-07-25` | staging date read back |
+| Runtime | compatibility date `2026-07-11` | staging remains at `2026-07-25` until the next authorized deployment |
 | D1 | `hono-playground-db-<stage>`, EU jurisdiction, replication disabled | staging database live; jurisdiction and replication read back |
 | Migration ledger | `drizzle_migrations` | staging ledger contains `00001` profile migration |
 | Rate limiting | public 300/min per route and actor, profile reads 120/min, profile writes 30/min | three staging bindings read back; live threshold behavior pending |
@@ -43,6 +43,15 @@ WAF, alerts, budgets, and recovery procedures are external state.
 
 Staging and production D1 databases have a retain removal policy. There is no
 destroy script in this repository.
+
+The source date is capped by the oldest pinned execution path. Alchemy
+`2.0.0-beta.64` resolves `@distilled.cloud/cloudflare-runtime@0.13.8`, whose
+local `workerd@1.20260704.1` accepts dates only through `2026-07-11`.
+Cloudflare's hosted edge and the separate test runtime accept newer dates, but
+they do not establish that `pnpm dev` can start. Cloudflare currently documents
+no compatibility flag becoming the default between `2026-07-11` and the
+staging value `2026-07-25`; nevertheless, the next staging deployment must
+smoke test and read back the changed date before this row is marked converged.
 
 ## Staging verification
 
