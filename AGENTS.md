@@ -63,10 +63,12 @@ into human onboarding documentation.
 
 ## Project scope
 
-This repository is a pre-deployment playground for current Cloudflare Workers
-technology. Prefer a coherent current design over compatibility with an
-unpublished earlier shape. Keep implementations small, explicit, and backed by
-current first-party web documentation.
+This repository is a pre-production playground for current Cloudflare Workers
+technology with a live staging deployment. Prefer a coherent current design
+over compatibility with an unpublished earlier shape. Keep implementations
+small, explicit, and backed by current first-party web documentation. Treat
+`README.md` and `docs/cloudflare-production.md` as the current public deployment
+status; do not infer production readiness from the existence of staging.
 
 This is a public repository. Keep all deployment-specific values and secrets in
 the ignored `.env`; commit only names and safe placeholders in `.env.example`.

@@ -11,6 +11,10 @@ is protected by the owner-only Access policy; anonymous denial and a signed-in
 owner reaching the application were verified on 2026-07-26. Full live
 synthetic profile CRUD remains pending, and production has not been deployed.
 
+Live staging documentation:
+[Swagger UI](https://staging.hono-playground.dev/api-docs) and the
+[OpenAPI 3.1 document](https://staging.hono-playground.dev/openapi.json).
+
 ## Stack
 
 - Hono `4.12.32` routes requests and generates OpenAPI 3.1.
@@ -59,7 +63,9 @@ Swagger UI is provided by the official Hono middleware and loads the exact
 `swagger-ui-dist@5.32.11` assets from jsDelivr. That avoids a generated asset
 pipeline, but makes the documentation UI depend on that CDN. The OpenAPI JSON
 endpoint itself has no CDN dependency, and “Try it out” plus the online
-validator are disabled.
+validator are disabled. A live Chromium check on 2026-07-26 rendered the
+staging UI, loaded both pinned assets, and fetched the OpenAPI document without
+a failed request, console error, or page error.
 
 ## Setup
 
@@ -201,7 +207,8 @@ pnpm test:e2e
 ```
 
 Coding-agent execution rules and the full project contract live in
-[AGENTS.md](AGENTS.md).
+[AGENTS.md](AGENTS.md). Reusable repository-specific agent workflows live in
+[.agents/skills/](.agents/skills/).
 
 ## Current documentation
 

@@ -57,6 +57,9 @@ Verified on 2026-07-26:
 
 - `/health`, `/openapi.json`, `/api-docs`, and `/v1/items` returned their
   documented success media types;
+- live Chromium rendered the complete Swagger operation/schema UI, loaded the
+  pinned jsDelivr CSS and JavaScript, and fetched OpenAPI `3.1.0` without a
+  failed request, console error, or page error;
 - unauthenticated profile access redirected to Access, while the signed-in
   owner reached the Worker and received the expected application-level `404`;
 - `/.env` and `/.git/HEAD` returned safe RFC 9457 `404` documents;
