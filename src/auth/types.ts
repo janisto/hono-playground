@@ -49,6 +49,7 @@ export class InvalidAccessTokenError extends AppError {
       status: 401,
       code: "not_authenticated",
       detail: "Not authenticated",
+      source: { header: "Cf-Access-Jwt-Assertion" },
       headers: { "WWW-Authenticate": 'Bearer realm="Cloudflare Access"' },
     });
     this.name = "InvalidAccessTokenError";

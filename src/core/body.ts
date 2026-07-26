@@ -2,25 +2,30 @@ import { JSON_API_MEDIA_TYPE } from "../models/json-api.js";
 import { isSupportedJsonApiContentType } from "./content-negotiation.js";
 import { AppError, invalidJsonError } from "./errors.js";
 
-const unsupportedRepresentation = (detail: string): AppError =>
+const unsupportedRepresentation = (detail: string, header: string): AppError =>
   new AppError({
     status: 415,
     code: "unsupported_media_type",
     detail,
+    source: { header },
   });
 
 export const precheckJsonApiBody = async (
   request: Request,
   maximumBytes: number,
-): Promise<void> => {
+): Promise<string> => {
   const encoding = request.headers.get("Content-Encoding");
   if (encoding !== null && encoding.trim().toLowerCase() !== "identity") {
-    throw unsupportedRepresentation("Only identity-encoded JSON:API documents are supported");
+    throw unsupportedRepresentation(
+      "Only identity-encoded JSON:API documents are supported",
+      "Content-Encoding",
+    );
   }
 
   if (!isSupportedJsonApiContentType(request.headers.get("Content-Type"))) {
     throw unsupportedRepresentation(
       `Content-Type must be ${JSON_API_MEDIA_TYPE} without unsupported extensions`,
+      "Content-Type",
     );
   }
 
@@ -31,11 +36,12 @@ export const precheckJsonApiBody = async (
         status: 413,
         code: "payload_too_large",
         detail: "Request body too large",
+        source: { header: "Content-Length" },
       });
     }
   }
 
-  if (request.body === null) return;
+  if (request.body === null) return "";
 
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -63,7 +69,7 @@ export const precheckJsonApiBody = async (
   }
 
   try {
-    new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch {
     throw invalidJsonError();
   }

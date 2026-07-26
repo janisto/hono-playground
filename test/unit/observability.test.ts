@@ -220,17 +220,14 @@ describe("structured application events", () => {
     },
   );
 
-  it("adds only aggregate D1 metadata to the access event", async () => {
+  it("does not fabricate D1 scan or write counts from returned rows", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const application = createApp({
       accessVerifier: () => Promise.resolve({ sub: SUBJECT }),
-      profileRepositoryFactory: (context) => ({
+      profileRepositoryFactory: () => ({
         ...repository,
-        get: () => {
-          context.set("d1Metrics", { queryCount: 1, rowsRead: 1, rowsWritten: 0 });
-          return Promise.resolve(STORED_PROFILE);
-        },
+        get: () => Promise.resolve(STORED_PROFILE),
       }),
     });
     const response = await application.request(
@@ -246,10 +243,10 @@ describe("structured application events", () => {
     expect(log.mock.calls[0]?.[0]).toMatchObject({
       event: "http.access",
       request_id: "d1-event-id",
-      d1_query_count: 1,
-      d1_rows_read: 1,
-      d1_rows_written: 0,
     });
+    expect(log.mock.calls[0]?.[0]).not.toHaveProperty("d1_query_count");
+    expect(log.mock.calls[0]?.[0]).not.toHaveProperty("d1_rows_read");
+    expect(log.mock.calls[0]?.[0]).not.toHaveProperty("d1_rows_written");
     expect(JSON.stringify(log.mock.calls)).not.toContain(SUBJECT);
   });
 

@@ -8,7 +8,7 @@ until it has been read back from Cloudflare after a successful apply.
 What breaks if deployment fails?
 
 - A D1 migration can commit before the Worker upload fails.
-- A correct source revision can be deployed with the wrong stage or account.
+- The accepted stage can target the wrong Cloudflare account.
 - A Worker can be healthy while its external Access policy protects the wrong
   hostname or audience.
 - A source rollback cannot reverse D1 or recover an older secret value.
@@ -23,14 +23,15 @@ live state after an apply.
 | Resource | Intended configuration | Current status |
 | --- | --- | --- |
 | Stack | `HonoPlayground`, explicit stage | not created |
-| Worker | `hono-playground-<stage>` | not created |
+| Worker | `hono-playground-<stage>`, `workers.dev` and previews disabled | not created |
 | Runtime | compatibility date `2026-07-25` | config only |
 | D1 | `hono-playground-db-<stage>`, EU jurisdiction, replication disabled | not created |
 | Migration ledger | `drizzle_migrations` | not created |
 | Rate limiting | public 300/min, profile reads 120/min, profile writes 30/min | config only |
 | Secrets | distinct rate-limit and audit HMAC bindings | not uploaded |
 | Observability | persisted logs/traces and version metadata | config only |
-| Access | exact production Worker hostname and reviewed allow policy | external, not created |
+| Ingress | Alchemy-managed custom hostname; no direct Worker URL | not created |
+| Access | exact custom hostname and reviewed allow policy | external, not created |
 | Alchemy state | Cloudflare-backed state | not bootstrapped |
 
 Alchemy owns the Worker, D1 database, committed migration application,
@@ -49,6 +50,7 @@ Copy `.env.example` to the ignored `.env` and supply:
 PUBLIC_RATE_LIMIT_NAMESPACE_ID
 PROFILE_READ_RATE_LIMIT_NAMESPACE_ID
 PROFILE_WRITE_RATE_LIMIT_NAMESPACE_ID
+WORKER_DOMAIN
 ACCESS_TEAM_DOMAIN
 ACCESS_AUD
 RATE_LIMIT_KEY_HMAC_KEY
@@ -60,34 +62,53 @@ Before deployment:
 - choose three distinct positive-integer strings that do not collide with
   another binding namespace in the target account (these bindings are not
   visible in the Cloudflare dashboard);
+- select the lowercase custom hostname for this stage;
 - copy the team domain and audience from the exact Access application;
 - generate the two lowercase 64-hex HMAC values independently;
 - keep Cloudflare credentials and every secret outside Git; and
 - confirm the selected account and explicit stage.
 
-Alchemy resolves these values at deployment. Effect Config inputs become
-`secret_text` bindings in the same Worker upload as code and ordinary
-bindings. A rotation is therefore a Worker deployment. Rotating the
-rate-limit key starts new application buckets; rotating the audit key breaks
-pseudonym continuity.
+Only `prod`, `staging`, and a personal `dev_<name>` stage are accepted.
+Unsupported stages fail before D1 or Worker provider operations can run. Do
+not add a pull-request stage until its retention, ingress, Access, and removal
+policy are designed and tested.
+
+Alchemy resolves these values at deployment. `WORKER_DOMAIN` controls the
+Alchemy-managed custom domain and is not a runtime binding. Effect Config
+inputs declared in the Worker's `env` become `secret_text` bindings in the
+same upload as code and ordinary bindings. A rotation is therefore a Worker
+deployment. Rotating the rate-limit key starts new application buckets;
+rotating the audit key breaks pseudonym continuity.
 
 ## Migration review
 
 The only supported schema-change flow is:
 
 ```sh
-pnpm db:generate
+pnpm db:preview
+pnpm db:generate describe_schema_change
 pnpm db:check
 ```
 
-Review and commit every generated `migration.sql` and `snapshot.json`.
-Deployment never generates migrations. Alchemy applies pending committed SQL
-before uploading the dependent Worker.
+The first command is a dry run. If it is wrong or incomplete, correct the
+Drizzle model or stop for a dependency/architecture decision; never patch the
+generated SQL or snapshot. Replace the example generation name with a specific
+lower-snake-case description; generation fails when the name is omitted.
+`pnpm db:check` checks migration-branch consistency and fails when Drizzle's
+non-mutating dry run finds ungenerated model changes. Review and commit every
+generated `migration.sql` and `snapshot.json` unchanged. Deployment never
+generates migrations. Alchemy applies pending committed SQL before uploading
+the dependent Worker.
 
-Never edit a migration after it may have reached any stage. Alchemy's D1
-ledger identifies applied migrations by file name, not by a stored content
-hash. Git review and the forward-only policy are therefore the integrity
-boundary for already-applied files.
+Never edit a migration. Never remove one after it may have reached any
+persistent stage. Alchemy's D1 ledger identifies applied migrations by file
+name, not by a stored content hash. CI rejects modifications, deletions, and
+renames of generated files already present in the target branch; add a forward
+migration instead.
+
+The configured `drizzle_migrations` table is Alchemy's Wrangler-compatible
+ledger for Drizzle-generated files. It is not Drizzle ORM's runtime migrator
+table, and this repository does not use a second migration executor.
 
 D1 migration plus ledger insertion are sent together, but the database
 migration and later Worker upload are not atomic. Use an additive/expand-first
@@ -123,8 +144,9 @@ that does not permit unsafe changes to deployed data.
    pnpm infra:plan -- --stage staging
    ```
 
-6. Read back the Worker name/URL/version, D1 identity/schema/ledger, binding
-   types, compatibility date, logs, traces, and rate-limit behavior.
+6. Read back the Worker name/version, confirm both `workers.dev` and preview
+   URLs are disabled, and verify the D1 identity/schema/ledger, binding types,
+   compatibility date, logs, traces, and rate-limit behavior.
 7. Run positive and negative HTTP smoke tests with synthetic data, then delete
    the synthetic profile.
 
@@ -140,17 +162,31 @@ and a bounded subject.
 
 Before production:
 
-1. Determine the stable production Worker hostname from staging-equivalent
-   Alchemy output.
-2. Create the self-hosted Access application and exact reviewed allow policy.
-3. Read back the hostname/path scope, audience, policy order, identity
+1. Select an owned custom hostname. Direct
+   `workers.dev` and version-preview ingress remain disabled.
+2. Create the self-hosted Access application and exact reviewed allow policy
+   for that custom hostname.
+3. Set the exact hostname as `WORKER_DOMAIN`; Alchemy attaches it to the
+   Worker during deployment and Cloudflare infers the existing zone.
+4. Read back the hostname/path scope, audience, policy order, identity
    providers, session duration, and unauthenticated denial.
-4. Put that exact team domain and audience into the production deployment
+5. Put that exact team domain and audience into the production deployment
    environment.
-5. Verify both an allowed identity and a denied/absent identity at the edge.
+6. Verify both an allowed identity and a denied/absent identity at the edge.
 
 Do not add an application authentication bypass, service-token profile
 ownership, or a local development identity shortcut.
+
+Cloudflare Access `sub` is unique to an email address within an account, but
+Cloudflare assigns a different value after a user is removed and re-added.
+Revoking or deprovisioning an Access user stops authentication; it does not
+delete the profile owned by the old subject in D1. The authenticated
+`DELETE /v1/profiles/current` route supports self-service erasure while the
+identity is active. Before production, define and prove an operator
+offboarding path that can erase a profile by its old subject, set a retention
+and evidence policy, and order erasure before Access removal when possible.
+Do not switch ownership to mutable or recyclable email addresses. Production
+is blocked until this external identity/data lifecycle exists.
 
 ## Production apply
 
@@ -158,15 +194,16 @@ Repeat the staging process with `--stage prod` from the exact approved
 revision. Freeze concurrent changes, explicitly accept the D1/Worker
 partial-failure boundary, and inspect a second plan after deployment.
 
-Pinned Alchemy `2.0.0-beta.64` currently enables version-preview URLs whenever
-the stable `workers.dev` URL is enabled. Its `subdomain.previewsEnabled` input
-is not honored by the provider, so the repository does not claim previews are
-disabled. Verify this live and reassess the provider on upgrade.
+Pinned Alchemy `2.0.0-beta.64` ties version-preview URLs to its `url` property
+and ignores a separate `subdomain.previewsEnabled` input. This repository sets
+`url: false`, which disables both direct surfaces in the pinned provider.
+Verify both settings live and reassess this behavior on every Alchemy upgrade.
 
 After deployment verify:
 
-- Worker URL, source version, compatibility date, binding types, and secrets
-  present without reading their values;
+- custom Worker hostname, disabled direct/preview URLs, source version,
+  compatibility date, binding types, and secrets present without reading
+  their values;
 - D1 name, jurisdiction, replication mode, schema, migration ledger, and
   recovery availability;
 - actual allow/block behavior for every rate-limit class;
@@ -175,6 +212,10 @@ After deployment verify:
 - create/read/update/delete for one synthetic profile; and
 - absence of bodies, profile values, raw subjects, tokens, SQL, and bound
   values in application-owned logs and traces.
+
+Application access logs intentionally do not estimate D1 scans or writes from
+returned array lengths. Use Cloudflare's automatic D1 span attributes for
+exact rows read, rows written, changes, SQL duration, and retry attempts.
 
 Use Alchemy for application logs and live tailing:
 
@@ -210,3 +251,7 @@ this repository without separate approval and a current Cloudflare procedure.
 - [Drizzle migrations](https://orm.drizzle.team/docs/migrations)
 - [Cloudflare D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/)
 - [Cloudflare Access policies](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/)
+- [Cloudflare Access application tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/)
+- [Cloudflare Access session management](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/)
+- [Cloudflare Worker preview URLs](https://developers.cloudflare.com/workers/versions-and-deployments/preview-urls/)
+- [Cloudflare D1 trace attributes](https://developers.cloudflare.com/workers/observability/traces/spans-and-attributes/)

@@ -111,6 +111,7 @@ const expectAuthenticationFailure = async (
     code: "not_authenticated",
     detail: "Not authenticated",
   });
+  expect(error.source).toEqual({ header: "Cf-Access-Jwt-Assertion" });
   expect(error.headers.get("WWW-Authenticate")).toBe('Bearer realm="Cloudflare Access"');
   expect(error.headers.has("Retry-After")).toBe(false);
   return error;

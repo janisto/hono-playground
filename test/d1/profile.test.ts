@@ -182,33 +182,9 @@ describe("D1 profile lifecycle", () => {
     await expect(repository.get(patchDeleteId)).resolves.toBeUndefined();
   });
 
-  it("reports bounded real D1 metadata for each repository operation", async () => {
-    const id = profileId();
-    const observed: Array<{ queryCount: number; rowsRead: number; rowsWritten: number }> = [];
-    const repository = new DrizzleProfileRepository(database, {
-      onMetrics: (metrics) => observed.push(metrics),
-    });
-
-    await repository.create(id, input(), new Date("2026-07-22T10:00:00.000Z"));
-    await repository.get(id);
-    await repository.update(id, { marketingOptIn: true }, new Date("2026-07-22T11:00:00.000Z"));
-    await repository.delete(id);
-
-    expect(observed).toHaveLength(4);
-    for (const metadata of observed) {
-      expect(metadata.queryCount).toBe(1);
-      expect(metadata.rowsRead).toBeGreaterThanOrEqual(0);
-      expect(metadata.rowsWritten).toBeGreaterThanOrEqual(0);
-    }
-    expect(observed[0]?.rowsWritten).toBeGreaterThanOrEqual(1);
-    expect(observed[1]?.rowsRead).toBeGreaterThanOrEqual(1);
-    expect(observed[2]?.rowsWritten).toBeGreaterThanOrEqual(1);
-    expect(observed[3]?.rowsWritten).toBeGreaterThanOrEqual(1);
-  });
-
   it("enforces ASCII phone, boolean, and accepted-terms constraints in D1 itself", async () => {
     const insert = (
-      id: string,
+      id: string | null,
       phoneNumber: string,
       marketingOptIn: number,
       termsAccepted: number,
@@ -233,6 +209,7 @@ describe("D1 profile lifecycle", () => {
         )
         .run();
 
+    await expect(insert(null, "+12025550123", 0, 1)).rejects.toThrow();
     await expect(insert(profileId(), "+1١٢٣٤٥٦", 0, 1)).rejects.toThrow();
     await expect(insert(profileId(), "+12025550123", 2, 1)).rejects.toThrow();
     await expect(insert(profileId(), "+12025550123", 0, 0)).rejects.toThrow();

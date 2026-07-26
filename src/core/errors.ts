@@ -1,6 +1,10 @@
 import type { ZodError, ZodIssue } from "zod";
 
-import { MAX_VALIDATION_ERRORS, type ValidationErrorDetail } from "../models/error.js";
+import {
+  type JsonApiErrorSource,
+  MAX_VALIDATION_ERRORS,
+  type ValidationErrorDetail,
+} from "../models/error.js";
 import { JSON_API_MEDIA_TYPE, JSON_API_OBJECT } from "../models/json-api.js";
 
 export type ErrorCode =
@@ -118,6 +122,7 @@ type AppErrorOptions = {
   code: ErrorCode;
   detail: string;
   errors?: ValidationErrorDetail[];
+  source?: JsonApiErrorSource;
   headers?: HeadersInit;
   operatorCode?: OperatorCode;
 };
@@ -130,6 +135,7 @@ export class AppError extends Error {
   readonly code: ErrorCode;
   readonly detail: string;
   readonly errors: ValidationErrorDetail[] | undefined;
+  readonly source: JsonApiErrorSource | undefined;
   readonly headers: Headers;
   readonly operatorCode: OperatorCode | undefined;
 
@@ -139,6 +145,9 @@ export class AppError extends Error {
       throw new TypeError("AppError status and detail must match the application error catalog");
     }
     if (allowsIssues(options.code)) {
+      if (options.source !== undefined) {
+        throw new TypeError("Validation errors carry sources on their normalized issues");
+      }
       if (options.errors === undefined || options.errors.length === 0) {
         throw new TypeError("Validation errors require at least one normalized issue");
       }
@@ -172,6 +181,7 @@ export class AppError extends Error {
     this.code = options.code;
     this.detail = options.detail;
     this.errors = options.errors;
+    this.source = options.source;
     this.headers = headers;
     this.operatorCode = options.operatorCode;
   }
@@ -307,7 +317,14 @@ export const jsonApiErrorResponse = (error: AppError, method = "GET"): Response 
   headers.set("Content-Type", JSON_API_MEDIA_TYPE);
 
   const catalog = APPLICATION_ERROR_CATALOG[error.code];
-  const errors = (error.errors ?? [{ detail: error.detail }]).map((issue) => ({
+  const errors = (
+    error.errors ?? [
+      {
+        detail: error.detail,
+        ...(error.source === undefined ? {} : { source: error.source }),
+      },
+    ]
+  ).map((issue) => ({
     status: String(error.status),
     code: error.code,
     title: catalog.title,

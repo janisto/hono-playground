@@ -66,8 +66,9 @@ cp .env.example .env
 ```
 
 Populate `.env` with the three Cloudflare rate-limit namespace IDs, the exact
-Access team domain and audience, and two distinct HMAC keys. Generate each key
-independently:
+Access team domain and audience, and two distinct HMAC keys. `WORKER_DOMAIN`
+is also required for `staging` and `prod`, but local development may leave it
+empty. Generate each key independently:
 
 ```sh
 openssl rand -hex 32
@@ -85,7 +86,9 @@ This is not a cloud-free emulator. In the pinned Alchemy beta, the Worker runs
 locally in workerd while D1 and several other bindings resolve to real,
 stage-isolated Cloudflare resources. Development therefore requires
 Cloudflare authentication and can create remote state. Use the Vitest and
-Playwright suites for secretless local validation.
+Playwright suites for secretless local validation. Infrastructure accepts only
+`prod`, `staging`, and Alchemy's personal `dev_<name>` stages; a typo or
+pull-request stage fails before D1 or Worker provider operations can run.
 
 ## Database migrations
 
@@ -95,14 +98,26 @@ Playwright suites for secretless local validation.
 For every schema change:
 
 ```sh
-pnpm db:generate
+pnpm db:preview
+pnpm db:generate describe_schema_change
 pnpm db:check
 ```
 
-Review and commit both generated files. Never edit or remove a migration that
-may have been applied; add a forward migration. Deployment does not generate
+The first command is a dry run. If its SQL is wrong, fix the Drizzle model
+instead of patching generated output. Review and commit both generated files,
+but never edit either one. Replace the example generation name with a specific
+lower-snake-case description; generation fails when the name is omitted.
+`pnpm db:check` checks migration-branch consistency and fails when a
+non-mutating Drizzle dry run finds model changes without generated artifacts.
+CI also rejects modifications, deletions, or renames of migrations already in
+the target branch. Never remove a migration that may have been applied; change
+the model and generate a forward migration. Deployment does not generate
 migrations. Alchemy's D1 resource applies only the committed SQL under
 `drizzle/` before the Worker that depends on that database is uploaded.
+
+`drizzle_migrations` is Alchemy's Wrangler-compatible tracking table for these
+Drizzle-generated files; this application does not use Drizzle ORM's runtime
+migration executor.
 
 That ordering is not a distributed transaction. A successful D1 migration
 remains applied if a later Worker upload fails, so code and migrations must be
@@ -120,9 +135,12 @@ pnpm qa
 pnpm audit
 ```
 
-`pnpm qa` runs formatting/lint checks, strict TypeScript checks, Drizzle's
-migration consistency check, and coverage. CI additionally runs the
-production dependency audit and real-browser documentation smoke test.
+`pnpm qa` runs non-mutating formatting and lint checks, strict TypeScript
+checks, Drizzle migration consistency and freshness checks, and coverage. The
+configured workflows run Biome independently, preserve append-only migration
+history plus type, migration, coverage, production dependency audit, and
+real-browser documentation gates, publish the coverage artifact, and audit
+GitHub Actions with zizmor.
 
 The D1 tests run the committed migrations in workerd and exercise the Drizzle
 repository against the resulting database. The Playwright test bundles the
@@ -144,19 +162,37 @@ pnpm infra:deploy -- --stage prod
 
 The first Alchemy operation can bootstrap account state even when the command
 is `plan`. Confirm the Cloudflare account and stage before approving it.
-`staging` and `prod` D1 databases use a retain removal policy.
-
-Pinned Alchemy `2.0.0-beta.64` currently enables Worker version-preview URLs
-whenever the stable `workers.dev` URL is enabled; its
-`subdomain.previewsEnabled` input is not honored by the provider. This
-repository does not carry a custom provider to mask that beta limitation.
-Verify the live URL policy after deployment and reassess it on every Alchemy
-upgrade.
+`staging` and `prod` D1 databases use a retain removal policy. The Worker sets
+Alchemy's `url` property to `false`, which disables its stable `workers.dev`
+URL and version-preview URLs in the pinned provider. Staging and production
+require a validated `WORKER_DOMAIN`; Alchemy attaches that custom hostname
+while Cloudflare Access application and policy creation remain externally
+reviewed. Read back the custom domain and both direct URL settings after
+deployment, and reassess the provider behavior on every Alchemy upgrade.
 
 Cloudflare Access application/policy creation remains external to this
 repository. Complete the checklist in
 [docs/cloudflare-production.md](docs/cloudflare-production.md) before claiming
 staging or production readiness.
+
+## Contributing
+
+Use the repository's
+[GitHub issue chooser](https://github.com/janisto/hono-playground/issues/new/choose)
+for reproducible bug reports and well-scoped feature requests. Report
+security vulnerabilities through the private security-advisory link there,
+never in a public issue.
+
+Before opening a pull request, run:
+
+```sh
+pnpm qa
+pnpm audit
+pnpm test:e2e
+```
+
+Coding-agent execution rules and the full project contract live in
+[AGENTS.md](AGENTS.md).
 
 ## Current documentation
 

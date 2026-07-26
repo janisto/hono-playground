@@ -1,0 +1,103 @@
+name: Feature request
+description: Propose a well-scoped improvement to hono-playground
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with a concrete application need and explain how the result can be verified. Search existing issues and review the current README and API before filing.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight checks
+      options:
+        - label: I searched the existing issues and did not find a matching request.
+          required: true
+        - label: I reviewed the current README and API relevant to this request.
+          required: true
+        - label: I removed secrets, credentials, tokens, authorization headers, cookies, Cloudflare identifiers, profile data, and PII from everything I am submitting.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      multiple: true
+      options:
+        - Public HTTP API, JSON:API, or OpenAPI
+        - Cloudflare Access authentication
+        - D1, Drizzle, or migrations
+        - Alchemy or Cloudflare infrastructure
+        - Rate limiting
+        - Observability or logging
+        - Reliability, performance, or security
+        - Build, CI, tooling, or dependencies
+        - Documentation
+        - Other or uncertain
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or limitation
+      description: Describe the application need, who encounters it, and why current behavior is insufficient.
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Concrete use case
+      description: Show a realistic route, request, response, persistence flow, deployment workflow, or operational scenario.
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired behavior and success criteria
+      description: Explain what should change and how maintainers can prove it works.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+      description: Describe approaches considered. If none are known, say so.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Contract and operational impact
+      description: Cover API or schema changes, security and privacy, D1 migration compatibility, performance, dependencies, Cloudflare deployment, and non-goals. Write none or uncertain where appropriate.
+    validations:
+      required: true
+
+  - type: textarea
+    id: design
+    attributes:
+      label: Proposed design or evidence
+      description: Optional. Include API sketches, specifications, first-party documentation, prior art, or measurements.
+
+  - type: textarea
+    id: ai-assistance
+    attributes:
+      label: Agent or AI assistance
+      description: Optional. Include tool or model, contribution, verification performed, and human-review status. Do not include private prompts or transcripts.
+      placeholder: |
+        Tool and model:
+        Contribution:
+        Verification:
+        Human review:
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context

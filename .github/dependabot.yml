@@ -1,24 +1,75 @@
 version: 2
 updates:
-  - package-ecosystem: npm
-    directory: /
+  - package-ecosystem: "npm"
+    directory: "/"
+    versioning-strategy: "increase-if-necessary"
     schedule:
-      interval: weekly
-      day: monday
+      interval: "weekly"
+      day: "monday"
       time: "06:00"
-      timezone: Europe/Helsinki
+      timezone: "Europe/Helsinki"
+    cooldown:
+      default-days: 1
     open-pull-requests-limit: 5
-    versioning-strategy: increase
     commit-message:
-      prefix: deps
+      prefix: "chore(deps)"
+    ignore:
+      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      locked-prereleases:
+        patterns:
+          - "@effect/*"
+          - "alchemy"
+          - "drizzle-kit"
+          - "drizzle-orm"
+          - "effect"
+      updates:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@effect/*"
+          - "alchemy"
+          - "drizzle-kit"
+          - "drizzle-orm"
+          - "effect"
+        update-types:
+          - "patch"
+          - "minor"
+      major-updates:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@effect/*"
+          - "alchemy"
+          - "drizzle-kit"
+          - "drizzle-orm"
+          - "effect"
+        update-types:
+          - "major"
 
-  - package-ecosystem: github-actions
-    directory: /
+  - package-ecosystem: "github-actions"
+    directory: "/"
     schedule:
-      interval: weekly
-      day: monday
+      interval: "weekly"
+      day: "monday"
       time: "06:30"
-      timezone: Europe/Helsinki
+      timezone: "Europe/Helsinki"
+    cooldown:
+      default-days: 1
     open-pull-requests-limit: 3
     commit-message:
-      prefix: ci
+      prefix: "chore(deps)"
+    groups:
+      updates:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+          - "minor"
+      major-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "major"

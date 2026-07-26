@@ -24,8 +24,11 @@ coverage:
 e2e:
     pnpm test:e2e
 
-db-generate:
-    pnpm db:generate
+db-preview:
+    pnpm db:preview
+
+db-generate name:
+    pnpm db:generate {{ name }}
 
 db-check:
     pnpm db:check

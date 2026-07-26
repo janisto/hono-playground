@@ -135,7 +135,9 @@ const expectSecurityHeaders = (response: Response, documentation = false): void 
   const csp = response.headers.get("Content-Security-Policy");
   if (documentation) {
     expect(csp).toContain("default-src 'none'");
-    expect(csp).toContain("script-src 'self'");
+    expect(csp).toContain("script-src 'sha256-");
+    expect(csp).toContain("'sha384-");
+    expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/u);
     expect(csp).toContain("connect-src 'self'");
     expect(csp).not.toContain("unsafe-eval");
   } else {
@@ -447,11 +449,19 @@ describe("API documentation", () => {
     expect(html).toContain('<div id="swagger-ui"></div>');
     expect(html).toContain("swagger-ui-dist@5.32.11/swagger-ui.css");
     expect(html).toContain("swagger-ui-dist@5.32.11/swagger-ui-bundle.js");
-    expect(html).toContain("url: '/openapi.json'");
+    expect(html).toContain(
+      'integrity="sha384-9Q2fpS+xeS4ffJy6CagnwoUl+4ldAYhOs9pgZuEKxypVModhmZFzeMlvVsAjf7uT"',
+    );
+    expect(html).toContain(
+      'integrity="sha384-vfl/klfTFrIz5urj0HnhcXLAbzPdRHezizfy+XgFB6GqcKkhlk0lS3bIbyB39NLA"',
+    );
+    expect(html).toContain('url: "/openapi.json"');
     expect(html).toContain("supportedSubmitMethods: []");
-    expect(html).toContain("validatorUrl: 'none'");
+    expect(html).toContain('validatorUrl: "none"');
     expectSecurityHeaders(response, true);
-    expect(response.headers.get("Content-Security-Policy")).toContain("https://cdn.jsdelivr.net");
+    const csp = response.headers.get("Content-Security-Policy") ?? "";
+    expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/u);
+    expect(csp).not.toMatch(/script-src[^;]*https:\/\/cdn\.jsdelivr\.net/u);
   });
 
   it("rejects a representation that cannot carry the documentation HTML", async () => {

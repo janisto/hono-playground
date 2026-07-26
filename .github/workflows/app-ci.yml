@@ -1,0 +1,105 @@
+name: Application, database, coverage, and browser
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: Application checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Enforce append-only migration history
+        env:
+          MIGRATION_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if ! git diff --quiet --find-renames --diff-filter=MDR "$MIGRATION_BASE_SHA" HEAD -- drizzle/; then
+            echo "Existing Drizzle migrations are immutable; add a forward migration instead." >&2
+            git diff --name-status --find-renames --diff-filter=MDR "$MIGRATION_BASE_SHA" HEAD -- drizzle/ >&2
+            exit 1
+          fi
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6.0.9
+        with:
+          run_install: false
+
+      - name: Use pinned Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck source, tests, and infrastructure
+        run: pnpm typecheck
+
+      - name: Check migration history and schema freshness
+        run: pnpm db:check
+
+      - name: Run test coverage
+        id: test-coverage
+        run: pnpm coverage
+
+      - name: Report coverage summary
+        if: ${{ !cancelled() && steps.test-coverage.outcome != 'skipped' }}
+        uses: davelosert/vitest-coverage-report-action@v2.12.2
+        with:
+          comment-on: none
+          file-coverage-mode: none
+
+      - name: Upload coverage report
+        if: ${{ !cancelled() && steps.test-coverage.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage
+          path: coverage
+
+      - name: Audit production dependencies
+        run: pnpm audit
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run browser smoke tests
+        run: pnpm test:e2e
+
+  ci:
+    name: Required application gate
+    if: ${{ always() }}
+    needs:
+      - app
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+
+    steps:
+      - name: Require application success
+        env:
+          APP_RESULT: ${{ needs.app.result }}
+        run: |
+          if [[ "$APP_RESULT" != "success" ]]; then
+            echo "Required job failed: app=$APP_RESULT" >&2
+            exit 1
+          fi

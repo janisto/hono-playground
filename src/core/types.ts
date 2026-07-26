@@ -20,12 +20,6 @@ export type TraceMetadata = {
   parentSpanId: string;
 };
 
-export type D1Metrics = {
-  queryCount: number;
-  rowsRead: number;
-  rowsWritten: number;
-};
-
 export interface RuntimeConfig {
   environment: EnvironmentName;
   maximumRequestBytes: number;
@@ -38,7 +32,7 @@ export type AppVariables = {
   traceMetadata: TraceMetadata | undefined;
   runtimeConfig: RuntimeConfig;
   identitySubject: string | undefined;
-  d1Metrics: D1Metrics;
+  jsonApiBodyText: string | undefined;
   outcome: string;
 };
 

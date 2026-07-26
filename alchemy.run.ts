@@ -9,13 +9,17 @@ import {
   STACK_NAME,
   WORKER_BASE_NAME,
 } from "./infra/config.js";
+import { deploymentHostname, deploymentStagePolicy } from "./infra/stage-policy.js";
 
 export { COMPATIBILITY_DATE, MIGRATIONS_TABLE, RATE_LIMITS, STACK_NAME };
 
 const workerProps = Effect.gen(function* () {
   const stack = yield* Alchemy.Stack;
   const stage = stack.stage;
-  const persistent = stage === "prod" || stage === "staging";
+  const stagePolicy = deploymentStagePolicy(stage);
+  const domain = stagePolicy.persistent
+    ? deploymentHostname(yield* Config.string("WORKER_DOMAIN"))
+    : undefined;
 
   const database = yield* Cloudflare.D1.Database("Database", {
     name: `hono-playground-db-${stage}`,
@@ -23,7 +27,7 @@ const workerProps = Effect.gen(function* () {
     readReplication: { mode: "disabled" },
     migrationsDir: "./drizzle",
     migrationsTable: MIGRATIONS_TABLE,
-  }).pipe(Alchemy.RemovalPolicy.retain(persistent));
+  }).pipe(Alchemy.RemovalPolicy.retain(stagePolicy.persistent));
 
   const publicNamespaceId = yield* Config.string("PUBLIC_RATE_LIMIT_NAMESPACE_ID");
   const profileReadNamespaceId = yield* Config.string("PROFILE_READ_RATE_LIMIT_NAMESPACE_ID");
@@ -32,7 +36,8 @@ const workerProps = Effect.gen(function* () {
   return {
     name: `${WORKER_BASE_NAME}-${stage}`,
     main: "./src/index.ts",
-    url: true,
+    url: false,
+    ...(domain === undefined ? {} : { domain }),
     compatibility: {
       date: COMPATIBILITY_DATE,
     },
@@ -73,8 +78,7 @@ const workerProps = Effect.gen(function* () {
         simple: RATE_LIMITS.profileWrite,
       }),
       CF_VERSION_METADATA: Cloudflare.VersionMetadata("CF_VERSION_METADATA"),
-      ENVIRONMENT:
-        stage === "prod" ? "production" : stage === "staging" ? "staging" : "development",
+      ENVIRONMENT: stagePolicy.environment,
       MAX_REQUEST_SIZE_BYTES: 1_000_000,
       RATE_LIMIT_MODE: "workers-binding",
       ACCESS_TEAM_DOMAIN: Config.string("ACCESS_TEAM_DOMAIN"),

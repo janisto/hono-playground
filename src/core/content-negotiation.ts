@@ -196,6 +196,7 @@ export const requireAccept = (
       status: 406,
       code: "not_acceptable",
       detail: `Supported response format: ${advertised}`,
+      source: { header: "Accept" },
     });
   }
 };
@@ -206,6 +207,7 @@ export const requireJsonApiAccept = (headerValue: string | null): void => {
       status: 406,
       code: "not_acceptable",
       detail: `Supported response format: ${JSON_API_MEDIA_TYPE}`,
+      source: { header: "Accept" },
     });
   }
 };

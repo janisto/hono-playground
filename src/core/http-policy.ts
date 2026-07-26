@@ -6,7 +6,13 @@ import { requireAccept, requireJsonApiAccept } from "./content-negotiation.js";
 import { AppError } from "./errors.js";
 import { requireSameOriginForUnsafeProfile } from "./origin.js";
 import { enforcePublicRateLimit } from "./rate-limit.js";
-import { isJsonApiRoute, isRepresentationBearing, resolveRoute } from "./routes.js";
+import {
+  apiDocumentationRoute,
+  isJsonApiRoute,
+  isRepresentationBearing,
+  openApiDocumentRoute,
+  resolveRoute,
+} from "./routes.js";
 import type { AppEnvironment, RouteMetadata } from "./types.js";
 
 const BODY_METHODS = new Set(["POST", "PATCH"]);
@@ -14,8 +20,10 @@ const BODY_METHODS = new Set(["POST", "PATCH"]);
 const requiredRepresentation = (
   metadata: RouteMetadata,
 ): { mediaType: string; advertised: string } | undefined => {
-  if (metadata.template === "/api-docs") return { mediaType: "text/html", advertised: "text/html" };
-  if (metadata.template === "/openapi.json") {
+  if (metadata.template === apiDocumentationRoute.path) {
+    return { mediaType: "text/html", advertised: "text/html" };
+  }
+  if (metadata.template === openApiDocumentRoute.path) {
     return { mediaType: "application/json", advertised: "application/json" };
   }
   if (metadata.kind === "public")
@@ -23,8 +31,13 @@ const requiredRepresentation = (
   return undefined;
 };
 
-const payloadTooLarge = (): AppError =>
-  new AppError({ status: 413, code: "payload_too_large", detail: "Request body too large" });
+const payloadTooLarge = (declaredByContentLength: boolean): AppError =>
+  new AppError({
+    status: 413,
+    code: "payload_too_large",
+    detail: "Request body too large",
+    ...(declaredByContentLength ? { source: { header: "Content-Length" } } : {}),
+  });
 
 export const httpPolicy = (): MiddlewareHandler<AppEnvironment> => {
   return async (c, next) => {
@@ -84,10 +97,15 @@ export const httpPolicy = (): MiddlewareHandler<AppEnvironment> => {
     await bodyLimit({
       maxSize: maximumBytes,
       onError: () => {
-        throw payloadTooLarge();
+        const declaredLength = c.req.header("Content-Length");
+        throw payloadTooLarge(
+          declaredLength !== undefined &&
+            /^\d+$/u.test(declaredLength) &&
+            Number(declaredLength) > maximumBytes,
+        );
       },
     })(c, async () => {
-      await precheckJsonApiBody(c.req.raw.clone(), maximumBytes);
+      c.set("jsonApiBodyText", await precheckJsonApiBody(c.req.raw.clone(), maximumBytes));
       await next();
     });
   };

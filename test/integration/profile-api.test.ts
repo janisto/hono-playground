@@ -223,12 +223,19 @@ describe("JSON:API profile resources", () => {
         },
       });
       const payload = (await response.json()) as {
-        errors: Array<{ status: string; detail: string }>;
+        errors: Array<{
+          status: string;
+          detail: string;
+          source?: { header: string };
+        }>;
       };
 
       expect(response.status).toBe(status);
       expect(response.headers.get("Content-Type")).toBe(JSON_API_MEDIA_TYPE);
       expect(payload.errors[0]).toMatchObject({ status: String(status), detail });
+      if (failure instanceof InvalidAccessTokenError) {
+        expect(payload.errors[0]?.source).toEqual({ header: "Cf-Access-Jwt-Assertion" });
+      }
       if (header === undefined) {
         expect(response.headers.has("WWW-Authenticate")).toBe(false);
         expect(response.headers.has("Retry-After")).toBe(false);
@@ -324,6 +331,14 @@ describe("JSON:API profile resources", () => {
     expect(get.status).toBe(200);
     await expect(get.json()).resolves.toEqual(initial);
 
+    const head = await request(app, CURRENT_PROFILE_PATH, {
+      method: "HEAD",
+      headers: authenticatedHeaders(),
+    });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("Content-Type")).toBe(JSON_API_MEDIA_TYPE);
+    expect(await head.text()).toBe("");
+
     const noOpPatch = await request(
       app,
       CURRENT_PROFILE_PATH,
@@ -381,19 +396,25 @@ describe("JSON:API profile resources", () => {
       headers: { Accept: JSON_API_MEDIA_TYPE },
     });
     expect(resourceMethod.status).toBe(405);
-    expect(resourceMethod.headers.get("Allow")).toBe("GET, PATCH, DELETE");
+    expect(resourceMethod.headers.get("Allow")).toBe("GET, HEAD, PATCH, DELETE");
 
     const unacceptable = await request(app, PROFILES_PATH, {
       method: "POST",
       headers: { Accept: "application/json" },
     });
     expect(unacceptable.status).toBe(406);
+    await expect(unacceptable.json()).resolves.toMatchObject({
+      errors: [{ source: { header: "Accept" } }],
+    });
 
     const crossOrigin = await request(app, PROFILES_PATH, {
       method: "POST",
       headers: { Accept: JSON_API_MEDIA_TYPE, Origin: "https://attacker.invalid" },
     });
     expect(crossOrigin.status).toBe(403);
+    await expect(crossOrigin.json()).resolves.toMatchObject({
+      errors: [{ source: { header: "Origin" } }],
+    });
 
     const unsupported = await request(app, PROFILES_PATH, {
       method: "POST",
@@ -404,6 +425,9 @@ describe("JSON:API profile resources", () => {
       body: "{}",
     });
     expect(unsupported.status).toBe(415);
+    await expect(unsupported.json()).resolves.toMatchObject({
+      errors: [{ source: { header: "Content-Type" } }],
+    });
 
     const oversized = await request(app, PROFILES_PATH, {
       method: "POST",
@@ -438,7 +462,21 @@ describe("JSON:API profile resources", () => {
       headers,
     });
     expect(empty.status).toBe(400);
-    expect(verifier).toHaveBeenCalledTimes(2);
+    const duplicate = await request(app, PROFILES_PATH, {
+      method: "POST",
+      headers,
+      body: `{"data":{"type":"profiles","attributes":${JSON.stringify(
+        validCreateAttributes,
+      ).replace('"termsAccepted":true', '"termsAccepted":false,"termsAccepted":true')}}}`,
+    });
+    expect(duplicate.status).toBe(400);
+    const unpairedSurrogate = await request(app, PROFILES_PATH, {
+      method: "POST",
+      headers,
+      body: String.raw`{"data":{"type":"profiles","attributes":{"firstName":"\uD800"}}}`,
+    });
+    expect(unpairedSurrogate.status).toBe(400);
+    expect(verifier).toHaveBeenCalledTimes(4);
     const count = await database
       .prepare("SELECT COUNT(*) AS count FROM profiles WHERE id = ?")
       .bind(owner)

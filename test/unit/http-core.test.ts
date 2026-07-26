@@ -87,8 +87,11 @@ const expectCommonHeaders = (response: Response, documentation = false): void =>
   expect(response.headers.get("X-Request-ID")).toMatch(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/);
   expect(response.headers.get("Cache-Control")).toBe("no-store");
   if (documentation) {
-    expect(response.headers.get("Content-Security-Policy")).toContain("script-src 'self'");
-    expect(response.headers.get("Content-Security-Policy")).toContain("connect-src 'self'");
+    const policy = response.headers.get("Content-Security-Policy") ?? "";
+    expect(policy).toContain("script-src 'sha256-");
+    expect(policy).toContain("'sha384-");
+    expect(policy).not.toMatch(/script-src[^;]*'unsafe-inline'/u);
+    expect(policy).toContain("connect-src 'self'");
   } else {
     expect(response.headers.get("Content-Security-Policy")).toBe(
       "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
@@ -279,6 +282,7 @@ describe("representation negotiation", () => {
       status: 406,
       code: "not_acceptable",
       detail: `Supported response format: ${JSON_API_MEDIA_TYPE}`,
+      source: { header: "Accept" },
     });
     expect(response.headers.get("Vary")).toBe("Accept");
   });
@@ -296,37 +300,36 @@ describe("representation negotiation", () => {
 describe("known-resource method policy and strict paths", () => {
   it.each([
     ["GET", "/health", "getHealth"],
+    ["HEAD", "/health", "getHealth"],
     ["GET", "/v1/items", "listItems"],
+    ["HEAD", "/v1/items", "listItems"],
     ["GET", "/v1/items/item-001", "getItem"],
+    ["HEAD", "/v1/items/item-001", "getItem"],
     ["POST", "/v1/profiles", "createProfile"],
     ["GET", "/v1/profiles/current", "getCurrentProfile"],
+    ["HEAD", "/v1/profiles/current", "getCurrentProfile"],
     ["PATCH", "/v1/profiles/current", "updateCurrentProfile"],
     ["DELETE", "/v1/profiles/current", "deleteCurrentProfile"],
     ["GET", "/openapi.json", "getOpenApi"],
+    ["HEAD", "/openapi.json", "getOpenApi"],
     ["GET", "/api-docs", "getApiDocs"],
+    ["HEAD", "/api-docs", "getApiDocs"],
   ])("maps %s %s to the fixed operation label %s", (method, path, operationId) => {
     expect(resolveRoute(path, method).metadata.operationId).toBe(operationId);
   });
 
   it.each([
-    ["HEAD", "/health", "GET", "problem"],
-    ["POST", "/health", "GET", "problem"],
-    ["POST", "/v1/items", "GET", "jsonapi"],
-    ["PUT", "/v1/items/item-001", "GET", "jsonapi"],
+    ["POST", "/health", "GET, HEAD", "problem"],
+    ["POST", "/v1/items", "GET, HEAD", "jsonapi"],
+    ["PUT", "/v1/items/item-001", "GET, HEAD", "jsonapi"],
     ["OPTIONS", "/v1/profiles", "POST", "jsonapi"],
-    ["OPTIONS", "/v1/profiles/current", "GET, PATCH, DELETE", "jsonapi"],
-    ["HEAD", "/openapi.json", "GET", "problem"],
-    ["OPTIONS", "/api-docs", "GET", "problem"],
+    ["OPTIONS", "/v1/profiles/current", "GET, HEAD, PATCH, DELETE", "jsonapi"],
+    ["POST", "/openapi.json", "GET, HEAD", "problem"],
+    ["OPTIONS", "/api-docs", "GET, HEAD", "problem"],
   ])("returns a complete 405 Allow for %s %s", async (method, path, allow, format) => {
     const response = await request(path, { method });
 
-    if (method === "HEAD") {
-      expect(response.status).toBe(405);
-      expect(response.headers.get("Content-Type")).toContain(
-        format === "jsonapi" ? JSON_API_MEDIA_TYPE : "application/problem+json",
-      );
-      expect(await response.text()).toBe("");
-    } else if (format === "jsonapi") {
+    if (format === "jsonapi") {
       await expectJsonApiError(response, {
         status: 405,
         code: "method_not_allowed",
@@ -344,6 +347,24 @@ describe("known-resource method policy and strict paths", () => {
     expectCommonHeaders(response, path === "/api-docs");
   });
 
+  it.each([
+    ["/health", "application/json", false],
+    ["/v1/items", JSON_API_MEDIA_TYPE, false],
+    ["/v1/items/item-001", JSON_API_MEDIA_TYPE, false],
+    ["/openapi.json", "application/json", false],
+    ["/api-docs", "text/html", true],
+  ] as const)("uses Hono's GET-derived HEAD behavior for %s", async (path, contentType, docs) => {
+    const response = await request(path, {
+      method: "HEAD",
+      headers: { Accept: contentType },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain(contentType);
+    expect(await response.text()).toBe("");
+    expectCommonHeaders(response, docs);
+  });
+
   it("applies the method guard before negotiation, authentication, and body processing", async () => {
     const response = await request("/v1/profiles/current", {
       method: "POST",
@@ -352,7 +373,7 @@ describe("known-resource method policy and strict paths", () => {
     });
 
     expect(response.status).toBe(405);
-    expect(response.headers.get("Allow")).toBe("GET, PATCH, DELETE");
+    expect(response.headers.get("Allow")).toBe("GET, HEAD, PATCH, DELETE");
   });
 
   it.each([
@@ -452,6 +473,7 @@ describe("JSON:API body preconditions and ordering", () => {
       status: 406,
       code: "not_acceptable",
       detail: `Supported response format: ${JSON_API_MEDIA_TYPE}`,
+      source: { header: "Accept" },
     });
   });
 
@@ -462,6 +484,7 @@ describe("JSON:API body preconditions and ordering", () => {
       status: 415,
       code: "unsupported_media_type",
       detail: `Content-Type must be ${JSON_API_MEDIA_TYPE} without unsupported extensions`,
+      source: { header: "Content-Type" },
     });
   });
 
@@ -493,6 +516,9 @@ describe("JSON:API body preconditions and ordering", () => {
           contentEncoding === undefined
             ? `Content-Type must be ${JSON_API_MEDIA_TYPE} without unsupported extensions`
             : "Only identity-encoded JSON:API documents are supported",
+        source: {
+          header: contentEncoding === undefined ? "Content-Type" : "Content-Encoding",
+        },
       });
     },
   );
@@ -509,6 +535,37 @@ describe("JSON:API body preconditions and ordering", () => {
       });
     },
   );
+
+  it.each([
+    [
+      "a repeated literal member",
+      '{"data":{"type":"profiles","attributes":{"firstName":"Ada","firstName":"Grace","lastName":"Lovelace","email":"ada@example.com","phoneNumber":"+12025550123","termsAccepted":true}}}',
+    ],
+    [
+      "an escape-equivalent member",
+      String.raw`{"data":{"type":"profiles","attributes":{"firstName":"Ada","lastName":"Lovelace","email":"ada@example.com","phoneNumber":"+12025550123","termsAccepted":false,"\u0074ermsAccepted":true}}}`,
+    ],
+    [
+      "an unpaired surrogate",
+      String.raw`{"data":{"type":"profiles","attributes":{"firstName":"\uD800"}}}`,
+    ],
+  ])("rejects ambiguous JSON containing %s", async (_case, body) => {
+    const response = await profileRequest(body);
+
+    await expectJsonApiError(response, {
+      status: 400,
+      code: "invalid_json",
+      detail: "Invalid JSON document",
+    });
+  });
+
+  it("accepts a paired supplementary Unicode scalar before schema validation", async () => {
+    const response = await profileRequest(
+      String.raw`{"data":{"type":"profiles","attributes":{"firstName":"\uD83D\uDE00"}}}`,
+    );
+
+    expect(response.status).toBe(422);
+  });
 
   it("rejects invalid UTF-8 instead of parsing replacement characters", async () => {
     const response = await profileRequest(new Uint8Array([0xc3, 0x28]));
@@ -535,6 +592,23 @@ describe("JSON:API body preconditions and ordering", () => {
       status: 413,
       code: "payload_too_large",
       detail: "Request body too large",
+    });
+  });
+
+  it("identifies Content-Length when the declared body size exceeds the limit", async () => {
+    const response = await profileRequest(
+      "{}",
+      {
+        "Content-Length": "32",
+      },
+      16,
+    );
+
+    await expectJsonApiError(response, {
+      status: 413,
+      code: "payload_too_large",
+      detail: "Request body too large",
+      source: { header: "Content-Length" },
     });
   });
 

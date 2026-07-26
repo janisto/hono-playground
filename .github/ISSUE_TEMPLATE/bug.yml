@@ -1,0 +1,150 @@
+name: Bug report
+description: Report reproducible incorrect behavior in hono-playground
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues and review the relevant README section before filing. Reduce the problem to the smallest reproduction you can share, preferably a Hono `app.request()` or Vitest test, or copied request and response text rather than screenshots.
+
+        Remove Cloudflare credentials and identifiers, Access assertions, HMAC keys, authorization headers, cookies, profile data, and other sensitive information.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight checks
+      options:
+        - label: I searched the existing issues and did not find a matching report.
+          required: true
+        - label: I reviewed the README section relevant to this behavior.
+          required: true
+        - label: I removed secrets, credentials, tokens, authorization headers, cookies, Cloudflare identifiers, profile data, and PII from everything I am submitting.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected route or area
+      options:
+        - Worker startup, lifecycle, or configuration
+        - Health, OpenAPI, or Swagger UI
+        - Cloudflare Access authentication or identity
+        - JSON:API negotiation, documents, or errors
+        - Validation, request bodies, or schemas
+        - Items, filtering, or cursor pagination
+        - Profiles, D1, Drizzle, or migrations
+        - Rate limiting
+        - Observability, logging, or tracing
+        - Alchemy or Cloudflare infrastructure
+        - Build, CI, tooling, or dependencies
+        - Documentation
+        - Other or uncertain
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual behavior
+      description: Include the exact status, headers, response body, error, or incorrect structured output when available.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction or strongest evidence
+      description: Provide exact steps and the smallest runnable test or request. If intermittent, describe the original conditions and strongest concrete evidence.
+      placeholder: |
+        1. Configure the application with ...
+        2. Run this test or send this request ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: input
+    id: revision
+    attributes:
+      label: Application revision
+      description: Provide the exact commit ID or branch and commit ID.
+      placeholder: "Example: abc1234"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      description: Paste the output of `node --version`.
+      placeholder: "Example: v24.18.0"
+    validations:
+      required: true
+
+  - type: input
+    id: pnpm-version
+    attributes:
+      label: pnpm version
+      description: Paste the output of `pnpm --version`.
+      placeholder: "Example: 11.17.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: runtime
+    attributes:
+      label: Deployment and runtime context
+      description: Include OS and architecture, local workerd or Miniflare details, Cloudflare stage, and relevant Alchemy, Worker, D1, or Access context. Do not include credentials or account identifiers.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Frequency
+      options:
+        - Every time
+        - Intermittently
+        - Happened once
+        - Unable to reproduce independently
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact and workaround
+      description: Describe affected users or operations, severity, and any current workaround.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Paste relevant logs, stack traces, request IDs, or response bodies after removing all sensitive data.
+      render: shell
+
+  - type: textarea
+    id: ai-assistance
+    attributes:
+      label: Agent or AI assistance
+      description: Optional. Include tool or model, contribution, verification performed, and human-review status. Do not include private prompts or transcripts.
+      placeholder: |
+        Tool and model:
+        Contribution:
+        Verification:
+        Human review:
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context

@@ -27,10 +27,17 @@ import {
 import { httpPolicy } from "./core/http-policy.js";
 import { lifecycle, runtimeConfiguration } from "./core/lifecycle.js";
 import { enforceProfileRateLimit } from "./core/rate-limit.js";
-import { isJsonApiRoute, resolveRoute } from "./core/routes.js";
+import {
+  apiDocumentationRoute,
+  isJsonApiRoute,
+  openApiDocumentRoute,
+  resolveRoute,
+} from "./core/routes.js";
+import { assertStrictJsonText } from "./core/strict-json.js";
 import { enterSpan } from "./core/tracing.js";
-import type { AppEnvironment, D1Metrics } from "./core/types.js";
+import type { AppEnvironment } from "./core/types.js";
 import { ITEMS } from "./data/items.js";
+import { renderSwaggerUiBody, SWAGGER_UI_VERSION } from "./docs/swagger.js";
 import { HealthResponseSchema } from "./models/health.js";
 import {
   type Item,
@@ -55,12 +62,6 @@ export type AppDependencies = {
   maximumRequestBytes?: number;
 };
 
-const mergeD1Metrics = (current: D1Metrics, next: D1Metrics): D1Metrics => ({
-  queryCount: current.queryCount + next.queryCount,
-  rowsRead: current.rowsRead + next.rowsRead,
-  rowsWritten: current.rowsWritten + next.rowsWritten,
-});
-
 const createRepository = (
   c: Context<AppEnvironment>,
   dependencies: AppDependencies,
@@ -75,9 +76,7 @@ const createRepository = (
   ) {
     throw internalError("runtime_configuration_invalid");
   }
-  return new DrizzleProfileRepository(database, {
-    onMetrics: (metrics) => c.set("d1Metrics", mergeD1Metrics(c.get("d1Metrics"), metrics)),
-  });
+  return new DrizzleProfileRepository(database);
 };
 
 const profileService = (
@@ -107,7 +106,26 @@ const accessMiddleware = (dependencies: AppDependencies): MiddlewareHandler<AppE
 const profileLimiter: MiddlewareHandler<AppEnvironment> = async (c, next) => {
   const subject = c.get("identitySubject");
   if (subject === undefined) throw internalError();
-  await enforceProfileRateLimit(c, subject, c.req.method === "GET" ? "read" : "write");
+  await enforceProfileRateLimit(
+    c,
+    subject,
+    c.req.method === "GET" || c.req.method === "HEAD" ? "read" : "write",
+  );
+  await next();
+};
+
+const strictJsonBody: MiddlewareHandler<AppEnvironment> = async (c, next) => {
+  if (c.req.method !== "POST" && c.req.method !== "PATCH") {
+    await next();
+    return;
+  }
+  const text = c.get("jsonApiBodyText");
+  if (text === undefined) throw internalError("runtime_configuration_invalid");
+  try {
+    assertStrictJsonText(text);
+  } catch {
+    throw invalidJsonError();
+  }
   await next();
 };
 
@@ -245,6 +263,8 @@ export const createApp = (dependencies: AppDependencies = {}) => {
   app.use("/v1/profiles/current", accessMiddleware(dependencies));
   app.use("/v1/profiles", profileLimiter);
   app.use("/v1/profiles/current", profileLimiter);
+  app.use("/v1/profiles", strictJsonBody);
+  app.use("/v1/profiles/current", strictJsonBody);
 
   app.openAPIRegistry.registerComponent("securitySchemes", "CloudflareAccess", {
     type: "apiKey",
@@ -415,15 +435,14 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     servers: [{ url: "/" }],
   });
 
-  app.get("/openapi.json", (c) => c.json(openApiDocument));
+  app.get(openApiDocumentRoute.path, (c) => c.json(openApiDocument));
   app.get(
-    "/api-docs",
+    apiDocumentationRoute.path,
     swaggerUI({
-      url: "/openapi.json",
+      url: openApiDocumentRoute.path,
       title: "Hono Playground API",
-      version: "5.32.11",
-      supportedSubmitMethods: [],
-      validatorUrl: "none",
+      version: SWAGGER_UI_VERSION,
+      manuallySwaggerUIHtml: renderSwaggerUiBody,
     }),
   );
 

@@ -5,6 +5,5 @@ export default defineConfig({
   schema: "./src/db/schema.ts",
   out: "./drizzle",
   breakpoints: true,
-  strict: true,
   verbose: true,
 });

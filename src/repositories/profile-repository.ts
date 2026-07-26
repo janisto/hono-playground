@@ -3,7 +3,6 @@ import { type DrizzleD1Database, drizzle } from "drizzle-orm/d1";
 import { z } from "zod";
 
 import type { OperatorCode } from "../core/errors.js";
-import type { D1Metrics } from "../core/types.js";
 import { type NewProfileRow, type ProfileRow, profiles } from "../db/schema.js";
 import {
   type Profile,
@@ -40,8 +39,6 @@ const StoredProfileSchema = z
   })
   .strict();
 
-export type D1MetricsCallback = (metrics: D1Metrics) => void;
-
 export interface ProfileRepository {
   create(id: string, input: ProfileCreate, timestamp: Date): Promise<Profile | undefined>;
   get(id: string): Promise<Profile | undefined>;
@@ -50,7 +47,6 @@ export interface ProfileRepository {
 }
 
 export interface DrizzleProfileRepositoryOptions {
-  readonly onMetrics?: D1MetricsCallback;
   readonly sleep?: (milliseconds: number) => Promise<void>;
   readonly random?: () => number;
 }
@@ -139,13 +135,11 @@ const defaultSleep = (milliseconds: number): Promise<void> =>
 
 export class DrizzleProfileRepository implements ProfileRepository {
   readonly #database: DrizzleD1Database;
-  readonly #onMetrics: D1MetricsCallback | undefined;
   readonly #sleep: (milliseconds: number) => Promise<void>;
   readonly #random: () => number;
 
   constructor(database: D1Database, options: DrizzleProfileRepositoryOptions = {}) {
     this.#database = drizzle(database);
-    this.#onMetrics = options.onMetrics;
     this.#sleep = options.sleep ?? defaultSleep;
     this.#random = options.random ?? Math.random;
   }
@@ -169,11 +163,6 @@ export class DrizzleProfileRepository implements ProfileRepository {
         .values(row)
         .onConflictDoNothing({ target: profiles.id })
         .returning();
-      this.#recordMetrics({
-        queryCount: 1,
-        rowsRead: inserted.length,
-        rowsWritten: inserted.length,
-      });
       if (inserted.length === 0) return undefined;
       return oneProfile(inserted);
     } catch (error) {
@@ -188,7 +177,6 @@ export class DrizzleProfileRepository implements ProfileRepository {
         .from(profiles)
         .where(eq(profiles.id, id))
         .limit(2);
-      this.#recordMetrics({ queryCount: 1, rowsRead: selected.length, rowsWritten: 0 });
       if (selected.length === 0) return undefined;
       return oneProfile(selected);
     } catch (error) {
@@ -229,11 +217,6 @@ export class DrizzleProfileRepository implements ProfileRepository {
           .set(changes)
           .where(and(eq(profiles.id, id), or(...changedPredicates)))
           .returning();
-        this.#recordMetrics({
-          queryCount: 1,
-          rowsRead: updated.length,
-          rowsWritten: updated.length,
-        });
         if (updated.length === 0) return this.get(id);
         return oneProfile(updated);
       } catch (error) {
@@ -261,11 +244,6 @@ export class DrizzleProfileRepository implements ProfileRepository {
         .delete(profiles)
         .where(eq(profiles.id, id))
         .returning({ id: profiles.id });
-      this.#recordMetrics({
-        queryCount: 1,
-        rowsRead: deleted.length,
-        rowsWritten: deleted.length,
-      });
       if (deleted.length > 1) throw new ProfileRepositoryError();
       return deleted.length === 1;
     } catch (error) {
@@ -278,13 +256,5 @@ export class DrizzleProfileRepository implements ProfileRepository {
     const randomValue = Math.max(0, Math.min(1, this.#random()));
     const jitter = Math.floor(randomValue * baseDelay);
     return Math.min(baseDelay + jitter, PATCH_RETRY_MAX_DELAY_MS);
-  }
-
-  #recordMetrics(metrics: D1Metrics): void {
-    try {
-      this.#onMetrics?.(metrics);
-    } catch {
-      // Observability must never change a committed database outcome.
-    }
   }
 }

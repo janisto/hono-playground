@@ -1,10 +1,9 @@
 import type { MiddlewareHandler } from "hono";
+import { SWAGGER_UI_BOOTSTRAP_CSP_SOURCE, SWAGGER_UI_BUNDLE_CSP_SOURCE } from "../docs/swagger.js";
 import { parseRuntimeConfig } from "./config.js";
 import { parseTraceParent, requestId } from "./request-context.js";
-import { resolveRoute } from "./routes.js";
-import type { AppEnvironment, D1Metrics, RuntimeBindings } from "./types.js";
-
-const ZERO_D1: D1Metrics = { queryCount: 0, rowsRead: 0, rowsWritten: 0 };
+import { apiDocumentationRoute, resolveRoute } from "./routes.js";
+import type { AppEnvironment, RuntimeBindings } from "./types.js";
 
 const API_CSP = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 const DOCS_CSP = [
@@ -13,8 +12,8 @@ const DOCS_CSP = [
   "frame-ancestors 'none'",
   "form-action 'none'",
   "object-src 'none'",
-  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
-  "script-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+  `script-src ${SWAGGER_UI_BOOTSTRAP_CSP_SOURCE} ${SWAGGER_UI_BUNDLE_CSP_SOURCE}`,
+  `script-src-elem ${SWAGGER_UI_BOOTSTRAP_CSP_SOURCE} ${SWAGGER_UI_BUNDLE_CSP_SOURCE}`,
   "script-src-attr 'none'",
   "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
   "style-src-elem 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
@@ -44,7 +43,10 @@ const applyFinalHeaders = (
   const headers = response.headers;
   headers.set("X-Request-ID", id);
   headers.set("Cache-Control", "no-store");
-  headers.set("Content-Security-Policy", pathname === "/api-docs" ? DOCS_CSP : API_CSP);
+  headers.set(
+    "Content-Security-Policy",
+    pathname === apiDocumentationRoute.path ? DOCS_CSP : API_CSP,
+  );
   headers.set("Cross-Origin-Opener-Policy", "same-origin");
   headers.set("Cross-Origin-Resource-Policy", "same-origin");
   headers.set(
@@ -73,7 +75,9 @@ const applyFinalHeaders = (
   }
 
   const contentType = headers.get("Content-Type")?.toLowerCase() ?? "";
-  if (contentType.includes("json") || pathname === "/api-docs") appendVary(headers, "Accept");
+  if (contentType.includes("json") || pathname === apiDocumentationRoute.path) {
+    appendVary(headers, "Accept");
+  }
 };
 
 const safeEnvironment = (bindings: RuntimeBindings): string => {
@@ -103,14 +107,13 @@ export const lifecycle = (options: LifecycleOptions = {}): MiddlewareHandler<App
     c.set("routeMetadata", metadata);
     c.set("traceMetadata", parseTraceParent(c.req.header("traceparent") ?? null));
     c.set("identitySubject", undefined);
-    c.set("d1Metrics", { ...ZERO_D1 });
+    c.set("jsonApiBodyText", undefined);
     c.set("outcome", "ok");
 
     await next();
 
     applyFinalHeaders(c.res, c.env, new URL(c.req.url).pathname, id);
     const trace = c.get("traceMetadata");
-    const d1 = c.get("d1Metrics");
     const version = c.env.CF_VERSION_METADATA;
     const status = c.res.status;
     const cfRay = safeCfRay(c.req.header("CF-Ray"));
@@ -133,13 +136,6 @@ export const lifecycle = (options: LifecycleOptions = {}): MiddlewareHandler<App
       ...(version === undefined
         ? {}
         : { worker_version_id: version.id, worker_version_tag: version.tag }),
-      ...(d1.queryCount === 0 && d1.rowsRead === 0 && d1.rowsWritten === 0
-        ? {}
-        : {
-            d1_query_count: d1.queryCount,
-            d1_rows_read: d1.rowsRead,
-            d1_rows_written: d1.rowsWritten,
-          }),
     };
     if (status >= 500) console.error(event);
     else console.log(event);

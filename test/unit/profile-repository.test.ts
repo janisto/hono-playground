@@ -68,9 +68,8 @@ const PROFILE = {
 
 describe("DrizzleProfileRepository", () => {
   it("creates through a typed conflict-safe insert with RETURNING", async () => {
-    const metrics = vi.fn();
     const harness = databaseHarness({ raw: async () => [[...STORED_VALUES]] });
-    const repository = new DrizzleProfileRepository(harness.database, { onMetrics: metrics });
+    const repository = new DrizzleProfileRepository(harness.database);
 
     await expect(
       repository.create("subject-1", INPUT, new Date("2026-07-22T10:00:00.000Z")),
@@ -92,7 +91,6 @@ describe("DrizzleProfileRepository", () => {
       Date.parse("2026-07-22T10:00:00.000Z"),
       Date.parse("2026-07-22T10:00:00.000Z"),
     ]);
-    expect(metrics).toHaveBeenCalledWith({ queryCount: 1, rowsRead: 1, rowsWritten: 1 });
   });
 
   it("reports a primary-key conflict only when RETURNING yields no row", async () => {
@@ -158,12 +156,11 @@ describe("DrizzleProfileRepository", () => {
   });
 
   it("does not advance updatedAt when every supplied PATCH value is unchanged", async () => {
-    const metrics = vi.fn();
     const harness = databaseHarness({
       raw: async (call) =>
         call.sql.trimStart().toLowerCase().startsWith("update") ? [] : [[...STORED_VALUES]],
     });
-    const repository = new DrizzleProfileRepository(harness.database, { onMetrics: metrics });
+    const repository = new DrizzleProfileRepository(harness.database);
 
     await expect(
       repository.update(
@@ -178,10 +175,6 @@ describe("DrizzleProfileRepository", () => {
     expect(harness.calls[0]?.sql.toLowerCase()).toContain('"first_name"');
     expect(harness.calls[0]?.sql.toLowerCase()).toContain('"marketing_opt_in"');
     expect(harness.calls[1]?.sql.toLowerCase()).toContain("select");
-    expect(metrics.mock.calls).toEqual([
-      [{ queryCount: 1, rowsRead: 0, rowsWritten: 0 }],
-      [{ queryCount: 1, rowsRead: 1, rowsWritten: 0 }],
-    ]);
   });
 
   it("retries PATCH at most twice with one timestamp and bounded jitter", async () => {
@@ -269,14 +262,10 @@ describe("DrizzleProfileRepository", () => {
     expect(sleep).not.toHaveBeenCalled();
   });
 
-  it("uses typed DELETE RETURNING and isolates metrics observer failures", async () => {
+  it("uses typed DELETE RETURNING for missing and present rows", async () => {
     const missing = new DrizzleProfileRepository(databaseHarness().database);
     const deletedHarness = databaseHarness({ raw: async () => [["subject-1"]] });
-    const deleted = new DrizzleProfileRepository(deletedHarness.database, {
-      onMetrics: () => {
-        throw new Error("observer failed");
-      },
-    });
+    const deleted = new DrizzleProfileRepository(deletedHarness.database);
 
     await expect(missing.delete("missing")).resolves.toBe(false);
     await expect(deleted.delete("subject-1")).resolves.toBe(true);

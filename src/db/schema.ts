@@ -1,10 +1,10 @@
 import { sql } from "drizzle-orm";
-import { check, integer, snakeCase, text } from "drizzle-orm/sqlite-core";
+import { check, integer, primaryKey, snakeCase, text } from "drizzle-orm/sqlite-core";
 
 export const profiles = snakeCase.table(
   "profiles",
   {
-    id: text().primaryKey().notNull(),
+    id: text().notNull(),
     firstName: text().notNull(),
     lastName: text().notNull(),
     email: text().notNull(),
@@ -15,6 +15,7 @@ export const profiles = snakeCase.table(
     updatedAt: integer({ mode: "timestamp_ms" }).notNull(),
   },
   (table) => [
+    primaryKey({ name: "profiles_id_pk", columns: [table.id] }),
     check("profiles_id_length", sql`length(${table.id}) BETWEEN 1 AND 128`),
     check("profiles_first_name_length", sql`length(${table.firstName}) BETWEEN 1 AND 100`),
     check("profiles_last_name_length", sql`length(${table.lastName}) BETWEEN 1 AND 100`),

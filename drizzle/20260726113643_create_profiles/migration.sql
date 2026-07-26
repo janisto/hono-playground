@@ -1,5 +1,5 @@
 CREATE TABLE `profiles` (
-	`id` text PRIMARY KEY,
+	`id` text NOT NULL,
 	`first_name` text NOT NULL,
 	`last_name` text NOT NULL,
 	`email` text NOT NULL,
@@ -8,6 +8,7 @@ CREATE TABLE `profiles` (
 	`terms_accepted` integer NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
+	CONSTRAINT `profiles_id_pk` PRIMARY KEY(`id`),
 	CONSTRAINT "profiles_id_length" CHECK(length("id") BETWEEN 1 AND 128),
 	CONSTRAINT "profiles_first_name_length" CHECK(length("first_name") BETWEEN 1 AND 100),
 	CONSTRAINT "profiles_last_name_length" CHECK(length("last_name") BETWEEN 1 AND 100),
@@ -22,4 +23,4 @@ CREATE TABLE `profiles` (
 	CONSTRAINT "profiles_terms_accepted" CHECK("terms_accepted" = 1),
 	CONSTRAINT "profiles_created_at_nonnegative" CHECK("created_at" >= 0),
 	CONSTRAINT "profiles_updated_at_order" CHECK("updated_at" >= "created_at")
-) STRICT;
+);

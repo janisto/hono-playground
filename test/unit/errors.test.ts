@@ -71,6 +71,16 @@ describe("application error catalog", () => {
     expect(
       () =>
         new AppError({
+          status: 422,
+          code: "validation_failed",
+          detail: "Request document validation failed",
+          errors: [{ detail: "Invalid value" }],
+          source: { header: "Content-Type" },
+        }),
+    ).toThrow("sources on their normalized issues");
+    expect(
+      () =>
+        new AppError({
           status: 405,
           code: "method_not_allowed",
           detail: "Method Not Allowed",
@@ -143,6 +153,18 @@ describe("application error catalog", () => {
           source: { pointer: "/data/attributes/firstName" },
         },
       ],
+    });
+
+    const headerError = jsonApiErrorResponse(
+      new AppError({
+        status: 406,
+        code: "not_acceptable",
+        detail: "Supported response format: application/vnd.api+json",
+        source: { header: "Accept" },
+      }),
+    );
+    await expect(headerError.json()).resolves.toMatchObject({
+      errors: [{ source: { header: "Accept" } }],
     });
   });
 });

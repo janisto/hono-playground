@@ -1,81 +1,93 @@
+import {
+  healthRoute,
+  itemGetRoute,
+  itemsRoute,
+  profileDeleteRoute,
+  profileGetRoute,
+  profilePatchRoute,
+  profilePostRoute,
+} from "../api/routes.js";
 import type { RouteMetadata } from "./types.js";
 
-type RoutePolicy = RouteMetadata & { methods: readonly string[] };
+type RouteDefinition = Readonly<{
+  route: Readonly<{
+    path: string;
+    method: string;
+    operationId: string;
+  }>;
+  kind: RouteMetadata["kind"];
+}>;
 
-const ROUTES = new Map<string, Map<string, RoutePolicy>>();
+export const openApiDocumentRoute = {
+  path: "/openapi.json",
+  method: "get",
+  operationId: "getOpenApi",
+} as const;
 
-const register = (
-  path: string,
-  methods: readonly string[],
-  operations: Readonly<Record<string, string>>,
-  kindByMethod: Readonly<Record<string, RouteMetadata["kind"]>>,
-): void => {
-  const policies = new Map<string, RoutePolicy>();
-  for (const method of methods) {
-    policies.set(method, {
-      template: path,
-      methods,
-      operationId: operations[method] ?? "methodNotAllowed",
-      kind: kindByMethod[method] ?? "public",
-    });
-  }
-  ROUTES.set(path, policies);
+export const apiDocumentationRoute = {
+  path: "/api-docs",
+  method: "get",
+  operationId: "getApiDocs",
+} as const;
+
+export const ROUTE_DEFINITIONS = [
+  { route: healthRoute, kind: "public" },
+  { route: itemsRoute, kind: "resource" },
+  { route: itemGetRoute, kind: "resource" },
+  { route: profilePostRoute, kind: "profile-write" },
+  { route: profileGetRoute, kind: "profile-read" },
+  { route: profilePatchRoute, kind: "profile-write" },
+  { route: profileDeleteRoute, kind: "profile-write" },
+  { route: openApiDocumentRoute, kind: "docs" },
+  { route: apiDocumentationRoute, kind: "docs" },
+] satisfies readonly RouteDefinition[];
+
+type RouteFamily = Readonly<{
+  template: string;
+  matcher: RegExp;
+  definitions: readonly RouteDefinition[];
+  allowedMethods: readonly string[];
+}>;
+
+const regexEscape = (value: string): string => value.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+
+const routeMatcher = (template: string): RegExp => {
+  const source = template
+    .split(/(\{[^/{}]+\})/u)
+    .map((part) => (/^\{[^/{}]+\}$/u.test(part) ? "[^/]+" : regexEscape(part)))
+    .join("");
+  return new RegExp(`^${source}$`, "u");
 };
 
-register("/health", ["GET"], { GET: "getHealth" }, {});
-register("/v1/items", ["GET"], { GET: "listItems" }, { GET: "resource" });
-register("/v1/profiles", ["POST"], { POST: "createProfile" }, { POST: "profile-write" });
-register(
-  "/v1/profiles/current",
-  ["GET", "PATCH", "DELETE"],
-  {
-    GET: "getCurrentProfile",
-    PATCH: "updateCurrentProfile",
-    DELETE: "deleteCurrentProfile",
-  },
-  {
-    GET: "profile-read",
-    PATCH: "profile-write",
-    DELETE: "profile-write",
-  },
-);
-register("/openapi.json", ["GET"], { GET: "getOpenApi" }, { GET: "docs" });
-register("/api-docs", ["GET"], { GET: "getApiDocs" }, { GET: "docs" });
+const requestMethods = (method: string): readonly string[] => {
+  const normalized = method.toUpperCase();
+  return normalized === "GET" ? ["GET", "HEAD"] : [normalized];
+};
+
+const routeFamilies = (): readonly RouteFamily[] => {
+  const grouped = new Map<string, RouteDefinition[]>();
+  for (const definition of ROUTE_DEFINITIONS) {
+    const definitions = grouped.get(definition.route.path) ?? [];
+    definitions.push(definition);
+    grouped.set(definition.route.path, definitions);
+  }
+
+  return [...grouped].map(([template, definitions]) => ({
+    template,
+    matcher: routeMatcher(template),
+    definitions,
+    allowedMethods: [
+      ...new Set(definitions.flatMap((definition) => requestMethods(definition.route.method))),
+    ],
+  }));
+};
+
+const ROUTE_FAMILIES = routeFamilies();
 
 const UNMATCHED: RouteMetadata = {
   template: "unmatched",
   operationId: "unmatched",
   kind: "unmatched",
-};
-
-const fixedDynamicPolicy = (
-  template: string,
-  method: string,
-  allowedMethods: readonly string[],
-  operationId: string,
-  kind: RouteMetadata["kind"],
-): RoutePolicy | undefined =>
-  method === allowedMethods[0]
-    ? { template, methods: allowedMethods, operationId, kind }
-    : undefined;
-
-const dynamicRoute = (
-  pathname: string,
-  method: string,
-): { exact: RoutePolicy | undefined; fallback: RoutePolicy } | undefined => {
-  if (/^\/v1\/items\/[^/]+$/u.test(pathname)) {
-    const fallback: RoutePolicy = {
-      template: "/v1/items/{itemId}",
-      methods: ["GET"],
-      operationId: "methodNotAllowed",
-      kind: "resource",
-    };
-    return {
-      exact: fixedDynamicPolicy(fallback.template, method, fallback.methods, "getItem", "resource"),
-      fallback,
-    };
-  }
-  return undefined;
 };
 
 export type RouteResolution = {
@@ -85,34 +97,37 @@ export type RouteResolution = {
 };
 
 export const resolveRoute = (pathname: string, method: string): RouteResolution => {
-  const methodPolicies = ROUTES.get(pathname);
-  if (methodPolicies !== undefined) {
-    const exact = methodPolicies.get(method);
-    if (exact !== undefined) {
-      return { metadata: exact, allowedMethods: exact.methods, knownResource: true };
-    }
-    const first = methodPolicies.values().next().value as RoutePolicy | undefined;
+  const family = ROUTE_FAMILIES.find((candidate) => candidate.matcher.test(pathname));
+  if (family === undefined) {
+    return { metadata: UNMATCHED, allowedMethods: undefined, knownResource: false };
+  }
+
+  const normalizedMethod = method.toUpperCase();
+  const routedMethod = normalizedMethod === "HEAD" ? "GET" : normalizedMethod;
+  const definition = family.definitions.find(
+    (candidate) => candidate.route.method.toUpperCase() === routedMethod,
+  );
+  if (definition !== undefined) {
     return {
       metadata: {
-        template: first?.template ?? "unmatched",
-        operationId: "methodNotAllowed",
-        kind: first?.kind ?? "unmatched",
+        template: family.template,
+        operationId: definition.route.operationId,
+        kind: definition.kind,
       },
-      allowedMethods: first?.methods,
+      allowedMethods: family.allowedMethods,
       knownResource: true,
     };
   }
 
-  const dynamic = dynamicRoute(pathname, method);
-  if (dynamic !== undefined) {
-    return {
-      metadata: dynamic.exact ?? dynamic.fallback,
-      allowedMethods: dynamic.fallback.methods,
-      knownResource: true,
-    };
-  }
-
-  return { metadata: UNMATCHED, allowedMethods: undefined, knownResource: false };
+  return {
+    metadata: {
+      template: family.template,
+      operationId: "methodNotAllowed",
+      kind: family.definitions[0]?.kind ?? "unmatched",
+    },
+    allowedMethods: family.allowedMethods,
+    knownResource: true,
+  };
 };
 
 export const isRepresentationBearing = (metadata: RouteMetadata): boolean =>

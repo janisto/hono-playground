@@ -9,7 +9,12 @@ export const requireSameOriginForUnsafeProfile = (request: Request): void => {
   try {
     parsed = new URL(origin);
   } catch {
-    throw new AppError({ status: 403, code: "origin_not_allowed", detail: "Origin not allowed" });
+    throw new AppError({
+      status: 403,
+      code: "origin_not_allowed",
+      detail: "Origin not allowed",
+      source: { header: "Origin" },
+    });
   }
 
   if (
@@ -17,6 +22,11 @@ export const requireSameOriginForUnsafeProfile = (request: Request): void => {
     parsed.origin !== origin ||
     parsed.origin !== new URL(request.url).origin
   ) {
-    throw new AppError({ status: 403, code: "origin_not_allowed", detail: "Origin not allowed" });
+    throw new AppError({
+      status: 403,
+      code: "origin_not_allowed",
+      detail: "Origin not allowed",
+      source: { header: "Origin" },
+    });
   }
 };
