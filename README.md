@@ -3,13 +3,13 @@
 A greenfield Cloudflare Workers API demonstrating a small, current stack:
 Hono, Alchemy, Drizzle, D1, and JSON:API 1.1.
 
-The application stack has not been deployed. The staging Cloudflare Access
-application and owner policy are configured for
-`staging.hono-playground.dev/v1/profiles`, and the shared account-level Alchemy
-state store is bootstrapped. No application Worker, project D1 database,
-application secret binding, or live application observability configuration
-has been deployed or verified. Access enforcement remains untested until the
-hostname exists.
+Staging is deployed at
+[staging.hono-playground.dev](https://staging.hono-playground.dev) from commit
+`26af818`. The Worker, D1 database, committed migration, bindings, custom
+domain, logs, and traces have been read back from Cloudflare. The profile path
+is protected by the owner-only Access policy; anonymous denial and a signed-in
+owner reaching the application were verified on 2026-07-26. Full live
+synthetic profile CRUD remains pending, and production has not been deployed.
 
 ## Stack
 

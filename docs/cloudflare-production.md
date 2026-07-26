@@ -1,8 +1,8 @@
 # Cloudflare deployment runbook
 
-The application stack has not been deployed. Unless explicitly marked as
-verified below, every live-state item remains pending until it has been read
-back from Cloudflare after a successful apply.
+Staging is deployed and has been read back as recorded below. Production has
+not been deployed. Unless explicitly marked as verified, a live-state item
+remains pending.
 
 ## Failure boundary
 
@@ -24,17 +24,17 @@ live state after an apply.
 | Resource | Intended configuration | Current status |
 | --- | --- | --- |
 | Zone | `hono-playground.dev`, Cloudflare Free plan | active; purchased 2026-07-26 |
-| Stack | `HonoPlayground`, explicit stage | not created |
-| Worker | `hono-playground-<stage>`, `workers.dev` and previews disabled | not created |
-| Runtime | compatibility date `2026-07-25` | config only |
-| D1 | `hono-playground-db-<stage>`, EU jurisdiction, replication disabled | not created |
-| Migration ledger | `drizzle_migrations` | not created |
-| Rate limiting | public 300/min per route and actor, profile reads 120/min, profile writes 30/min | config only |
-| Secrets | distinct rate-limit and audit HMAC bindings | not uploaded |
-| Observability | persisted logs and traces; 1% production trace sampling; version metadata | config only |
-| Ingress | Alchemy-managed custom hostname; no direct Worker URL | not created |
-| Access | exact custom hostname and reviewed allow policy | staging application and owner-only policy created and read back 2026-07-26; edge enforcement untested until the hostname exists |
-| Alchemy state | Cloudflare-backed state | shared account-level state store bootstrapped and reused by a successful staging plan on 2026-07-26 |
+| Stack | `HonoPlayground`, explicit stage | staging deployed from `26af818`; production not created |
+| Worker | `hono-playground-<stage>`, `workers.dev` and previews disabled | staging Worker live; both direct surfaces read back disabled |
+| Runtime | compatibility date `2026-07-25` | staging date read back |
+| D1 | `hono-playground-db-<stage>`, EU jurisdiction, replication disabled | staging database live; jurisdiction and replication read back |
+| Migration ledger | `drizzle_migrations` | staging ledger contains `00001` profile migration |
+| Rate limiting | public 300/min per route and actor, profile reads 120/min, profile writes 30/min | three staging bindings read back; live threshold behavior pending |
+| Secrets | distinct rate-limit and audit HMAC bindings | staging names read back as encrypted secret bindings |
+| Observability | persisted logs and traces; 1% production trace sampling; version metadata | staging logs and traces enabled at 100%; live events read back |
+| Ingress | Alchemy-managed custom hostname; no direct Worker URL | staging custom domain live; `workers.dev` and previews disabled |
+| Access | exact custom hostname and reviewed allow policy | staging owner policy read back; anonymous denial and signed-in owner allow path verified |
+| Alchemy state | Cloudflare-backed state | post-deployment staging plan converged with no proposed mutations |
 
 Alchemy owns the Worker, D1 database, committed migration application,
 rate-limit bindings, runtime variables/secrets, compatibility settings, and
@@ -43,6 +43,33 @@ WAF, alerts, budgets, and recovery procedures are external state.
 
 Staging and production D1 databases have a retain removal policy. There is no
 destroy script in this repository.
+
+## Staging verification
+
+The first staging apply created D1, then Cloudflare rejected the Worker before
+upload because the request explicitly set a gated trace propagation policy.
+Commit `26af818` removed that optional field while retaining persisted logs and
+traces. The forward deployment reused the existing database without change,
+created the Worker, attached the custom domain, and was followed by a
+converged plan.
+
+Verified on 2026-07-26:
+
+- `/health`, `/openapi.json`, `/api-docs`, and `/v1/items` returned their
+  documented success media types;
+- unauthenticated profile access redirected to Access, while the signed-in
+  owner reached the Worker and received the expected application-level `404`;
+- `/.env` and `/.git/HEAD` returned safe RFC 9457 `404` documents;
+- D1 Studio showed only `drizzle_migrations` and `profiles`, and the committed
+  profile migration was present in the ledger; and
+- persisted Worker logs and traces contained the smoke requests and active
+  Internet probes without an application error.
+
+Full live profile CRUD and the resulting payload-level log/privacy audit remain
+pending. Swagger UI intentionally disables request submission, and the Worker
+correctly rejects service-token identities because profile ownership requires
+`type=app`. A temporary smoke service token and policy used to verify that
+boundary were detached and deleted; no synthetic profile was created.
 
 ## Required input
 
