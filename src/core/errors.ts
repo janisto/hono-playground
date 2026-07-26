@@ -11,7 +11,7 @@ export type ErrorCode =
   | "invalid_cursor"
   | "invalid_query_parameter"
   | "invalid_json"
-  | "not_authenticated"
+  | "access_assertion_invalid"
   | "origin_not_allowed"
   | "client_generated_id_unsupported"
   | "not_found"
@@ -70,9 +70,9 @@ export const APPLICATION_ERROR_CATALOG = Object.freeze({
   invalid_cursor: catalogEntry(400, "Bad Request", ["Invalid cursor"]),
   invalid_query_parameter: catalogEntry(400, "Bad Request", ["Invalid query parameter"]),
   invalid_json: catalogEntry(400, "Bad Request", ["Invalid JSON document"]),
-  not_authenticated: catalogEntry(401, "Unauthorized", ["Not authenticated"], {
-    fixedHeaders: { "WWW-Authenticate": 'Bearer realm="Cloudflare Access"' },
-  }),
+  access_assertion_invalid: catalogEntry(403, "Forbidden", [
+    "Access assertion is missing or invalid",
+  ]),
   origin_not_allowed: catalogEntry(403, "Forbidden", ["Origin not allowed"]),
   client_generated_id_unsupported: catalogEntry(403, "Forbidden", [
     "Client-generated profile IDs are not supported",

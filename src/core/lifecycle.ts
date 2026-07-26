@@ -1,7 +1,7 @@
 import type { MiddlewareHandler } from "hono";
 import { SWAGGER_UI_BOOTSTRAP_CSP_SOURCE, SWAGGER_UI_BUNDLE_CSP_SOURCE } from "../docs/swagger.js";
 import { parseRuntimeConfig } from "./config.js";
-import { parseTraceParent, requestId } from "./request-context.js";
+import { requestId } from "./request-context.js";
 import { apiDocumentationRoute, resolveRoute } from "./routes.js";
 import type { AppEnvironment, RuntimeBindings } from "./types.js";
 
@@ -105,7 +105,6 @@ export const lifecycle = (options: LifecycleOptions = {}): MiddlewareHandler<App
     const { metadata } = resolveRoute(new URL(c.req.url).pathname, c.req.method);
     c.set("requestId", id);
     c.set("routeMetadata", metadata);
-    c.set("traceMetadata", parseTraceParent(c.req.header("traceparent") ?? null));
     c.set("identitySubject", undefined);
     c.set("jsonApiBodyText", undefined);
     c.set("outcome", "ok");
@@ -113,7 +112,6 @@ export const lifecycle = (options: LifecycleOptions = {}): MiddlewareHandler<App
     await next();
 
     applyFinalHeaders(c.res, c.env, new URL(c.req.url).pathname, id);
-    const trace = c.get("traceMetadata");
     const version = c.env.CF_VERSION_METADATA;
     const status = c.res.status;
     const cfRay = safeCfRay(c.req.header("CF-Ray"));
@@ -130,9 +128,6 @@ export const lifecycle = (options: LifecycleOptions = {}): MiddlewareHandler<App
       outcome: c.get("outcome"),
       environment: safeEnvironment(c.env),
       ...(cfRay === undefined ? {} : { cf_ray: cfRay }),
-      ...(trace === undefined
-        ? {}
-        : { inbound_trace_id: trace.traceId, inbound_parent_span_id: trace.parentSpanId }),
       ...(version === undefined
         ? {}
         : { worker_version_id: version.id, worker_version_tag: version.tag }),

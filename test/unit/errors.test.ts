@@ -97,12 +97,7 @@ describe("application error catalog", () => {
     ).toThrow("non-empty Allow");
   });
 
-  it("composes fixed authentication and retry headers centrally", () => {
-    const unauthorized = new AppError({
-      status: 401,
-      code: "not_authenticated",
-      detail: "Not authenticated",
-    });
+  it("composes fixed retry headers centrally", () => {
     const limited = new AppError({
       status: 429,
       code: "rate_limited",
@@ -115,7 +110,6 @@ describe("application error catalog", () => {
       headers: { "Retry-After": "1" },
     });
 
-    expect(unauthorized.headers.get("WWW-Authenticate")).toBe('Bearer realm="Cloudflare Access"');
     expect(limited.headers.get("Retry-After")).toBe("60");
     expect(unavailable.headers.get("Retry-After")).toBe("1");
   });

@@ -5,42 +5,42 @@ const boundedName = () =>
   z
     .string()
     .refine((value) => value === value.trim(), {
-      message: "Name must not have surrounding whitespace",
+      error: "Name must not have surrounding whitespace",
     })
     .refine((value) => !/[\p{Cc}]/u.test(value), {
-      message: "Name must not contain control characters",
+      error: "Name must not contain control characters",
     })
     .refine((value) => Array.from(value).length >= 1, {
-      message: "String should have at least 1 character",
+      error: "String should have at least 1 character",
     })
     .refine((value) => Array.from(value).length <= 100, {
-      message: "String should have at most 100 characters",
+      error: "String should have at most 100 characters",
     })
     .openapi({ minLength: 1, maxLength: 100 });
 
 export const EmailSchema = z
   .string()
   .trim()
-  .max(254, { message: "Email should have at most 254 characters" })
-  .email({ message: "Invalid email address" })
-  .toLowerCase();
+  .pipe(
+    z
+      .email({ error: "Invalid email address" })
+      .max(254, { error: "Email should have at most 254 characters" })
+      .toLowerCase(),
+  );
 
 export const PhoneNumberSchema = z
   .string()
   .trim()
-  .regex(/^\+[1-9][0-9]{6,14}$/, { message: "Invalid E.164 phone number" });
+  .pipe(z.e164({ error: "Invalid E.164 phone number" }));
 
 const NormalizedEmailSchema = z
-  .string()
-  .max(254, { message: "Email should have at most 254 characters" })
-  .email({ message: "Invalid email address" })
+  .email({ error: "Invalid email address" })
+  .max(254, { error: "Email should have at most 254 characters" })
   .refine((value) => value === value.trim() && value === value.toLowerCase(), {
-    message: "Email must be normalized",
+    error: "Email must be normalized",
   });
 
-const NormalizedPhoneNumberSchema = z.string().regex(/^\+[1-9][0-9]{6,14}$/, {
-  message: "Invalid E.164 phone number",
-});
+const NormalizedPhoneNumberSchema = z.e164({ error: "Invalid E.164 phone number" });
 
 const mutableProfileFields = {
   firstName: boundedName(),
@@ -51,84 +51,85 @@ const mutableProfileFields = {
 };
 
 export const ProfileCreateSchema = z
-  .object({
+  .strictObject({
     ...mutableProfileFields,
     marketingOptIn: mutableProfileFields.marketingOptIn.default(false),
     termsAccepted: z.literal(true, { error: "Terms must be accepted" }),
   })
-  .strict()
   .openapi("ProfileCreateAttributes");
 
 export const ProfileUpdateSchema = z
-  .object(mutableProfileFields)
+  .strictObject(mutableProfileFields)
   .partial()
-  .strict()
   .openapi("ProfileUpdateAttributes");
 
-export const ProfileSchema = z
-  .object({
-    id: z.string().min(1).max(128),
-    firstName: mutableProfileFields.firstName,
-    lastName: mutableProfileFields.lastName,
-    email: NormalizedEmailSchema,
-    phoneNumber: NormalizedPhoneNumberSchema,
-    marketingOptIn: mutableProfileFields.marketingOptIn,
-    termsAccepted: z.literal(true),
-    createdAt: z.iso.datetime({ offset: false, precision: 3 }),
-    updatedAt: z.iso.datetime({ offset: false, precision: 3 }),
-  })
-  .strict();
+const profileFields = {
+  id: z.string().min(1).max(128),
+  firstName: mutableProfileFields.firstName,
+  lastName: mutableProfileFields.lastName,
+  email: NormalizedEmailSchema,
+  phoneNumber: NormalizedPhoneNumberSchema,
+  marketingOptIn: mutableProfileFields.marketingOptIn,
+  termsAccepted: z.literal(true),
+};
 
-export const ProfileAttributesSchema = ProfileSchema.omit({ id: true }).openapi(
-  "ProfileAttributes",
-);
+export const ProfileSchema = z.strictObject({
+  ...profileFields,
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+const ProfileTimestampSchema = z.iso.datetime({ offset: false, precision: 3 });
+
+export const ProfileAttributesSchema = z
+  .strictObject({
+    firstName: profileFields.firstName,
+    lastName: profileFields.lastName,
+    email: profileFields.email,
+    phoneNumber: profileFields.phoneNumber,
+    marketingOptIn: profileFields.marketingOptIn,
+    termsAccepted: profileFields.termsAccepted,
+    createdAt: ProfileTimestampSchema,
+    updatedAt: ProfileTimestampSchema,
+  })
+  .openapi("ProfileAttributes");
 
 export const ProfileResourceSchema = z
-  .object({
+  .strictObject({
     type: z.literal("profiles"),
     id: ProfileSchema.shape.id,
     attributes: ProfileAttributesSchema,
-    links: z.object({ self: JsonApiLinkSchema }).strict(),
+    links: z.strictObject({ self: JsonApiLinkSchema }),
   })
-  .strict()
   .openapi("ProfileResource");
 
 export const ProfileDocumentSchema = z
-  .object({
+  .strictObject({
     jsonapi: JsonApiObjectSchema,
-    links: z
-      .object({
-        self: JsonApiLinkSchema,
-      })
-      .strict(),
+    links: z.strictObject({
+      self: JsonApiLinkSchema,
+    }),
     data: ProfileResourceSchema,
   })
-  .strict()
   .openapi("ProfileDocument");
 
 export const ProfileCreateDocumentSchema = z
-  .object({
-    data: z
-      .object({
-        type: z.literal("profiles"),
-        attributes: ProfileCreateSchema,
-      })
-      .strict(),
+  .strictObject({
+    data: z.strictObject({
+      type: z.literal("profiles"),
+      attributes: ProfileCreateSchema,
+    }),
   })
-  .strict()
   .openapi("ProfileCreateDocument");
 
 export const ProfileUpdateDocumentSchema = z
-  .object({
-    data: z
-      .object({
-        type: z.literal("profiles"),
-        id: ProfileSchema.shape.id,
-        attributes: ProfileUpdateSchema.optional(),
-      })
-      .strict(),
+  .strictObject({
+    data: z.strictObject({
+      type: z.literal("profiles"),
+      id: ProfileSchema.shape.id,
+      attributes: ProfileUpdateSchema.optional(),
+    }),
   })
-  .strict()
   .openapi("ProfileUpdateDocument");
 
 export type Profile = z.infer<typeof ProfileSchema>;

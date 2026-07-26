@@ -25,19 +25,17 @@ export const TRANSIENT_D1_ERROR_MESSAGES = [
 
 const transientD1ErrorMessages = new Set<string>(TRANSIENT_D1_ERROR_MESSAGES);
 
-const StoredProfileSchema = z
-  .object({
-    id: z.string(),
-    firstName: z.string(),
-    lastName: z.string(),
-    email: z.string(),
-    phoneNumber: z.string(),
-    marketingOptIn: z.boolean(),
-    termsAccepted: z.literal(true),
-    createdAt: z.date(),
-    updatedAt: z.date(),
-  })
-  .strict();
+const StoredProfileSchema = z.strictObject({
+  id: z.string(),
+  firstName: z.string(),
+  lastName: z.string(),
+  email: z.string(),
+  phoneNumber: z.string(),
+  marketingOptIn: z.boolean(),
+  termsAccepted: z.literal(true),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
 
 export interface ProfileRepository {
   create(id: string, input: ProfileCreate, timestamp: Date): Promise<Profile | undefined>;
@@ -114,8 +112,8 @@ const profileFromRow = (value: unknown): Profile => {
     phoneNumber: row.phoneNumber,
     marketingOptIn: row.marketingOptIn,
     termsAccepted: row.termsAccepted,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   });
   if (!profile.success) throw new ProfileRepositoryError();
   if (profile.data.email !== row.email || profile.data.phoneNumber !== row.phoneNumber) {

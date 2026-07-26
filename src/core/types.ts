@@ -15,11 +15,6 @@ export type RouteMetadata = {
   kind: "public" | "resource" | "profile-read" | "profile-write" | "docs" | "unmatched";
 };
 
-export type TraceMetadata = {
-  traceId: string;
-  parentSpanId: string;
-};
-
 export interface RuntimeConfig {
   environment: EnvironmentName;
   maximumRequestBytes: number;
@@ -29,7 +24,6 @@ export interface RuntimeConfig {
 export type AppVariables = {
   requestId: string;
   routeMetadata: RouteMetadata;
-  traceMetadata: TraceMetadata | undefined;
   runtimeConfig: RuntimeConfig;
   identitySubject: string | undefined;
   jsonApiBodyText: string | undefined;

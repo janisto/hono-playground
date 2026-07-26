@@ -398,6 +398,17 @@ describe("items JSON:API", () => {
     expect(JSON.stringify(document)).not.toContain("sensitive-marker");
   });
 
+  it("rejects unknown query parameters on an individual resource", async () => {
+    const response = await request("/v1/items/item-001?unknown=sensitive-marker");
+    const document = await expectJsonApiError(response, {
+      status: 400,
+      code: "invalid_query_parameter",
+      source: { parameter: "unknown" },
+    });
+
+    expect(JSON.stringify(document)).not.toContain("sensitive-marker");
+  });
+
   it("reports every invalid supported query parameter without echoing values", async () => {
     const response = await request("/v1/items?page%5Blimit%5D=101&filter%5Bcategory%5D=unknown");
     const document = await expectJsonApiError(response, {
@@ -548,15 +559,12 @@ describe("OpenAPI 3.1 contract", () => {
       expect(rateHeaders).toHaveProperty("Retry-After");
 
       if (path.startsWith("/v1/profiles")) {
-        const authenticationHeaders = object(
-          object(responses["401"], `${method} ${path} 401`).headers,
-          `${method} ${path} 401 headers`,
-        );
         const dependencyHeaders = object(
           object(responses["503"], `${method} ${path} 503`).headers,
           `${method} ${path} 503 headers`,
         );
-        expect(authenticationHeaders).toHaveProperty("WWW-Authenticate");
+        expect(responses["403"]).toBeDefined();
+        expect(responses["401"]).toBeUndefined();
         expect(dependencyHeaders).toHaveProperty("Retry-After");
       }
     }

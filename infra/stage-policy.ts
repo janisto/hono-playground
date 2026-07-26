@@ -19,6 +19,10 @@ export const deploymentStagePolicy = (stage: string): DeploymentStagePolicy => {
   throw new RangeError(`Unsupported deployment stage "${stage}"; use prod, staging, or dev_<name>`);
 };
 
+export const deploymentTraceSamplingRate = (
+  environment: DeploymentStagePolicy["environment"],
+): number => (environment === "production" ? 0.01 : 1);
+
 export const deploymentHostname = (hostname: string): string => {
   const labels = hostname.split(".");
   const valid =

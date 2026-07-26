@@ -64,7 +64,7 @@ jobs:
 
             const pullRequestNumbers = allPullRequests
               .map((pullRequest) => pullRequest.number)
-              .sort((left, right) => left - right)
+              .sort((left, right) => right - left)
               .slice(0, maxCount);
 
             core.info(

@@ -6,41 +6,38 @@ export const MAX_VALIDATION_ERRORS = 32;
 const problemResponseFields = {
   type: z.literal("about:blank"),
   title: z.string(),
-  status: z.number().int().min(400).max(599),
+  status: z.int().min(400).max(599),
   detail: z.string(),
   code: z.string().regex(/^[a-z][a-z0-9_]*$/),
 };
 
 export const ProblemResponseSchema = z
-  .object(problemResponseFields)
-  .strict()
+  .strictObject(problemResponseFields)
   .openapi("ProblemResponse");
 
 export const JsonApiErrorSourceSchema = z
   .union([
-    z.object({ pointer: z.string().startsWith("/") }).strict(),
-    z.object({ parameter: z.string().min(1) }).strict(),
-    z.object({ header: z.string().min(1) }).strict(),
+    z.strictObject({ pointer: z.string().startsWith("/") }),
+    z.strictObject({ parameter: z.string().min(1) }),
+    z.strictObject({ header: z.string().min(1) }),
   ])
   .openapi("JsonApiErrorSource");
 
 export const JsonApiErrorSchema = z
-  .object({
+  .strictObject({
     status: z.string().regex(/^[45][0-9]{2}$/),
     code: z.string().regex(/^[a-z][a-z0-9_]*$/),
     title: z.string(),
     detail: z.string(),
     source: JsonApiErrorSourceSchema.optional(),
   })
-  .strict()
   .openapi("JsonApiError");
 
 export const JsonApiErrorDocumentSchema = z
-  .object({
+  .strictObject({
     jsonapi: JsonApiObjectSchema,
     errors: z.array(JsonApiErrorSchema).min(1).max(MAX_VALIDATION_ERRORS),
   })
-  .strict()
   .openapi("JsonApiErrorDocument");
 
 export type ProblemResponse = z.infer<typeof ProblemResponseSchema>;

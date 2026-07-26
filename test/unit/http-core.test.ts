@@ -275,6 +275,7 @@ describe("representation negotiation", () => {
     `${JSON_API_MEDIA_TYPE};q=0`,
     `${JSON_API_MEDIA_TYPE};q="0.5"`,
     `${JSON_API_MEDIA_TYPE};q=0, */*;q=1`,
+    `${JSON_API_MEDIA_TYPE};q=1;charset=utf-8`,
   ])("returns a JSON:API 406 for an unsupported JSON:API range: %s", async (accept) => {
     const response = await request("/v1/items", { headers: { Accept: accept } });
 

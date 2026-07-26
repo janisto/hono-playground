@@ -76,7 +76,8 @@ export const enforcePublicRateLimit = async (c: Context<AppEnvironment>): Promis
       request_id: c.get("requestId"),
     });
   }
-  const key = await hmacSha256(c.env.RATE_LIMIT_KEY_HMAC_KEY, `public:${actor}`);
+  const route = c.get("routeMetadata").template;
+  const key = await hmacSha256(c.env.RATE_LIMIT_KEY_HMAC_KEY, `public:${route}:${actor}`);
   try {
     await invoke(c.env.PUBLIC_RATE_LIMITER, key);
   } catch (error) {

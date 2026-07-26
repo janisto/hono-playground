@@ -26,8 +26,8 @@ const STORED_PROFILE = {
   phoneNumber: "+358401111111",
   marketingOptIn: false,
   termsAccepted: true as const,
-  createdAt: "2026-07-22T12:00:00.000Z",
-  updatedAt: "2026-07-22T12:00:00.000Z",
+  createdAt: new Date("2026-07-22T12:00:00.000Z"),
+  updatedAt: new Date("2026-07-22T12:00:00.000Z"),
 };
 
 const repository: ProfileRepository = {
@@ -35,8 +35,8 @@ const repository: ProfileRepository = {
     Promise.resolve({
       id,
       ...input,
-      createdAt: timestamp.toISOString(),
-      updatedAt: timestamp.toISOString(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
     }),
   get: () => Promise.resolve(STORED_PROFILE),
   update: () => Promise.resolve(STORED_PROFILE),
@@ -250,7 +250,7 @@ describe("structured application events", () => {
     expect(JSON.stringify(log.mock.calls)).not.toContain(SUBJECT);
   });
 
-  it("allows only validated trace, Ray, and platform version metadata", async () => {
+  it("allows only validated platform metadata and never logs caller trace context", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
@@ -276,11 +276,12 @@ describe("structured application events", () => {
     expect(response.status).toBe(200);
     expect(log.mock.calls[0]?.[0]).toMatchObject({
       cf_ray: "0123456789abcdef-HEL",
-      inbound_trace_id: "4bf92f3577b34da6a3ce929d0e0e4736",
-      inbound_parent_span_id: "00f067aa0ba902b7",
       worker_version_id: "worker-version-id",
       worker_version_tag: "release-1",
     });
+    expect(JSON.stringify(log.mock.calls[0]?.[0])).not.toContain(traceparent);
+    expect(log.mock.calls[0]?.[0]).not.toHaveProperty("inbound_trace_id");
+    expect(log.mock.calls[0]?.[0]).not.toHaveProperty("inbound_parent_span_id");
   });
 
   it("omits malformed inbound metadata and logs a stable configuration code", async () => {

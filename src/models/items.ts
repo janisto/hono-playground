@@ -12,88 +12,89 @@ export const ITEM_CATEGORIES = [
 
 export const ItemCategorySchema = z.enum(ITEM_CATEGORIES);
 
-export const ItemSchema = z
-  .object({
-    id: z.string().openapi({
-      description: "Unique item identifier",
-      example: "item-001",
-    }),
-    name: z.string().openapi({
-      description: "Item name",
-      example: "Alpha Widget",
-    }),
-    category: ItemCategorySchema.openapi({
-      description: "Item category",
-      example: "electronics",
-    }),
-    priceCents: z.number().int().min(0).openapi({
-      description: "Item price in US cents",
-      example: 2999,
-    }),
-    inStock: z.boolean().openapi({
-      description: "Availability status",
-      example: true,
-    }),
+const itemFields = {
+  id: z.string().openapi({
+    description: "Unique item identifier",
+    example: "item-001",
+  }),
+  name: z.string().openapi({
+    description: "Item name",
+    example: "Alpha Widget",
+  }),
+  category: ItemCategorySchema.openapi({
+    description: "Item category",
+    example: "electronics",
+  }),
+  priceCents: z.int().min(0).openapi({
+    description: "Item price in US cents",
+    example: 2999,
+  }),
+  inStock: z.boolean().openapi({
+    description: "Availability status",
+    example: true,
+  }),
+  description: z.string().openapi({
+    description: "Detailed description of the item",
+    example: "A versatile electronic widget for everyday use",
+  }),
+};
+
+export const ItemSchema = z.strictObject({
+  ...itemFields,
+  createdAt: z.date(),
+});
+
+export const ItemAttributesSchema = z
+  .strictObject({
+    name: itemFields.name,
+    category: itemFields.category,
+    priceCents: itemFields.priceCents,
+    inStock: itemFields.inStock,
     createdAt: z.iso.datetime({ precision: 3 }).openapi({
       description: "Creation timestamp",
       example: "2024-01-15T10:30:00.000Z",
     }),
-    description: z.string().openapi({
-      description: "Detailed description of the item",
-      example: "A versatile electronic widget for everyday use",
-    }),
+    description: itemFields.description,
   })
-  .strict()
-  .openapi("Item");
-
-export const ItemAttributesSchema = ItemSchema.omit({ id: true }).openapi("ItemAttributes");
+  .openapi("ItemAttributes");
 
 export const ItemResourceSchema = z
-  .object({
+  .strictObject({
     type: z.literal("items"),
     id: ItemSchema.shape.id,
     attributes: ItemAttributesSchema,
-    links: z.object({ self: JsonApiLinkSchema }).strict(),
+    links: z.strictObject({ self: JsonApiLinkSchema }),
   })
-  .strict()
   .openapi("ItemResource");
 
 export const ItemDocumentSchema = z
-  .object({
+  .strictObject({
     jsonapi: JsonApiObjectSchema,
-    links: z
-      .object({
-        self: JsonApiLinkSchema,
-      })
-      .strict(),
+    links: z.strictObject({
+      self: JsonApiLinkSchema,
+    }),
     data: ItemResourceSchema,
   })
-  .strict()
   .openapi("ItemDocument");
 
 export const ItemCollectionDocumentSchema = z
-  .object({
+  .strictObject({
     jsonapi: JsonApiObjectSchema,
-    links: z
-      .object({
-        self: JsonApiLinkSchema,
-        next: JsonApiLinkSchema.optional(),
-        prev: JsonApiLinkSchema.optional(),
-      })
-      .strict(),
+    links: z.strictObject({
+      self: JsonApiLinkSchema,
+      next: JsonApiLinkSchema.optional(),
+      prev: JsonApiLinkSchema.optional(),
+    }),
     data: z.array(ItemResourceSchema).openapi({
       description: "Items in the current page",
     }),
-    meta: z
-      .object({
-        total: z.number().int().min(0).openapi({
-          description: "Total number of items matching the filter",
-          example: 30,
-        }),
-      })
-      .strict(),
+    meta: z.strictObject({
+      total: z.int().min(0).openapi({
+        description: "Total number of items matching the filter",
+        example: 30,
+      }),
+    }),
   })
-  .strict()
   .openapi("ItemCollectionDocument");
 
 export type ItemCategory = z.infer<typeof ItemCategorySchema>;

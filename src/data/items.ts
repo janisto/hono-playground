@@ -271,10 +271,14 @@ const ITEM_FIXTURE = [
     createdAt: "2024-02-14T15:30:00.000Z",
     description: "Gold-plated premium cable",
   },
-] as const satisfies readonly Item[];
+] as const;
 
-const parsedItems = ItemSchema.array().parse(ITEM_FIXTURE);
+const runtimeItems = ITEM_FIXTURE.map((item) => ({
+  ...item,
+  createdAt: new Date(item.createdAt),
+}));
+ItemSchema.array().parse(runtimeItems);
 
 export const ITEMS: readonly Readonly<Item>[] = Object.freeze(
-  parsedItems.map((item) => Object.freeze(item)),
+  runtimeItems.map((item) => Object.freeze(item)),
 );

@@ -4,8 +4,7 @@ export const JSON_API_MEDIA_TYPE = "application/vnd.api+json";
 export const JSON_API_VERSION = "1.1";
 
 export const JsonApiObjectSchema = z
-  .object({ version: z.literal(JSON_API_VERSION) })
-  .strict()
+  .strictObject({ version: z.literal(JSON_API_VERSION) })
   .openapi("JsonApiObject");
 
 export const JSON_API_OBJECT = Object.freeze({ version: JSON_API_VERSION });

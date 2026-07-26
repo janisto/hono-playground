@@ -43,7 +43,7 @@ describe("item fixture", () => {
       category: "electronics",
       priceCents: 2999,
       inStock: true,
-      createdAt: "2024-01-15T10:30:00.000Z",
+      createdAt: new Date("2024-01-15T10:30:00.000Z"),
       description: "A versatile electronic widget for everyday use",
     });
     expect(ITEMS.at(-1)).toEqual({
@@ -52,7 +52,7 @@ describe("item fixture", () => {
       category: "accessories",
       priceCents: 1999,
       inStock: true,
-      createdAt: "2024-02-14T15:30:00.000Z",
+      createdAt: new Date("2024-02-14T15:30:00.000Z"),
       description: "Gold-plated premium cable",
     });
     expect(ITEMS.map((item) => item.id)).toEqual(
@@ -78,14 +78,21 @@ describe("item fixture", () => {
     expect(ItemSchema.array().safeParse(ITEMS).success).toBe(true);
     const first = ITEMS[0];
     if (first === undefined) throw new Error("missing fixture");
-    const { id, ...attributes } = first;
+    const { id, createdAt, ...attributes } = first;
     expect(
       ItemCollectionDocumentSchema.safeParse({
         jsonapi: JSON_API_OBJECT,
         links: {
           self: "/v1/items?page%5Blimit%5D=20",
         },
-        data: [{ type: "items", id, attributes, links: { self: `/v1/items/${id}` } }],
+        data: [
+          {
+            type: "items",
+            id,
+            attributes: { ...attributes, createdAt: createdAt.toISOString() },
+            links: { self: `/v1/items/${id}` },
+          },
+        ],
         meta: { total: 30 },
       }).success,
     ).toBe(true);

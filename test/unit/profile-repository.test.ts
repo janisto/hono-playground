@@ -62,8 +62,8 @@ const STORED_VALUES = [
 const PROFILE = {
   id: "subject-1",
   ...INPUT,
-  createdAt: "2026-07-22T10:00:00.000Z",
-  updatedAt: "2026-07-22T10:00:00.000Z",
+  createdAt: new Date("2026-07-22T10:00:00.000Z"),
+  updatedAt: new Date("2026-07-22T10:00:00.000Z"),
 } satisfies Profile;
 
 describe("DrizzleProfileRepository", () => {

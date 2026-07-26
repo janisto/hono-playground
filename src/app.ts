@@ -151,21 +151,28 @@ const jsonApiResponse = <T extends Response>(response: T): T => {
 };
 
 const itemResource = (item: Item): ItemResource => {
-  const { id, ...attributes } = item;
+  const { id, createdAt, ...attributes } = item;
   return {
     type: "items",
     id,
-    attributes,
+    attributes: {
+      ...attributes,
+      createdAt: createdAt.toISOString(),
+    },
     links: { self: `/v1/items/${id}` },
   };
 };
 
 const profileResource = (profile: Profile): ProfileResource => {
-  const { id, ...attributes } = profile;
+  const { id, createdAt, updatedAt, ...attributes } = profile;
   return {
     type: "profiles",
     id,
-    attributes,
+    attributes: {
+      ...attributes,
+      createdAt: createdAt.toISOString(),
+      updatedAt: updatedAt.toISOString(),
+    },
     links: { self: "/v1/profiles/current" },
   };
 };

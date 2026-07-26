@@ -46,11 +46,10 @@ export class AccessConfigurationError extends AppError {
 export class InvalidAccessTokenError extends AppError {
   constructor() {
     super({
-      status: 401,
-      code: "not_authenticated",
-      detail: "Not authenticated",
+      status: 403,
+      code: "access_assertion_invalid",
+      detail: "Access assertion is missing or invalid",
       source: { header: "Cf-Access-Jwt-Assertion" },
-      headers: { "WWW-Authenticate": 'Bearer realm="Cloudflare Access"' },
     });
     this.name = "InvalidAccessTokenError";
   }

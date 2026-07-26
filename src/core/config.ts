@@ -41,13 +41,14 @@ export const parseRuntimeConfig = (
   };
 };
 
+export const isValidHmacSecret = (value: string | undefined): value is string =>
+  value !== undefined &&
+  HMAC_SECRET_SHAPE.test(value) &&
+  !REPEATED_SECRET_CHUNK.test(value) &&
+  new Set(value).size >= 12;
+
 export const requireHmacSecret = (value: string | undefined): Uint8Array => {
-  if (
-    value === undefined ||
-    !HMAC_SECRET_SHAPE.test(value) ||
-    REPEATED_SECRET_CHUNK.test(value) ||
-    new Set(value).size < 12
-  ) {
+  if (!isValidHmacSecret(value)) {
     throw configurationError();
   }
   const bytes = new Uint8Array(32);

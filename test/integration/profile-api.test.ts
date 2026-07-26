@@ -100,8 +100,8 @@ const storedProfile = (id: string): Profile => ({
   phoneNumber: "+358401234567",
   marketingOptIn: false,
   termsAccepted: true,
-  createdAt: "2026-07-22T12:00:00.000Z",
-  updatedAt: "2026-07-22T12:00:00.000Z",
+  createdAt: new Date("2026-07-22T12:00:00.000Z"),
+  updatedAt: new Date("2026-07-22T12:00:00.000Z"),
 });
 
 afterEach(async () => {
@@ -174,10 +174,10 @@ describe("JSON:API profile resources", () => {
     [
       "invalid assertion",
       new InvalidAccessTokenError(),
-      401,
-      "Not authenticated",
-      "WWW-Authenticate",
-      'Bearer realm="Cloudflare Access"',
+      403,
+      "Access assertion is missing or invalid",
+      undefined,
+      undefined,
       undefined,
     ],
     [
@@ -254,6 +254,45 @@ describe("JSON:API profile resources", () => {
       }
     },
   );
+
+  it.each([
+    ["POST", PROFILES_PATH, jsonApiRequest("POST", createDocument(validCreateAttributes))],
+    ["GET", CURRENT_PROFILE_PATH, { method: "GET", headers: authenticatedHeaders() }],
+    [
+      "PATCH",
+      CURRENT_PROFILE_PATH,
+      jsonApiRequest("PATCH", updateDocument("query-validation-owner", { marketingOptIn: true })),
+    ],
+    ["DELETE", CURRENT_PROFILE_PATH, { method: "DELETE", headers: authenticatedHeaders() }],
+  ])("rejects unknown query parameters on profile %s", async (_method, path, init) => {
+    const profileRepository = {
+      create: vi.fn(async () => undefined),
+      get: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      delete: vi.fn(async () => false),
+    } satisfies ProfileRepository;
+    const app = createApp({
+      accessVerifier: async () => ({ sub: "query-validation-owner" }),
+      profileRepositoryFactory: () => profileRepository,
+    });
+
+    const response = await request(app, `${path}?unknown=sensitive-marker`, init);
+    const document = (await response.json()) as {
+      errors: Array<{ status: string; code: string; source?: { parameter: string } }>;
+    };
+
+    expect(response.status).toBe(400);
+    expect(document.errors[0]).toMatchObject({
+      status: "400",
+      code: "invalid_query_parameter",
+      source: { parameter: "unknown" },
+    });
+    expect(JSON.stringify(document)).not.toContain("sensitive-marker");
+    expect(profileRepository.create).not.toHaveBeenCalled();
+    expect(profileRepository.get).not.toHaveBeenCalled();
+    expect(profileRepository.update).not.toHaveBeenCalled();
+    expect(profileRepository.delete).not.toHaveBeenCalled();
+  });
 
   it("runs normalized create/get/no-op patch/update/delete against real D1", async () => {
     const owner = subject();

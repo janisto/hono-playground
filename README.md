@@ -42,7 +42,9 @@ with a Worker upload.
 
 Resource requests and responses use `application/vnd.api+json`. Profile routes
 derive ownership from the verified Cloudflare Access `sub`; callers cannot
-choose an owner ID.
+choose an owner ID. Missing or invalid origin assertions return a JSON:API
+`403`. Unsupported query parameters return a JSON:API `400` on every resource
+route instead of being ignored.
 
 Application and JSON:API fields use `camelCase`, such as `createdAt` and
 `marketingOptIn`. SQL identifiers use `snake_case`, such as `created_at` and
@@ -75,6 +77,8 @@ openssl rand -hex 32
 ```
 
 Never commit `.env` or reuse one key for both purposes.
+Alchemy rejects malformed or duplicate namespace IDs, invalid Access
+configuration, weak HMAC keys, and key reuse before creating the Worker.
 
 Start the Alchemy development loop:
 

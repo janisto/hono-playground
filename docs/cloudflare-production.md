@@ -27,9 +27,9 @@ live state after an apply.
 | Runtime | compatibility date `2026-07-25` | config only |
 | D1 | `hono-playground-db-<stage>`, EU jurisdiction, replication disabled | not created |
 | Migration ledger | `drizzle_migrations` | not created |
-| Rate limiting | public 300/min, profile reads 120/min, profile writes 30/min | config only |
+| Rate limiting | public 300/min per route and actor, profile reads 120/min, profile writes 30/min | config only |
 | Secrets | distinct rate-limit and audit HMAC bindings | not uploaded |
-| Observability | persisted logs/traces and version metadata | config only |
+| Observability | persisted logs; authenticated trace propagation; 1% production traces; version metadata | config only |
 | Ingress | Alchemy-managed custom hostname; no direct Worker URL | not created |
 | Access | exact custom hostname and reviewed allow policy | external, not created |
 | Alchemy state | Cloudflare-backed state | not bootstrapped |
@@ -79,6 +79,10 @@ inputs declared in the Worker's `env` become `secret_text` bindings in the
 same upload as code and ordinary bindings. A rotation is therefore a Worker
 deployment. Rotating the rate-limit key starts new application buckets;
 rotating the audit key breaks pseudonym continuity.
+
+The Alchemy program validates namespace syntax and uniqueness, the Access team
+domain and audience, HMAC strength, and HMAC separation before it can create
+the Worker. Runtime validation remains in place as defense in depth.
 
 ## Migration review
 
@@ -216,6 +220,12 @@ After deployment verify:
 Application access logs intentionally do not estimate D1 scans or writes from
 returned array lengths. Use Cloudflare's automatic D1 span attributes for
 exact rows read, rows written, changes, SQL duration, and retry attempts.
+Application logs do not copy caller-supplied `traceparent` identifiers.
+Cloudflare trace propagation accepts authenticated contexts, and production
+trace head sampling is `0.01`; staging and development retain full trace
+sampling for validation. Public rate-limit keys combine the normalized actor
+with the fixed route template, but Cloudflare's binding remains intentionally
+approximate and location-local rather than a global exact counter.
 
 Use Alchemy for application logs and live tailing:
 

@@ -90,6 +90,42 @@ current first-party web documentation.
   generated migration output, and runtime tests prove the new set together.
   Do not select snapshots or upgrade only one Drizzle package.
 
+## Dependency documentation verification
+
+- Never use Context7 for this repository. Its indexed documentation can lag
+  the release candidates and betas used here. Use current first-party web
+  documentation, registries, release notes, and upstream source.
+- Start from the exact versions in `package.json`, the package-manager version,
+  and the exact GitHub Action tags. Query the live registry using the channel
+  this repository accepts: stable `latest`, Drizzle `rc`, and the pinned
+  Alchemy/Effect beta channel. A newer unrelated major or snapshot is not an
+  applicable update.
+- Check the current official documentation and migration or release notes for
+  every directly used package before adopting an API. Prefer a versioned page
+  or source tag. Record when a page is unversioned, redirects to an older major,
+  or shows an API from a different release channel.
+- For prerelease packages, the installed package's exported declarations,
+  shipped source, package metadata, and peer ranges are the executable
+  contract. If prose documentation disagrees with them, do not copy the prose
+  example. Use the API present in the exact installed version and verify it
+  with TypeScript plus the smallest local runtime probe.
+- Verify related packages as a set. In particular, reconcile
+  Alchemy/Effect/platform peers, Drizzle ORM/Kit, Hono/Zod OpenAPI/Zod, and
+  Vitest/Cloudflare pool/Vite before changing any member.
+- Distinguish a global latest version from the correct maintained track. For
+  example, keep Node type declarations on the Node major selected by
+  `engines`, and honor the repository's minimum-release-age policy instead of
+  bypassing it for a just-published package.
+- Validate generated or provider-sensitive behavior with non-mutating local
+  commands: typecheck config APIs, run focused tests, inspect Drizzle's dry-run
+  output, and exercise Worker behavior in the existing Vitest/Miniflare
+  harness. Do not run Alchemy development, plan, deploy, or state operations
+  merely to confirm documentation.
+- If current first-party sources still conflict or the exact prerelease cannot
+  be proved locally, stop and report the mismatch. Do not silently fall back to
+  model memory, an older tutorial, an old package major's docs, or a guessed
+  replacement API.
+
 ## Repository shape
 
 - Put recurring contributor and CI commands in `package.json`. Keep `Justfile`

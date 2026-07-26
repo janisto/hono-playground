@@ -29,8 +29,8 @@ const storedProfile = {
   phoneNumber: "+358401234567",
   marketingOptIn: false,
   termsAccepted: true as const,
-  createdAt: "2026-07-22T12:00:00.000Z",
-  updatedAt: "2026-07-22T12:00:00.000Z",
+  createdAt: new Date("2026-07-22T12:00:00.000Z"),
+  updatedAt: new Date("2026-07-22T12:00:00.000Z"),
 };
 
 const repository = (): ProfileRepository => ({
@@ -101,6 +101,32 @@ describe("public limiter contract", () => {
     const key = limit.mock.calls[0]?.[0].key;
     expect(key).toMatch(/^[0-9a-f]{64}$/);
     expect(key).not.toContain("192.0.2.1");
+  });
+
+  it("uses separate buckets for the same actor on different routes", async () => {
+    const publicLimiter = limiter(() => Promise.resolve({ success: true }));
+    const runtimeBindings = bindings({ PUBLIC_RATE_LIMITER: publicLimiter });
+    const headers = { "CF-Connecting-IP": "192.0.2.1" };
+
+    const health = await createApp().request(
+      new Request(`${ORIGIN}/health`, { headers }),
+      undefined,
+      runtimeBindings,
+    );
+    const items = await createApp().request(
+      new Request(`${ORIGIN}/v1/items`, {
+        headers: { ...headers, Accept: JSON_API_MEDIA_TYPE },
+      }),
+      undefined,
+      runtimeBindings,
+    );
+
+    expect(health.status).toBe(200);
+    expect(items.status).toBe(200);
+    const keys = vi.mocked(publicLimiter.limit).mock.calls.map(([input]) => input.key);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys.join("")).not.toContain("192.0.2.1");
   });
 
   it("returns the literal 429 contract with Retry-After", async () => {

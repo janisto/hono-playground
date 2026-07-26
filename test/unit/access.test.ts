@@ -107,12 +107,12 @@ const expectAuthenticationFailure = async (
     throw new Error("expected InvalidAccessTokenError");
   }
   expect(error).toMatchObject({
-    status: 401,
-    code: "not_authenticated",
-    detail: "Not authenticated",
+    status: 403,
+    code: "access_assertion_invalid",
+    detail: "Access assertion is missing or invalid",
   });
   expect(error.source).toEqual({ header: "Cf-Access-Jwt-Assertion" });
-  expect(error.headers.get("WWW-Authenticate")).toBe('Bearer realm="Cloudflare Access"');
+  expect(error.headers.has("WWW-Authenticate")).toBe(false);
   expect(error.headers.has("Retry-After")).toBe(false);
   return error;
 };

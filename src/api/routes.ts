@@ -71,7 +71,7 @@ const jsonApiCommon = {
 };
 
 const jsonApiBodyFailures = {
-  400: jsonApiError("Malformed JSON document"),
+  400: jsonApiError("Malformed JSON document or invalid query parameter"),
   413: jsonApiError("Request body too large"),
   415: jsonApiError("Unsupported request representation"),
   422: jsonApiError("Request document validation failed"),
@@ -86,28 +86,27 @@ const positiveIntegerQuery = (value: unknown): unknown => {
   return Number(scalar);
 };
 
-export const ItemsQuerySchema = z
-  .object({
-    "page[limit]": z.preprocess(
-      positiveIntegerQuery,
-      z
-        .number()
-        .int({ message: "Page limit must be an integer" })
-        .min(1, { message: "Page limit must be at least 1" })
-        .max(100, { message: "Page limit must be at most 100" })
-        .default(20),
-    ),
-    "page[cursor]": z.preprocess(
-      singletonQueryValue,
-      z
-        .string()
-        .min(1, { message: "Cursor must not be empty" })
-        .max(2048, { message: "Cursor is too long" })
-        .optional(),
-    ),
-    "filter[category]": z.preprocess(singletonQueryValue, ItemCategorySchema.optional()),
-  })
-  .strict();
+export const ItemsQuerySchema = z.strictObject({
+  "page[limit]": z.preprocess(
+    positiveIntegerQuery,
+    z
+      .int({ error: "Page limit must be an integer" })
+      .min(1, { error: "Page limit must be at least 1" })
+      .max(100, { error: "Page limit must be at most 100" })
+      .default(20),
+  ),
+  "page[cursor]": z.preprocess(
+    singletonQueryValue,
+    z
+      .string()
+      .min(1, { error: "Cursor must not be empty" })
+      .max(2048, { error: "Cursor is too long" })
+      .optional(),
+  ),
+  "filter[category]": z.preprocess(singletonQueryValue, ItemCategorySchema.optional()),
+});
+
+const EmptyQuerySchema = z.strictObject({});
 
 export const healthRoute = createRoute({
   method: "get",
@@ -150,11 +149,10 @@ export const itemGetRoute = createRoute({
   operationId: "getItem",
   tags: ["items"],
   request: {
-    params: z
-      .object({
-        itemId: z.string().min(1).max(128),
-      })
-      .strict(),
+    params: z.strictObject({
+      itemId: z.string().min(1).max(128),
+    }),
+    query: EmptyQuerySchema,
   },
   responses: {
     200: {
@@ -162,19 +160,14 @@ export const itemGetRoute = createRoute({
       headers: commonHeaders,
       content: { [JSON_API_MEDIA_TYPE]: { schema: ItemDocumentSchema } },
     },
+    400: jsonApiError("Invalid query parameter"),
     404: jsonApiError("Item does not exist"),
     ...jsonApiCommon,
   },
 });
 
 const profileErrors = {
-  401: {
-    ...jsonApiError("Access assertion is missing or invalid"),
-    headers: {
-      ...commonHeaders,
-      "WWW-Authenticate": { schema: { type: "string" as const } },
-    },
-  },
+  403: jsonApiError("Access assertion is missing or invalid, or request is forbidden"),
   429: rateLimitJsonApi,
   500: jsonApiError("Internal server error"),
   503: {
@@ -192,6 +185,7 @@ export const profilePostRoute = createRoute({
   tags: ["profiles"],
   security: cloudflareAccess,
   request: {
+    query: EmptyQuerySchema,
     body: {
       required: true,
       content: { [JSON_API_MEDIA_TYPE]: { schema: ProfileCreateDocumentSchema } },
@@ -206,7 +200,6 @@ export const profilePostRoute = createRoute({
       },
       content: { [JSON_API_MEDIA_TYPE]: { schema: ProfileDocumentSchema } },
     },
-    403: jsonApiError("Origin rejected or client-generated ID unsupported"),
     409: jsonApiError("Profile already exists or resource type conflicts"),
     ...jsonApiBodyFailures,
     ...jsonApiCommon,
@@ -220,12 +213,14 @@ export const profileGetRoute = createRoute({
   operationId: "getCurrentProfile",
   tags: ["profiles"],
   security: cloudflareAccess,
+  request: { query: EmptyQuerySchema },
   responses: {
     200: {
       description: "Current identity profile",
       headers: commonHeaders,
       content: { [JSON_API_MEDIA_TYPE]: { schema: ProfileDocumentSchema } },
     },
+    400: jsonApiError("Invalid query parameter"),
     404: jsonApiError("Profile does not exist"),
     ...jsonApiCommon,
     ...profileErrors,
@@ -239,6 +234,7 @@ export const profilePatchRoute = createRoute({
   tags: ["profiles"],
   security: cloudflareAccess,
   request: {
+    query: EmptyQuerySchema,
     body: {
       required: true,
       content: { [JSON_API_MEDIA_TYPE]: { schema: ProfileUpdateDocumentSchema } },
@@ -250,7 +246,6 @@ export const profilePatchRoute = createRoute({
       headers: commonHeaders,
       content: { [JSON_API_MEDIA_TYPE]: { schema: ProfileDocumentSchema } },
     },
-    403: jsonApiError("Unsafe cross-origin request rejected"),
     404: jsonApiError("Profile does not exist"),
     409: jsonApiError("Resource type or ID does not match the endpoint"),
     ...jsonApiBodyFailures,
@@ -265,12 +260,13 @@ export const profileDeleteRoute = createRoute({
   operationId: "deleteCurrentProfile",
   tags: ["profiles"],
   security: cloudflareAccess,
+  request: { query: EmptyQuerySchema },
   responses: {
     204: {
       description: "Profile deleted",
       headers: { "X-Request-ID": commonHeaders["X-Request-ID"] },
     },
-    403: jsonApiError("Unsafe cross-origin request rejected"),
+    400: jsonApiError("Invalid query parameter"),
     404: jsonApiError("Profile does not exist"),
     ...jsonApiCommon,
     ...profileErrors,

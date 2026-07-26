@@ -103,7 +103,7 @@ const parseMediaRange = (raw: string): MediaRange | null => {
       if (sawQuality || value.quoted || !Q_VALUE.test(value.value)) return null;
       quality = Number(value.value);
       sawQuality = true;
-    } else if (!sawQuality) {
+    } else {
       if (representationParameters.has(name)) return null;
       representationParameters.set(name, value);
     }

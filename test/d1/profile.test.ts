@@ -71,8 +71,8 @@ describe("D1 profile lifecycle", () => {
       phoneNumber: "+358401234567",
       marketingOptIn: false,
       termsAccepted: true,
-      createdAt: "2026-07-22T10:00:00.000Z",
-      updatedAt: "2026-07-22T10:00:00.000Z",
+      createdAt: new Date("2026-07-22T10:00:00.000Z"),
+      updatedAt: new Date("2026-07-22T10:00:00.000Z"),
     });
     await expect(service.get(id)).resolves.toEqual(created);
 
@@ -82,7 +82,7 @@ describe("D1 profile lifecycle", () => {
       firstName: "Grace",
       marketingOptIn: true,
       createdAt: created.createdAt,
-      updatedAt: "2026-07-22T11:00:00.000Z",
+      updatedAt: new Date("2026-07-22T11:00:00.000Z"),
     });
     await expect(service.update(id, {})).resolves.toEqual(updated);
     await expect(service.update(id, { firstName: "Grace", marketingOptIn: true })).resolves.toEqual(
@@ -142,17 +142,17 @@ describe("D1 profile lifecycle", () => {
 
     expect(first).toMatchObject({
       firstName: "First",
-      updatedAt: "2026-07-22T11:00:00.001Z",
+      updatedAt: new Date("2026-07-22T11:00:00.001Z"),
     });
     expect(second).toMatchObject({
       firstName: "Second",
-      updatedAt: "2026-07-22T11:00:00.002Z",
+      updatedAt: new Date("2026-07-22T11:00:00.002Z"),
     });
 
     const final = await repository.get(id);
     expect([
-      ["First", "2026-07-22T11:00:00.001Z"],
-      ["Second", "2026-07-22T11:00:00.002Z"],
+      ["First", new Date("2026-07-22T11:00:00.001Z")],
+      ["Second", new Date("2026-07-22T11:00:00.002Z")],
     ]).toContainEqual([final?.firstName, final?.updatedAt]);
   });
 

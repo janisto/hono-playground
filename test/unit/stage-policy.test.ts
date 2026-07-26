@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { deploymentHostname, deploymentStagePolicy } from "../../infra/stage-policy.js";
+import { isRateLimitNamespaceId } from "../../infra/config.js";
+import {
+  deploymentHostname,
+  deploymentStagePolicy,
+  deploymentTraceSamplingRate,
+} from "../../infra/stage-policy.js";
 
 describe("deployment stage policy", () => {
   it.each([
@@ -17,6 +22,26 @@ describe("deployment stage policy", () => {
     "rejects the syntactically valid but unsupported stage %s",
     (stage) => {
       expect(() => deploymentStagePolicy(stage)).toThrow(`Unsupported deployment stage "${stage}"`);
+    },
+  );
+
+  it("uses full trace sampling outside production and bounded production sampling", () => {
+    expect(deploymentTraceSamplingRate("development")).toBe(1);
+    expect(deploymentTraceSamplingRate("staging")).toBe(1);
+    expect(deploymentTraceSamplingRate("production")).toBe(0.01);
+  });
+
+  it.each(["1", "42", "9007199254740993"])(
+    "accepts a positive decimal rate-limit namespace ID: %s",
+    (namespaceId) => {
+      expect(isRateLimitNamespaceId(namespaceId)).toBe(true);
+    },
+  );
+
+  it.each(["", "0", "-1", "+1", "01", "1.0", " 1", "1 "])(
+    "rejects an invalid rate-limit namespace ID: %s",
+    (namespaceId) => {
+      expect(isRateLimitNamespaceId(namespaceId)).toBe(false);
     },
   );
 
