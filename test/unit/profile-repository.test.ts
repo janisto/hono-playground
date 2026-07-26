@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { AppError } from "../../src/core/errors.js";
-import type { Profile, ProfileCreate } from "../../src/models/profile.js";
+import { AppError } from "../../src/core/errors.ts";
+import type { Profile, ProfileCreate } from "../../src/models/profile.ts";
 import {
   DrizzleProfileRepository,
   isRetryableD1Error,
@@ -9,8 +9,8 @@ import {
   ProfileRepositoryError,
   ProfileRepositoryUnavailableError,
   TRANSIENT_D1_ERROR_MESSAGES,
-} from "../../src/repositories/profile-repository.js";
-import { ProfileService } from "../../src/services/profile-service.js";
+} from "../../src/repositories/profile-repository.ts";
+import { ProfileService } from "../../src/services/profile-service.ts";
 
 type PreparedCall = {
   sql: string;

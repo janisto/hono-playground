@@ -1,5 +1,5 @@
 import type { D1Migration } from "@cloudflare/vitest-pool-workers";
-import type { WorkerEnv } from "../alchemy.run.js";
+import type { WorkerEnv } from "../alchemy.run.ts";
 
 declare global {
   namespace Cloudflare {

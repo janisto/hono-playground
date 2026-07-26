@@ -1,7 +1,8 @@
 # Cloudflare deployment runbook
 
-This repository has not been deployed. Every live-state item below is pending
-until it has been read back from Cloudflare after a successful apply.
+The application stack has not been deployed. Unless explicitly marked as
+verified below, every live-state item remains pending until it has been read
+back from Cloudflare after a successful apply.
 
 ## Failure boundary
 
@@ -22,6 +23,7 @@ live state after an apply.
 
 | Resource | Intended configuration | Current status |
 | --- | --- | --- |
+| Zone | `hono-playground.dev`, Cloudflare Free plan | active; purchased 2026-07-26 |
 | Stack | `HonoPlayground`, explicit stage | not created |
 | Worker | `hono-playground-<stage>`, `workers.dev` and previews disabled | not created |
 | Runtime | compatibility date `2026-07-25` | config only |
@@ -31,8 +33,8 @@ live state after an apply.
 | Secrets | distinct rate-limit and audit HMAC bindings | not uploaded |
 | Observability | persisted logs; authenticated trace propagation; 1% production traces; version metadata | config only |
 | Ingress | Alchemy-managed custom hostname; no direct Worker URL | not created |
-| Access | exact custom hostname and reviewed allow policy | external, not created |
-| Alchemy state | Cloudflare-backed state | not bootstrapped |
+| Access | exact custom hostname and reviewed allow policy | staging application and owner-only policy created and read back 2026-07-26; edge enforcement untested until the hostname exists |
+| Alchemy state | Cloudflare-backed state | shared account-level state store bootstrapped and reused by a successful staging plan on 2026-07-26 |
 
 Alchemy owns the Worker, D1 database, committed migration application,
 rate-limit bindings, runtime variables/secrets, compatibility settings, and
@@ -62,7 +64,8 @@ Before deployment:
 - choose three distinct positive-integer strings that do not collide with
   another binding namespace in the target account (these bindings are not
   visible in the Cloudflare dashboard);
-- select the lowercase custom hostname for this stage;
+- select the lowercase custom hostname for this stage within the owned
+  `hono-playground.dev` zone;
 - copy the team domain and audience from the exact Access application;
 - generate the two lowercase 64-hex HMAC values independently;
 - keep Cloudflare credentials and every secret outside Git; and
@@ -130,7 +133,7 @@ that does not permit unsafe changes to deployed data.
    pnpm qa
    pnpm audit
    pnpm test:e2e
-   pnpm infra:plan -- --stage staging
+   pnpm infra:plan --stage staging
    ```
 
 3. Review every proposed resource, binding, secret change, and migration. The
@@ -139,13 +142,13 @@ that does not permit unsafe changes to deployed data.
 4. Apply:
 
    ```sh
-   pnpm infra:deploy -- --stage staging
+   pnpm infra:deploy --stage staging
    ```
 
 5. Plan again and explain any residual change:
 
    ```sh
-   pnpm infra:plan -- --stage staging
+   pnpm infra:plan --stage staging
    ```
 
 6. Read back the Worker name/version, confirm both `workers.dev` and preview
@@ -168,8 +171,8 @@ Before production:
 
 1. Select an owned custom hostname. Direct
    `workers.dev` and version-preview ingress remain disabled.
-2. Create the self-hosted Access application and exact reviewed allow policy
-   for that custom hostname.
+2. Create or verify the self-hosted Access application and exact reviewed
+   allow policy for that custom hostname.
 3. Set the exact hostname as `WORKER_DOMAIN`; Alchemy attaches it to the
    Worker during deployment and Cloudflare infers the existing zone.
 4. Read back the hostname/path scope, audience, policy order, identity
@@ -230,8 +233,8 @@ approximate and location-local rather than a global exact counter.
 Use Alchemy for application logs and live tailing:
 
 ```sh
-pnpm infra:logs -- --stage prod
-pnpm infra:tail -- --stage prod
+pnpm infra:logs --stage prod
+pnpm infra:tail --stage prod
 ```
 
 Tail output is diagnostic, not a durable audit ledger.

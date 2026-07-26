@@ -3,9 +3,13 @@
 A greenfield Cloudflare Workers API demonstrating a small, current stack:
 Hono, Alchemy, Drizzle, D1, and JSON:API 1.1.
 
-The repository has not been deployed. No Worker, D1 database, Cloudflare
-Access application, secret, or live observability configuration has been
-verified.
+The application stack has not been deployed. The staging Cloudflare Access
+application and owner policy are configured for
+`staging.hono-playground.dev/v1/profiles`, and the shared account-level Alchemy
+state store is bootstrapped. No application Worker, project D1 database,
+application secret binding, or live application observability configuration
+has been deployed or verified. Access enforcement remains untested until the
+hostname exists.
 
 ## Stack
 
@@ -69,8 +73,9 @@ cp .env.example .env
 
 Populate `.env` with the three Cloudflare rate-limit namespace IDs, the exact
 Access team domain and audience, and two distinct HMAC keys. `WORKER_DOMAIN`
-is also required for `staging` and `prod`, but local development may leave it
-empty. Generate each key independently:
+is also required for `staging` and `prod` and must be a hostname within the
+project-owned `hono-playground.dev` zone; local development may leave it empty.
+Generate each key independently:
 
 ```sh
 openssl rand -hex 32
@@ -157,11 +162,11 @@ surface.
 ## Plan and deploy
 
 ```sh
-pnpm infra:plan -- --stage staging
-pnpm infra:deploy -- --stage staging
+pnpm infra:plan --stage staging
+pnpm infra:deploy --stage staging
 
-pnpm infra:plan -- --stage prod
-pnpm infra:deploy -- --stage prod
+pnpm infra:plan --stage prod
+pnpm infra:deploy --stage prod
 ```
 
 The first Alchemy operation can bootstrap account state even when the command
@@ -170,11 +175,11 @@ is `plan`. Confirm the Cloudflare account and stage before approving it.
 Alchemy's `url` property to `false`, which disables its stable `workers.dev`
 URL and version-preview URLs in the pinned provider. Staging and production
 require a validated `WORKER_DOMAIN`; Alchemy attaches that custom hostname
-while Cloudflare Access application and policy creation remain externally
-reviewed. Read back the custom domain and both direct URL settings after
-deployment, and reassess the provider behavior on every Alchemy upgrade.
+while Cloudflare Access application and policy management remain external.
+Read back the custom domain and both direct URL settings after deployment, and
+reassess the provider behavior on every Alchemy upgrade.
 
-Cloudflare Access application/policy creation remains external to this
+Cloudflare Access application and policy management remains external to this
 repository. Complete the checklist in
 [docs/cloudflare-production.md](docs/cloudflare-production.md) before claiming
 staging or production readiness.

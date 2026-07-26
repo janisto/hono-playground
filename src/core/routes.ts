@@ -6,8 +6,8 @@ import {
   profileGetRoute,
   profilePatchRoute,
   profilePostRoute,
-} from "../api/routes.js";
-import type { RouteMetadata } from "./types.js";
+} from "../api/routes.ts";
+import type { RouteMetadata } from "./types.ts";
 
 type RouteDefinition = Readonly<{
   route: Readonly<{

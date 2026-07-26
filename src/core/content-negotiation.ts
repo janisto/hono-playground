@@ -1,5 +1,5 @@
-import { JSON_API_MEDIA_TYPE } from "../models/json-api.js";
-import { AppError } from "./errors.js";
+import { JSON_API_MEDIA_TYPE } from "../models/json-api.ts";
+import { AppError } from "./errors.ts";
 
 type MediaRange = {
   type: string;

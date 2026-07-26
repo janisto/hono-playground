@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assertStrictJsonText, MAXIMUM_JSON_NESTING_DEPTH } from "../../src/core/strict-json.js";
+import { assertStrictJsonText, MAXIMUM_JSON_NESTING_DEPTH } from "../../src/core/strict-json.ts";
 
 describe("strict JSON lexical validation", () => {
   it.each([

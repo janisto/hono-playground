@@ -2,11 +2,11 @@ import { env } from "cloudflare:workers";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createApp } from "../../src/app.js";
-import { AccessConfigurationError, AccessJwksUnavailableError, InvalidAccessTokenError } from "../../src/auth/types.js";
-import type { RuntimeBindings } from "../../src/core/types.js";
-import type { Profile } from "../../src/models/profile.js";
-import type { ProfileRepository } from "../../src/repositories/profile-repository.js";
+import { createApp } from "../../src/app.ts";
+import { AccessConfigurationError, AccessJwksUnavailableError, InvalidAccessTokenError } from "../../src/auth/types.ts";
+import type { RuntimeBindings } from "../../src/core/types.ts";
+import type { Profile } from "../../src/models/profile.ts";
+import type { ProfileRepository } from "../../src/repositories/profile-repository.ts";
 
 const JSON_API_MEDIA_TYPE = "application/vnd.api+json";
 const CURRENT_PROFILE_PATH = "/v1/profiles/current";

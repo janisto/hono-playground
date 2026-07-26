@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { isRateLimitNamespaceId } from "../../infra/config.js";
-import { deploymentHostname, deploymentStagePolicy, deploymentTraceSamplingRate } from "../../infra/stage-policy.js";
+import { isRateLimitNamespaceId } from "../../infra/config.ts";
+import { deploymentHostname, deploymentStagePolicy, deploymentTraceSamplingRate } from "../../infra/stage-policy.ts";
 
 describe("deployment stage policy", () => {
   it.each([

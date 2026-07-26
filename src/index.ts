@@ -1,5 +1,5 @@
-import type { WorkerEnv } from "../alchemy.run.js";
-import { app } from "./app.js";
+import type { WorkerEnv } from "../alchemy.run.ts";
+import { app } from "./app.ts";
 
 export default {
   fetch: app.fetch,

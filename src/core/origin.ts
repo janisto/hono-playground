@@ -1,4 +1,4 @@
-import { AppError } from "./errors.js";
+import { AppError } from "./errors.ts";
 
 export const requireSameOriginForUnsafeProfile = (request: Request): void => {
   if (!(["POST", "PATCH", "DELETE"] as const).includes(request.method as never)) return;

@@ -12,10 +12,10 @@ import {
   profileGetRoute,
   profilePatchRoute,
   profilePostRoute,
-} from "./api/routes.js";
-import { ACCESS_ASSERTION_HEADER, createAccessVerifier } from "./auth/access.js";
-import type { AccessVerifier } from "./auth/types.js";
-import { auditPseudonym } from "./core/crypto.js";
+} from "./api/routes.ts";
+import { ACCESS_ASSERTION_HEADER, createAccessVerifier } from "./auth/access.ts";
+import type { AccessVerifier } from "./auth/types.ts";
+import { auditPseudonym } from "./core/crypto.ts";
 import {
   AppError,
   internalError,
@@ -23,24 +23,24 @@ import {
   jsonApiErrorResponse,
   problemResponse,
   zodValidationError,
-} from "./core/errors.js";
-import { httpPolicy } from "./core/http-policy.js";
-import { lifecycle, runtimeConfiguration } from "./core/lifecycle.js";
-import { enforceProfileRateLimit } from "./core/rate-limit.js";
-import { apiDocumentationRoute, isJsonApiRoute, openApiDocumentRoute, resolveRoute } from "./core/routes.js";
-import { assertStrictJsonText } from "./core/strict-json.js";
-import { enterSpan } from "./core/tracing.js";
-import type { AppEnvironment } from "./core/types.js";
-import { ITEMS } from "./data/items.js";
-import { renderSwaggerUiBody, SWAGGER_UI_VERSION } from "./docs/swagger.js";
-import { HealthResponseSchema } from "./models/health.js";
-import { type Item, ItemCollectionDocumentSchema, ItemDocumentSchema, type ItemResource } from "./models/items.js";
-import { JSON_API_MEDIA_TYPE, JSON_API_OBJECT } from "./models/json-api.js";
-import { type Profile, ProfileDocumentSchema, type ProfileResource } from "./models/profile.js";
-import { InvalidCursorError, MAX_CURSOR_LENGTH } from "./pagination/cursor.js";
-import { paginate } from "./pagination/paginate.js";
-import { DrizzleProfileRepository, type ProfileRepository } from "./repositories/profile-repository.js";
-import { ProfileService } from "./services/profile-service.js";
+} from "./core/errors.ts";
+import { httpPolicy } from "./core/http-policy.ts";
+import { lifecycle, runtimeConfiguration } from "./core/lifecycle.ts";
+import { enforceProfileRateLimit } from "./core/rate-limit.ts";
+import { apiDocumentationRoute, isJsonApiRoute, openApiDocumentRoute, resolveRoute } from "./core/routes.ts";
+import { assertStrictJsonText } from "./core/strict-json.ts";
+import { enterSpan } from "./core/tracing.ts";
+import type { AppEnvironment } from "./core/types.ts";
+import { ITEMS } from "./data/items.ts";
+import { renderSwaggerUiBody, SWAGGER_UI_VERSION } from "./docs/swagger.ts";
+import { HealthResponseSchema } from "./models/health.ts";
+import { type Item, ItemCollectionDocumentSchema, ItemDocumentSchema, type ItemResource } from "./models/items.ts";
+import { JSON_API_MEDIA_TYPE, JSON_API_OBJECT } from "./models/json-api.ts";
+import { type Profile, ProfileDocumentSchema, type ProfileResource } from "./models/profile.ts";
+import { InvalidCursorError, MAX_CURSOR_LENGTH } from "./pagination/cursor.ts";
+import { paginate } from "./pagination/paginate.ts";
+import { DrizzleProfileRepository, type ProfileRepository } from "./repositories/profile-repository.ts";
+import { ProfileService } from "./services/profile-service.ts";
 
 export type AppDependencies = {
   accessVerifier?: AccessVerifier;

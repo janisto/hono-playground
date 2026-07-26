@@ -1,5 +1,5 @@
 import { z } from "@hono/zod-openapi";
-import { JsonApiObjectSchema } from "./json-api.js";
+import { JsonApiObjectSchema } from "./json-api.ts";
 
 export const MAX_VALIDATION_ERRORS = 32;
 

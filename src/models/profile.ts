@@ -1,5 +1,5 @@
 import { z } from "@hono/zod-openapi";
-import { JsonApiLinkSchema, JsonApiObjectSchema } from "./json-api.js";
+import { JsonApiLinkSchema, JsonApiObjectSchema } from "./json-api.ts";
 
 const boundedName = () =>
   z

@@ -1,6 +1,6 @@
 import type { FetchImplementation, JWTVerifyGetKey } from "jose";
 
-import { AppError } from "../core/errors.js";
+import { AppError } from "../core/errors.ts";
 
 export interface AccessVerifierConfigInput {
   readonly teamDomain: unknown;

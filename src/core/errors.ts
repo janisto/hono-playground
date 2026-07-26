@@ -1,7 +1,7 @@
 import type { core, ZodError } from "zod";
 
-import { type JsonApiErrorSource, MAX_VALIDATION_ERRORS, type ValidationErrorDetail } from "../models/error.js";
-import { JSON_API_MEDIA_TYPE, JSON_API_OBJECT } from "../models/json-api.js";
+import { type JsonApiErrorSource, MAX_VALIDATION_ERRORS, type ValidationErrorDetail } from "../models/error.ts";
+import { JSON_API_MEDIA_TYPE, JSON_API_OBJECT } from "../models/json-api.ts";
 
 export type ErrorCode =
   | "invalid_cursor"

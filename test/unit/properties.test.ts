@@ -1,14 +1,14 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { parseRuntimeConfig } from "../../src/core/config.js";
-import { accepts } from "../../src/core/content-negotiation.js";
-import { requireSameOriginForUnsafeProfile } from "../../src/core/origin.js";
-import { requestId } from "../../src/core/request-context.js";
-import type { RuntimeBindings } from "../../src/core/types.js";
-import { ProfileCreateSchema } from "../../src/models/profile.js";
-import { decodeCursor, encodeCursor, InvalidCursorError } from "../../src/pagination/cursor.js";
-import { buildPaginationLinks } from "../../src/pagination/link.js";
+import { parseRuntimeConfig } from "../../src/core/config.ts";
+import { accepts } from "../../src/core/content-negotiation.ts";
+import { requireSameOriginForUnsafeProfile } from "../../src/core/origin.ts";
+import { requestId } from "../../src/core/request-context.ts";
+import type { RuntimeBindings } from "../../src/core/types.ts";
+import { ProfileCreateSchema } from "../../src/models/profile.ts";
+import { decodeCursor, encodeCursor, InvalidCursorError } from "../../src/pagination/cursor.ts";
+import { buildPaginationLinks } from "../../src/pagination/link.ts";
 
 const TEST_BINDINGS = {
   DB: {} as D1Database,

@@ -11,10 +11,10 @@ import {
   RATE_LIMITS,
   STACK_NAME,
   WORKER_BASE_NAME,
-} from "./infra/config.js";
-import { deploymentHostname, deploymentStagePolicy, deploymentTraceSamplingRate } from "./infra/stage-policy.js";
-import { parseAccessVerifierConfig } from "./src/auth/access.js";
-import { isValidHmacSecret } from "./src/core/config.js";
+} from "./infra/config.ts";
+import { deploymentHostname, deploymentStagePolicy, deploymentTraceSamplingRate } from "./infra/stage-policy.ts";
+import { parseAccessVerifierConfig } from "./src/auth/access.ts";
+import { isValidHmacSecret } from "./src/core/config.ts";
 
 export { COMPATIBILITY_DATE, MIGRATIONS_TABLE, RATE_LIMITS, STACK_NAME };
 

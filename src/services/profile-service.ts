@@ -1,10 +1,10 @@
-import { AppError, internalError } from "../core/errors.js";
-import type { Profile, ProfileCreate, ProfileUpdate } from "../models/profile.js";
+import { AppError, internalError } from "../core/errors.ts";
+import type { Profile, ProfileCreate, ProfileUpdate } from "../models/profile.ts";
 import {
   type ProfileRepository,
   ProfileRepositoryError,
   ProfileRepositoryUnavailableError,
-} from "../repositories/profile-repository.js";
+} from "../repositories/profile-repository.ts";
 
 export type ProfileClock = () => Date;
 

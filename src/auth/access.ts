@@ -9,7 +9,7 @@ import {
   type AccessVerifierDependencies,
   InvalidAccessTokenError,
   type VerifiedAccessIdentity,
-} from "./types.js";
+} from "./types.ts";
 
 export const ACCESS_ASSERTION_HEADER = "Cf-Access-Jwt-Assertion";
 export const ACCESS_CLOCK_TOLERANCE_SECONDS = 5;

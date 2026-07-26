@@ -1,19 +1,19 @@
 import type { MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 
-import { precheckJsonApiBody } from "./body.js";
-import { requireAccept, requireJsonApiAccept } from "./content-negotiation.js";
-import { AppError } from "./errors.js";
-import { requireSameOriginForUnsafeProfile } from "./origin.js";
-import { enforcePublicRateLimit } from "./rate-limit.js";
+import { precheckJsonApiBody } from "./body.ts";
+import { requireAccept, requireJsonApiAccept } from "./content-negotiation.ts";
+import { AppError } from "./errors.ts";
+import { requireSameOriginForUnsafeProfile } from "./origin.ts";
+import { enforcePublicRateLimit } from "./rate-limit.ts";
 import {
   apiDocumentationRoute,
   isJsonApiRoute,
   isRepresentationBearing,
   openApiDocumentRoute,
   resolveRoute,
-} from "./routes.js";
-import type { AppEnvironment, RouteMetadata } from "./types.js";
+} from "./routes.ts";
+import type { AppEnvironment, RouteMetadata } from "./types.ts";
 
 const BODY_METHODS = new Set(["POST", "PATCH"]);
 

@@ -68,6 +68,15 @@ technology. Prefer a coherent current design over compatibility with an
 unpublished earlier shape. Keep implementations small, explicit, and backed by
 current first-party web documentation.
 
+This is a public repository. Keep all deployment-specific values and secrets in
+the ignored `.env`; commit only names and safe placeholders in `.env.example`.
+Never print or copy `.env` contents into source, documentation, tests, logs,
+commits, issues, or pull requests.
+
+The project-owned Cloudflare zone is `hono-playground.dev`. Treat that zone as
+fixed deployment input unless the user explicitly changes it; do not substitute
+`workers.dev` or another domain.
+
 ## Locked stack and boundaries
 
 - Hono is the HTTP router on Cloudflare Workers.
@@ -146,6 +155,11 @@ current first-party web documentation.
 
 ## TypeScript and naming
 
+- Use explicit `.ts` extensions for relative imports between TypeScript source
+  files. This no-emit project is bundled or executed directly from TypeScript,
+  including `alchemy.run.ts`; do not use emitted-JavaScript `.js` specifiers for
+  TypeScript modules. Keep genuine JavaScript asset names and external URLs
+  unchanged.
 - Use `camelCase` for variables, functions, object properties, domain fields,
   and JSON:API implementation-defined members: `createdAt`, `phoneNumber`,
   `marketingOptIn`.

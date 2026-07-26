@@ -1,10 +1,10 @@
 import { createRoute, z } from "@hono/zod-openapi";
 
-import { JsonApiErrorDocumentSchema, ProblemResponseSchema } from "../models/error.js";
-import { HealthResponseSchema } from "../models/health.js";
-import { ItemCategorySchema, ItemCollectionDocumentSchema, ItemDocumentSchema } from "../models/items.js";
-import { JSON_API_MEDIA_TYPE } from "../models/json-api.js";
-import { ProfileCreateDocumentSchema, ProfileDocumentSchema, ProfileUpdateDocumentSchema } from "../models/profile.js";
+import { JsonApiErrorDocumentSchema, ProblemResponseSchema } from "../models/error.ts";
+import { HealthResponseSchema } from "../models/health.ts";
+import { ItemCategorySchema, ItemCollectionDocumentSchema, ItemDocumentSchema } from "../models/items.ts";
+import { JSON_API_MEDIA_TYPE } from "../models/json-api.ts";
+import { ProfileCreateDocumentSchema, ProfileDocumentSchema, ProfileUpdateDocumentSchema } from "../models/profile.ts";
 
 const commonHeaders = {
   "X-Request-ID": { schema: { type: "string" as const } },

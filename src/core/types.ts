@@ -1,4 +1,4 @@
-import type { WorkerEnv } from "../../alchemy.run.js";
+import type { WorkerEnv } from "../../alchemy.run.ts";
 
 export type EnvironmentName = "development" | "staging" | "test" | "production";
 export type RateLimitMode = "none" | "workers-binding";

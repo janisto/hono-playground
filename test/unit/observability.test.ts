@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createApp } from "../../src/app.js";
-import { enterSpanWith, type SpanName, type Tracer } from "../../src/core/tracing.js";
-import type { RuntimeBindings } from "../../src/core/types.js";
-import type { ProfileRepository } from "../../src/repositories/profile-repository.js";
+import { createApp } from "../../src/app.ts";
+import { enterSpanWith, type SpanName, type Tracer } from "../../src/core/tracing.ts";
+import type { RuntimeBindings } from "../../src/core/types.ts";
+import type { ProfileRepository } from "../../src/repositories/profile-repository.ts";
 
 const ORIGIN = "https://worker.example";
 const RATE_LIMIT_KEY = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";

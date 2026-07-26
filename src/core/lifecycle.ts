@@ -1,9 +1,9 @@
 import type { MiddlewareHandler } from "hono";
-import { SWAGGER_UI_BOOTSTRAP_CSP_SOURCE, SWAGGER_UI_BUNDLE_CSP_SOURCE } from "../docs/swagger.js";
-import { parseRuntimeConfig } from "./config.js";
-import { requestId } from "./request-context.js";
-import { apiDocumentationRoute, resolveRoute } from "./routes.js";
-import type { AppEnvironment, RuntimeBindings } from "./types.js";
+import { SWAGGER_UI_BOOTSTRAP_CSP_SOURCE, SWAGGER_UI_BUNDLE_CSP_SOURCE } from "../docs/swagger.ts";
+import { parseRuntimeConfig } from "./config.ts";
+import { requestId } from "./request-context.ts";
+import { apiDocumentationRoute, resolveRoute } from "./routes.ts";
+import type { AppEnvironment, RuntimeBindings } from "./types.ts";
 
 const API_CSP = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 const DOCS_CSP = [

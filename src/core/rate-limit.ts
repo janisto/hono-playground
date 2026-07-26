@@ -1,8 +1,8 @@
 import type { Context } from "hono";
 
-import { hmacSha256 } from "./crypto.js";
-import { AppError } from "./errors.js";
-import type { AppEnvironment } from "./types.js";
+import { hmacSha256 } from "./crypto.ts";
+import { AppError } from "./errors.ts";
+import type { AppEnvironment } from "./types.ts";
 
 const limitExceeded = (): AppError =>
   new AppError({

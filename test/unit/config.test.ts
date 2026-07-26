@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseAccessVerifierConfig } from "../../src/auth/access.js";
-import { AccessConfigurationError } from "../../src/auth/types.js";
-import { parseRuntimeConfig, requireHmacSecret } from "../../src/core/config.js";
-import { AppError } from "../../src/core/errors.js";
-import type { RuntimeBindings } from "../../src/core/types.js";
+import { parseAccessVerifierConfig } from "../../src/auth/access.ts";
+import { AccessConfigurationError } from "../../src/auth/types.ts";
+import { parseRuntimeConfig, requireHmacSecret } from "../../src/core/config.ts";
+import { AppError } from "../../src/core/errors.ts";
+import type { RuntimeBindings } from "../../src/core/types.ts";
 
 const STRONG_KEY = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
 const TEST_BINDINGS = {

@@ -1,5 +1,5 @@
-import { AppError } from "./errors.js";
-import type { EnvironmentName, RateLimitMode, RuntimeBindings, RuntimeConfig } from "./types.js";
+import { AppError } from "./errors.ts";
+import type { EnvironmentName, RateLimitMode, RuntimeBindings, RuntimeConfig } from "./types.ts";
 
 const ENVIRONMENTS = new Set<EnvironmentName>(["development", "staging", "test", "production"]);
 const RATE_LIMIT_MODES = new Set<RateLimitMode>(["none", "workers-binding"]);

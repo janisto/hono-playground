@@ -1,4 +1,4 @@
-import { type Item, ItemSchema } from "../models/items.js";
+import { type Item, ItemSchema } from "../models/items.ts";
 
 const ITEM_FIXTURE = [
   {

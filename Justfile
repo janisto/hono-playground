@@ -34,16 +34,16 @@ db-check:
     pnpm db:check
 
 plan stage="staging":
-    pnpm infra:plan -- --stage {{ stage }}
+    pnpm infra:plan --stage {{ stage }}
 
 deploy stage="staging":
-    pnpm infra:deploy -- --stage {{ stage }}
+    pnpm infra:deploy --stage {{ stage }}
 
 logs stage="prod":
-    pnpm infra:logs -- --stage {{ stage }}
+    pnpm infra:logs --stage {{ stage }}
 
 tail stage="prod":
-    pnpm infra:tail -- --stage {{ stage }}
+    pnpm infra:tail --stage {{ stage }}
 
 audit:
     pnpm audit

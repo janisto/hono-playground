@@ -1,5 +1,5 @@
-import { decodeCursor, encodeCursor, InvalidCursorError } from "./cursor.js";
-import { buildPaginationLinks, type PaginationLinks } from "./link.js";
+import { decodeCursor, encodeCursor, InvalidCursorError } from "./cursor.ts";
+import { buildPaginationLinks, type PaginationLinks } from "./link.ts";
 
 export interface PaginateOptions<T> {
   readonly items: readonly T[];

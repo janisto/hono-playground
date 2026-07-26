@@ -46,12 +46,7 @@
         "noUnusedImports": "error",
         "noUnusedVariables": "error",
         "noUnusedFunctionParameters": "error",
-        "useImportExtensions": {
-          "level": "error",
-          "options": {
-            "forceJsExtensions": true
-          }
-        }
+        "useImportExtensions": "error"
       },
       "security": {
         "noGlobalEval": "error"

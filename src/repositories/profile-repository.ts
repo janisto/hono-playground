@@ -2,9 +2,9 @@ import { and, eq, ne, or, type SQL } from "drizzle-orm";
 import { type DrizzleD1Database, drizzle } from "drizzle-orm/d1";
 import { z } from "zod";
 
-import type { OperatorCode } from "../core/errors.js";
-import { type NewProfileRow, type ProfileRow, profiles } from "../db/schema.js";
-import { type Profile, type ProfileCreate, ProfileSchema, type ProfileUpdate } from "../models/profile.js";
+import type { OperatorCode } from "../core/errors.ts";
+import { type NewProfileRow, type ProfileRow, profiles } from "../db/schema.ts";
+import { type Profile, type ProfileCreate, ProfileSchema, type ProfileUpdate } from "../models/profile.ts";
 
 const MAX_PATCH_RETRIES = 2;
 const PATCH_RETRY_BASE_DELAY_MS = 25;

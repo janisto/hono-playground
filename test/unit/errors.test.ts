@@ -6,8 +6,8 @@ import {
   jsonApiErrorResponse,
   problemResponse,
   validationError,
-} from "../../src/core/errors.js";
-import { MAX_VALIDATION_ERRORS } from "../../src/models/error.js";
+} from "../../src/core/errors.ts";
+import { MAX_VALIDATION_ERRORS } from "../../src/models/error.ts";
 
 describe("application error catalog", () => {
   it("freezes status, title, and safe-detail contracts", () => {

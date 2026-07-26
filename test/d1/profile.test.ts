@@ -1,10 +1,10 @@
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AppError } from "../../src/core/errors.js";
-import { type ProfileCreate, ProfileCreateSchema } from "../../src/models/profile.js";
-import { DrizzleProfileRepository, ProfileRepositoryError } from "../../src/repositories/profile-repository.js";
-import { ProfileService } from "../../src/services/profile-service.js";
+import { AppError } from "../../src/core/errors.ts";
+import { type ProfileCreate, ProfileCreateSchema } from "../../src/models/profile.ts";
+import { DrizzleProfileRepository, ProfileRepositoryError } from "../../src/repositories/profile-repository.ts";
+import { ProfileService } from "../../src/services/profile-service.ts";
 
 const database = (env as unknown as { readonly DB: D1Database }).DB;
 const trackedIds = new Set<string>();

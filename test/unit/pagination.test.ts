@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { ITEMS } from "../../src/data/items.js";
-import { ItemCollectionDocumentSchema, ItemSchema } from "../../src/models/items.js";
-import { JSON_API_OBJECT } from "../../src/models/json-api.js";
-import { decodeCursor, encodeCursor, InvalidCursorError, MAX_CURSOR_LENGTH } from "../../src/pagination/cursor.js";
-import { buildPaginationLinks } from "../../src/pagination/link.js";
-import { paginate } from "../../src/pagination/paginate.js";
+import { ITEMS } from "../../src/data/items.ts";
+import { ItemCollectionDocumentSchema, ItemSchema } from "../../src/models/items.ts";
+import { JSON_API_OBJECT } from "../../src/models/json-api.ts";
+import { decodeCursor, encodeCursor, InvalidCursorError, MAX_CURSOR_LENGTH } from "../../src/pagination/cursor.ts";
+import { buildPaginationLinks } from "../../src/pagination/link.ts";
+import { paginate } from "../../src/pagination/paginate.ts";
 
 const paginateItems = (cursor: string | null = null, limit = 5) =>
   paginate({

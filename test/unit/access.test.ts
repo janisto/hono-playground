@@ -15,8 +15,8 @@ import {
   MAX_ACCESS_AUDIENCE_LENGTH,
   MAX_ACCESS_SUBJECT_LENGTH,
   parseAccessVerifierConfig,
-} from "../../src/auth/access.js";
-import { AccessConfigurationError, AccessJwksUnavailableError, InvalidAccessTokenError } from "../../src/auth/types.js";
+} from "../../src/auth/access.ts";
+import { AccessConfigurationError, AccessJwksUnavailableError, InvalidAccessTokenError } from "../../src/auth/types.ts";
 
 const TEAM_DOMAIN = "https://team.cloudflareaccess.com";
 const ISSUER = TEAM_DOMAIN;

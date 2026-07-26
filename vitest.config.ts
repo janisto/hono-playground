@@ -4,7 +4,7 @@ import path from "node:path";
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
 
-import { COMPATIBILITY_DATE, RATE_LIMITS } from "./infra/config.js";
+import { COMPATIBILITY_DATE, RATE_LIMITS } from "./infra/config.ts";
 
 const readDrizzleMigrations = async () => {
   const root = path.join(import.meta.dirname, "drizzle");

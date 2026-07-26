@@ -1,4 +1,4 @@
-import { requireHmacSecret } from "./config.js";
+import { requireHmacSecret } from "./config.ts";
 
 const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");

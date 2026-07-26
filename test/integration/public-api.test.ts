@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createApp } from "../../src/app.js";
-import type { RuntimeBindings } from "../../src/core/types.js";
-import { JSON_API_MEDIA_TYPE } from "../../src/models/json-api.js";
+import { createApp } from "../../src/app.ts";
+import type { RuntimeBindings } from "../../src/core/types.ts";
+import { JSON_API_MEDIA_TYPE } from "../../src/models/json-api.ts";
 
 const ORIGIN = "https://api.example.test";
 const TEST_BINDINGS = {

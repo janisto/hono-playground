@@ -1,6 +1,6 @@
-import { JSON_API_MEDIA_TYPE } from "../models/json-api.js";
-import { isSupportedJsonApiContentType } from "./content-negotiation.js";
-import { AppError, invalidJsonError } from "./errors.js";
+import { JSON_API_MEDIA_TYPE } from "../models/json-api.ts";
+import { isSupportedJsonApiContentType } from "./content-negotiation.ts";
+import { AppError, invalidJsonError } from "./errors.ts";
 
 const unsupportedRepresentation = (detail: string, header: string): AppError =>
   new AppError({

@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
-import { MIGRATIONS_TABLE } from "../../infra/config.js";
+import { MIGRATIONS_TABLE } from "../../infra/config.ts";
 
 describe("Drizzle migration", () => {
   it("creates the generated snake_case profile schema with its domain constraints", async () => {
