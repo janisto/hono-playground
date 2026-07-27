@@ -4,8 +4,8 @@ A greenfield Cloudflare Workers API demonstrating a small, current stack:
 Hono, Alchemy, Drizzle, D1, and JSON:API 1.1.
 
 Hosted documentation:
-[Swagger UI](https://staging.hono-playground.dev/api-docs) and the
-[OpenAPI 3.1 document](https://staging.hono-playground.dev/openapi.json).
+[Swagger UI](https://hono-playground.dev/api-docs) and the
+[OpenAPI 3.1 document](https://hono-playground.dev/openapi.json).
 
 ## Stack
 
