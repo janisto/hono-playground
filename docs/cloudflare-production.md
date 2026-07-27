@@ -56,7 +56,11 @@ identity.
 - **Access:** Derive profile ownership only from a verified Access `sub`.
   Require `type=app`, the exact issuer and audience, RS256, valid time claims,
   and a bounded subject. Do not use email addresses or service-token identities
-  as profile owners.
+  as profile owners. Enable `HttpOnly` for the Access application cookie
+  because this service does not read it from client-side JavaScript. Keep
+  Binding Cookie disabled so approved non-browser Access clients remain
+  usable; enable it only after every supported client proves it can present the
+  binding cookie.
 - **Observability:** Keep invocation logs and traces enabled. Use 1% head
   sampling in production and full sampling in non-production. Application
   events must use route templates, fixed fields, request IDs, and keyed owner
@@ -64,8 +68,9 @@ identity.
 - **Caching:** Keep Worker Cache and zone cache rules disabled for application
   responses, and preserve `Cache-Control: no-store`.
 - **DNS:** Enable DNSSEC and verify the zone DNSKEY, parent DS, and validation
-  through an independent recursive resolver. Do not treat zone signing alone
-  as completed DNSSEC.
+  through an independent recursive resolver. After Cloudflare finishes managed
+  Custom Domain provisioning, require every public Worker hostname to return
+  both A and AAAA answers. Do not treat zone signing alone as completed DNSSEC.
 - **Email spoofing:** While the domain does not send email, publish the
   restrictive records Cloudflare recommends: apex SPF `v=spf1 -all`, wildcard
   DKIM `v=DKIM1; p=`, and DMARC
@@ -117,10 +122,14 @@ identity.
   disabled instead of enabling both features.
 - **Notifications:** Prefer Certificate Transparency Monitoring as the only
   zone security notification when account members will triage certificate
-  issuance. Do not add the standard Free-plan HTTP DDoS alert, which reports
-  attacks Cloudflare has already mitigated and requires no operator action.
-  Add a budget alert only after moving to Pay-as-you-go; it informs but does not
-  cap spend.
+  issuance. Cloudflare-managed Custom Domain issuance, renewal, and backup
+  certificates can produce routine alerts. Compare every alert's DNS names,
+  issuer, and validity with the certificates listed under Edge Certificates;
+  recognized Cloudflare issuance needs no action, while an unrecognized issuer
+  or certificate requires investigation. Do not add the standard Free-plan
+  HTTP DDoS alert, which reports attacks Cloudflare has already mitigated and
+  requires no operator action. Add a budget alert only after moving to
+  Pay-as-you-go; it informs but does not cap spend.
 
 ## Required input
 
@@ -174,6 +183,72 @@ rotating the audit key breaks pseudonym continuity.
 The Alchemy program validates namespace syntax and uniqueness, the Access team
 domain and audience, HMAC strength, and HMAC separation before it can create
 the Worker. Runtime validation remains in place as defense in depth.
+
+## Production environment bootstrap
+
+Create the production inputs only after the production Access application
+exists. Configure it for the exact `hono-playground.dev` hostname and
+`v1/profiles` path with the reviewed allow policy and Cloudflare identity
+provider. Enable Instant Auth and `HttpOnly`, keep Binding Cookie disabled,
+then copy the application's exact team domain and audience.
+
+1. Create the ignored environment file and restrict its permissions:
+
+   ```sh
+   cp .env.example .env.prod
+   chmod 600 .env.prod
+   git check-ignore .env.prod
+   ```
+
+2. Populate `.env.prod` with the required inputs listed above:
+
+   - three positive, account-wide unique rate-limit namespace IDs that are not
+     reused by development or staging;
+   - `WORKER_DOMAIN=hono-playground.dev`;
+   - the production Access team domain and audience; and
+   - two independently generated lowercase 64-hex keys, one for each HMAC
+     input. Generate each key separately with `openssl rand -hex 32`.
+
+   Never print, commit, or copy the environment file into an issue, pull
+   request, log, or deployment record.
+
+3. Create the dedicated Alchemy profile and confirm that it selects the
+   intended Cloudflare account:
+
+   ```sh
+   pnpm exec alchemy login --profile prod --env-file .env.prod --configure
+   pnpm exec alchemy profile show --profile prod --env-file .env.prod
+   ```
+
+   Complete the browser authorization with an identity that can manage the
+   target account. Stop if the profile readback identifies another account.
+
+4. Validate and review the first production plan:
+
+   ```sh
+   pnpm qa
+   pnpm run audit
+   pnpm test:e2e
+   just plan prod
+   ```
+
+   The first Alchemy operation may bootstrap its remote state store. Require
+   the plan to contain only the intended production D1 database, Worker,
+   custom domain, migrations, bindings, variables, and secrets. Stop on any
+   unexpected update, replacement, or deletion.
+
+5. Deploy, require the follow-up plan to converge, and then complete the full
+   deployment verification checklist:
+
+   ```sh
+   just deploy prod
+   just plan prod
+   ```
+
+Do not call production ready merely because the apply succeeded. Public DNS,
+the custom-domain certificate, disabled direct Worker ingress, Access
+enforcement, D1 schema and ledger, route contracts, browser behavior, and
+telemetry privacy still require live readback.
 
 ## Migration review
 
@@ -253,6 +328,15 @@ After every staging or production deployment:
 - read back the Worker source version, custom hostname, compatibility date,
   binding types, secret names without values, and disabled `workers.dev` and
   preview URLs;
+- query the authoritative nameservers for both A and AAAA answers, then repeat
+  through an independent recursive resolver. Allow managed Custom Domain and
+  certificate provisioning to finish before escalating a transient missing
+  answer; do not add a competing manual DNS record while Cloudflare is still
+  provisioning the hostname;
+- require the edge certificate to be active and cover the exact hostname.
+  When Certificate Transparency Monitoring reports issuance, reconcile its DNS
+  names, issuer, and validity with Edge Certificates before dismissing it as a
+  routine Cloudflare-managed certificate;
 - inspect the D1 identity, jurisdiction, replication mode, schema, migration
   ledger, Query Insights, and recovery availability;
 - verify the documented media type and contract for `/health`,
@@ -338,7 +422,7 @@ Before production:
 3. Set the exact hostname as `WORKER_DOMAIN`; Alchemy attaches it to the
    Worker during deployment and Cloudflare infers the existing zone.
 4. Read back the hostname/path scope, audience, policy order, identity
-   providers, session duration, and unauthenticated denial.
+   providers, session duration, cookie settings, and unauthenticated denial.
 5. Put that exact team domain and audience into the production deployment
    environment.
 6. Verify both an allowed identity and a denied/absent identity at the edge.
@@ -458,6 +542,7 @@ selected restore point before profile traffic resumes.
 - [Cloudflare Access application paths](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/app-paths/)
 - [Cloudflare Access policies](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/)
 - [Cloudflare Access application tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/)
+- [Cloudflare Access authorization cookies](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/)
 - [Cloudflare Access session management](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/)
 - [Cloudflare Worker preview URLs](https://developers.cloudflare.com/workers/versions-and-deployments/preview-urls/)
 - [Cloudflare Access authentication logs](https://developers.cloudflare.com/cloudflare-one/insights/logs/dashboard-logs/access-authentication-logs/)
@@ -468,6 +553,7 @@ selected restore point before profile traffic resumes.
 - [Cloudflare Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/)
 - [Cloudflare Minimum TLS Version](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/minimum-tls/)
 - [Cloudflare Certificate Transparency Monitoring](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/certificate-transparency-monitoring/)
+- [Cloudflare certificate authorities](https://developers.cloudflare.com/ssl/reference/certificate-authorities/)
 - [Cloudflare HSTS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/http-strict-transport-security/)
 - [Cloudflare Managed Rules](https://developers.cloudflare.com/waf/managed-rules/)
 - [Cloudflare Bot Fight Mode](https://developers.cloudflare.com/bots/plans/free/)
@@ -482,7 +568,6 @@ selected restore point before profile traffic resumes.
 - [Cloudflare Precursor](https://developers.cloudflare.com/cloudflare-challenges/precursor/)
 - [Cloudflare JavaScript Detections](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/javascript-detections/)
 - [Cloudflare restrictive email records](https://www.cloudflare.com/learning/dns/dns-records/protect-domains-without-email/)
-- [Cloudflare Worker Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
 
 [d1-metrics]: https://developers.cloudflare.com/d1/observability/metrics-analytics/
 [d1-query-api]: https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/
