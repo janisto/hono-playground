@@ -1,8 +1,8 @@
 # Cloudflare deployment runbook
 
-Staging is deployed and has been read back as recorded below. Production has
-not been deployed. Unless explicitly marked as verified, a live-state item
-remains pending.
+This runbook defines the recommended Cloudflare configuration and repeatable
+deployment, verification, and recovery procedures for this service. Verify the
+target stage in the live control plane before and after every change.
 
 ## Failure boundary
 
@@ -19,69 +19,102 @@ containing code, bindings, and secrets. Cloudflare's D1, Worker, Access, and
 account APIs do not form a whole-stack transaction. Always verify observed
 live state after an apply.
 
-## Intended state
+## Recommended settings
 
-| Resource | Intended configuration | Current status |
-| --- | --- | --- |
-| Zone | `hono-playground.dev`, Cloudflare Free plan | active; purchased 2026-07-26 |
-| Stack | `HonoPlayground`, explicit stage | staging deployed from `26af818`; production not created |
-| Worker | `hono-playground-<stage>`, `workers.dev` and previews disabled | staging Worker live; both direct surfaces read back disabled |
-| Runtime | compatibility date `2026-07-11` | staging remains at `2026-07-25` until the next authorized deployment |
-| D1 | `hono-playground-db-<stage>`, EU jurisdiction, replication disabled | staging database live; jurisdiction and replication read back |
-| Migration ledger | `drizzle_migrations` | staging ledger contains `00001` profile migration |
-| Rate limiting | public 300/min per route and actor, profile reads 120/min, profile writes 30/min | three staging bindings read back; live threshold behavior pending |
-| Secrets | distinct rate-limit and audit HMAC bindings | staging names read back as encrypted secret bindings |
-| Observability | persisted logs and traces; 1% production trace sampling; version metadata | staging logs and traces enabled at 100%; live events read back |
-| Ingress | Alchemy-managed custom hostname; no direct Worker URL | staging custom domain live; `workers.dev` and previews disabled |
-| Access | exact custom hostname and reviewed allow policy | staging owner policy read back; anonymous denial and signed-in owner allow path verified |
-| Alchemy state | Cloudflare-backed state | post-deployment staging plan converged with no proposed mutations |
+These recommendations are specific to an API served entirely by a Worker
+Custom Domain. The Worker returns `Cache-Control: no-store`, exposes no local
+image assets or password login, and uses Cloudflare Access for profile
+identity.
 
-Alchemy owns the Worker, D1 database, committed migration application,
-rate-limit bindings, runtime variables/secrets, compatibility settings, and
-observability. Access applications and identity policies, DNS/custom domains,
-WAF, alerts, budgets, and recovery procedures are external state.
-
-Staging and production D1 databases have a retain removal policy. There is no
-destroy script in this repository.
-
-The source date is capped by the oldest pinned execution path. Alchemy
-`2.0.0-beta.64` resolves `@distilled.cloud/cloudflare-runtime@0.13.8`, whose
-local `workerd@1.20260704.1` accepts dates only through `2026-07-11`.
-Cloudflare's hosted edge and the separate test runtime accept newer dates, but
-they do not establish that `pnpm dev` can start. Cloudflare currently documents
-no compatibility flag becoming the default between `2026-07-11` and the
-staging value `2026-07-25`; nevertheless, the next staging deployment must
-smoke test and read back the changed date before this row is marked converged.
-
-## Staging verification
-
-The first staging apply created D1, then Cloudflare rejected the Worker before
-upload because the request explicitly set a gated trace propagation policy.
-Commit `26af818` removed that optional field while retaining persisted logs and
-traces. The forward deployment reused the existing database without change,
-created the Worker, attached the custom domain, and was followed by a
-converged plan.
-
-Verified on 2026-07-26:
-
-- `/health`, `/openapi.json`, `/api-docs`, and `/v1/items` returned their
-  documented success media types;
-- live Chromium rendered the complete Swagger operation/schema UI, loaded the
-  pinned jsDelivr CSS and JavaScript, and fetched OpenAPI `3.1.0` without a
-  failed request, console error, or page error;
-- unauthenticated profile access redirected to Access, while the signed-in
-  owner reached the Worker and received the expected application-level `404`;
-- `/.env` and `/.git/HEAD` returned safe RFC 9457 `404` documents;
-- D1 Studio showed only `drizzle_migrations` and `profiles`, and the committed
-  profile migration was present in the ledger; and
-- persisted Worker logs and traces contained the smoke requests and active
-  Internet probes without an application error.
-
-Full live profile CRUD and the resulting payload-level log/privacy audit remain
-pending. Swagger UI intentionally disables request submission, and the Worker
-correctly rejects service-token identities because profile ownership requires
-`type=app`. A temporary smoke service token and policy used to verify that
-boundary were detached and deleted; no synthetic profile was created.
+- **Infrastructure ownership:** Use Alchemy for the Worker, D1 database,
+  committed migration application, rate-limit bindings, runtime
+  variables/secrets, compatibility settings, and observability. Manage Access
+  policies, DNS, zone security, notifications, and recovery in Cloudflare.
+- **Stages and retention:** Accept only `prod`, `staging`, and personal
+  `dev_<name>` stages. Use retain removal policy for persistent D1 databases
+  and do not provide a general destroy command.
+- **Ingress:** Use an Alchemy-managed custom hostname inside
+  `hono-playground.dev`. Disable the stable `workers.dev` URL and version
+  previews. Protect profile routes with an exact-hostname Access application
+  and a reviewed allow policy.
+- **Runtime:** Use the compatibility date in `infra/config.ts`. Select the
+  newest date supported by every pinned local and hosted execution path; do not
+  infer support from the hosted edge alone.
+- **D1 and migrations:** Use an EU-jurisdiction D1 database with replication
+  disabled unless a measured need justifies it. Apply only committed
+  Drizzle-generated migrations through Alchemy and retain the
+  `drizzle_migrations` ledger.
+- **Application rate limits:** Keep separate bindings for public traffic,
+  profile reads, and profile writes. Treat counters as approximate and
+  location-local, and require `Retry-After` on `429` responses.
+- **Secrets:** Use distinct HMAC keys for rate-limit partitioning and audit
+  pseudonyms. Store secret values only in the ignored `.env` and deploy them as
+  encrypted Worker bindings.
+- **Access:** Derive profile ownership only from a verified Access `sub`.
+  Require `type=app`, the exact issuer and audience, RS256, valid time claims,
+  and a bounded subject. Do not use email addresses or service-token identities
+  as profile owners.
+- **Observability:** Keep invocation logs and traces enabled. Use 1% head
+  sampling in production and full sampling in non-production. Application
+  events must use route templates, fixed fields, request IDs, and keyed owner
+  pseudonyms; never log bodies, raw subjects, credentials, or bound SQL values.
+- **Caching:** Keep Worker Cache and zone cache rules disabled for application
+  responses, and preserve `Cache-Control: no-store`.
+- **DNS:** Enable DNSSEC and verify the zone DNSKEY, parent DS, and validation
+  through an independent recursive resolver. Do not treat zone signing alone
+  as completed DNSSEC.
+- **Email spoofing:** While the domain does not send email, publish the
+  restrictive records Cloudflare recommends: apex SPF `v=spf1 -all`, wildcard
+  DKIM `v=DKIM1; p=`, and DMARC
+  `v=DMARC1; p=reject; sp=reject; adkim=s; aspf=s;`. Before introducing email
+  sending or routing, replace them with the provider's authenticated MX, SPF,
+  DKIM, and DMARC configuration and verify that only one SPF record exists.
+- **TLS and protocols:** Enable Always Use HTTPS, set the minimum TLS version to
+  1.2, and enable TLS 1.3, HTTP/2, and HTTP/3. Use Automatic SSL/TLS mode while
+  the Worker Custom Domain is the origin; require Full (strict) if an external
+  origin is introduced.
+- **HSTS:** Keep the application's short
+  `Strict-Transport-Security: max-age=300` policy. Enable a long-lived
+  zone-level policy, `includeSubDomains`, or preload only after every intended
+  hostname is permanently HTTPS-only and the rollback consequence is accepted.
+- **0-RTT:** Enable it only while `GET`, `HEAD`, and `OPTIONS` remain
+  side-effect free. Cloudflare limits early data to those methods; mutations
+  must continue to use `POST`, `PATCH`, and `DELETE`.
+- **Smart Shield:** The Free base package may remain enabled, but do not expect
+  material benefit while the Worker is the origin and responses are
+  non-cacheable. Do not purchase Argo or advanced origin features without
+  measured latency or origin-load evidence.
+- **Speed Brain:** Disable it for this service. Cloudflare does not prefetch
+  routes that invoke Workers or responses that are ineligible for cache, while
+  enabling it still adds `Speculation-Rules` to the API's JSON responses.
+- **Early Hints:** Disable it until a public HTML response intentionally emits
+  stable `Link` headers for preload or preconnect. This API emits no such
+  headers, and Cloudflare may send cached hints before Access or the Worker
+  evaluates a request.
+- **Hotlink Protection:** Disable it while this service hosts no supported
+  image assets. If image hosting is added, enable it only after deciding
+  whether search engines, social sites, feeds, or external documentation may
+  embed those images.
+- **Managed security:** Enable the Cloudflare Managed Free Ruleset and Browser
+  Integrity Check. Keep Bot Fight Mode disabled because the Free-plan control
+  challenges all traffic across the domain and cannot be scoped for API
+  clients.
+- **Leaked credentials:** Keep the Free-plan default detection enabled, but do
+  not consume the zone's rate-limit rule with leaked-credential mitigation
+  while authentication is delegated to Access and the application accepts no
+  username/password login. Add a narrowly scoped mitigation only if a password
+  authentication endpoint is introduced.
+- **Precursor:** Enable Precursor in Minimize Friction mode for this API
+  hostname. Do not use Maximize Security on API paths used by `curl`,
+  server-to-server, or other non-browser clients that cannot establish a
+  `cf_clearance` session. Disable JavaScript Detections when Precursor is
+  enabled, as required by Cloudflare's current guidance.
+- **Notifications:** Prefer Certificate Transparency Monitoring as the only
+  zone security notification when account members will triage certificate
+  issuance. Do not add the standard Free-plan HTTP DDoS alert, which reports
+  attacks Cloudflare has already mitigated and requires no operator action.
+  Add a budget alert only after moving to Pay-as-you-go; it informs but does not
+  cap spend.
 
 ## Required input
 
@@ -162,7 +195,7 @@ change when a deployed schema must coexist with old and new Worker versions.
 This repository does not preserve compatibility for unpublished API shapes;
 that does not permit unsafe changes to deployed data.
 
-## First staging apply
+## Staging apply
 
 1. Confirm the Cloudflare account, exact source revision, stage `staging`, and
    absence of another apply for the same stack.
@@ -190,15 +223,73 @@ that does not permit unsafe changes to deployed data.
    pnpm infra:plan --stage staging
    ```
 
-6. Read back the Worker name/version, confirm both `workers.dev` and preview
-   URLs are disabled, and verify the D1 identity/schema/ledger, binding types,
-   compatibility date, logs, traces, and rate-limit behavior.
-7. Run positive and negative HTTP smoke tests with synthetic data, then delete
-   the synthetic profile.
+6. Complete the deployment verification checklist below.
 
 Do not use `pnpm dev` as deployment proof. In the pinned Alchemy beta it runs
 the Worker locally but connects D1 and several bindings to real
 stage-isolated Cloudflare resources.
+
+## Deployment verification
+
+After every staging or production deployment:
+
+- run a second Alchemy plan and explain any residual change;
+- read back the Worker source version, custom hostname, compatibility date,
+  binding types, secret names without values, and disabled `workers.dev` and
+  preview URLs;
+- inspect the D1 identity, jurisdiction, replication mode, schema, migration
+  ledger, Query Insights, and recovery availability;
+- verify the documented media type and contract for `/health`,
+  `/v1/items`, `/openapi.json`, and `/api-docs`, and confirm `/.env` and
+  `/.git/HEAD` return safe RFC 9457 `404` documents;
+- load `/api-docs` in a real browser and require the pinned assets and OpenAPI
+  document to load without failed requests, console errors, or page errors;
+- verify Access denial without an allowed identity and application access with
+  an allowed `type=app` identity for the exact audience;
+- create, read, update, and delete one synthetic profile, then require a
+  post-delete `404`;
+- exercise every rate-limit class with a bounded canary, checking normal
+  responses, `429`, `Retry-After`, and the absence of unintended D1 mutation.
+  Do not claim an exact global threshold because Cloudflare's counters are
+  approximate and location-local;
+- complete the telemetry privacy validation below with the same synthetic
+  values; and
+- inspect Access and account audit logs, notification and budget settings,
+  TLS and cache state, and representative Worker CPU and D1 read/write
+  measurements.
+
+Keep task-specific dates, revisions, request counts, and control-plane
+snapshots in an ignored `plans/` file when needed; do not publish them in this
+runbook.
+
+## Telemetry privacy validation
+
+Cloudflare [invocation events][workers-logs] and traces can retain full request
+URLs. [Automatic D1 spans][worker-spans] and
+[Query Insights][d1-metrics] can retain parameterized SQL statement text;
+Query Insights omits bound parameter values. These platform-managed fields are
+outside the application's structured-event schema.
+
+Use unique synthetic markers for every sensitive profile field and identity
+test value, then inspect all of these surfaces:
+
+- application `http.access`, `profile.audit`, and `operator.error` events;
+- enriched Cloudflare invocation events and trace spans, not only Alchemy's
+  compact output;
+- D1 spans and Query Insights; and
+- Access authentication and account audit logs.
+
+Require the profile fields, raw Access subject, Access assertion, authorization
+and cookie values, request and response bodies, sensitive query values, and SQL
+bound values to be absent. Full route URLs, including any query string sent,
+and parameterized SQL text are expected platform telemetry, so sensitive values
+must never enter URL paths or query strings and SQL values must always use
+placeholders.
+
+Application events use fixed fields. `profile.audit` contains only the schema
+version, event, level, action, result, request ID, and keyed owner pseudonym.
+It never contains a raw subject or profile value. Delete the synthetic profile
+after inspection and confirm its absence.
 
 ## Access
 
@@ -228,11 +319,48 @@ Cloudflare assigns a different value after a user is removed and re-added.
 Revoking or deprovisioning an Access user stops authentication; it does not
 delete the profile owned by the old subject in D1. The authenticated
 `DELETE /v1/profiles/current` route supports self-service erasure while the
-identity is active. Before production, define and prove an operator
-offboarding path that can erase a profile by its old subject, set a retention
-and evidence policy, and order erasure before Access removal when possible.
-Do not switch ownership to mutable or recyclable email addresses. Production
-is blocked until this external identity/data lifecycle exists.
+identity is active. Do not switch ownership to mutable or recyclable email
+addresses.
+
+### Operator profile erasure
+
+Prefer self-service deletion before Access removal. If an identity is already
+removed, use this audited operator procedure; do not add an administrative
+HTTP API and do not use a Drizzle migration:
+
+1. Open a restricted offboarding ticket that authorizes erasure and identifies
+   the exact Cloudflare account, stage, and D1 database. Keep the raw Access
+   subject in an approved secret channel, not the ticket, source control, chat,
+   or shell history.
+2. Use a least-privilege, short-lived Cloudflare API token with D1 Read and D1
+   Write for only the target account. Keep the token in the ignored `.env`;
+   never print it.
+3. Call the [D1 REST query endpoint][d1-query-api] with
+   `SELECT count(*) AS matches FROM profiles WHERE id = ?` and pass the raw
+   subject only in the request body's `params` array. Stop if the count is not
+   exactly one.
+4. Call the same endpoint with
+   `DELETE FROM profiles WHERE id = ? RETURNING id`, again using `params`.
+   Require one returned row and `meta.changes = 1`.
+5. Repeat the bound count query and require zero. Read D1 Query Insights and
+   confirm the statement is parameterized and no subject value is present.
+6. Record the ticket ID, operator, UTC time, account, stage, database, pre/post
+   counts, affected-row count, and the same 32-hex HMAC owner pseudonym used by
+   `profile.audit`. Never record the raw subject, profile fields, token, SQL
+   parameter value, or response row.
+7. Revoke the short-lived API token and close the ticket only after the
+   postcondition and audit evidence are independently reviewed.
+
+A zero-row precondition means the profile is already absent or the identity is
+wrong; do not turn it into a successful deletion claim. More than one row is a
+schema/integrity incident even though `id` is the primary key.
+
+Cloudflare documents seven days of D1 Time Travel retention on the Free plan.
+Do not use Time Travel for routine erasure. Any restore to a point before an
+erasure can resurrect the row; before reopening profile traffic after a
+restore, re-run every erasure recorded after the restore point and verify the
+postconditions. Rehearse the operator-token procedure in staging before
+production use.
 
 ## Production apply
 
@@ -245,19 +373,7 @@ and ignores a separate `subdomain.previewsEnabled` input. This repository sets
 `url: false`, which disables both direct surfaces in the pinned provider.
 Verify both settings live and reassess this behavior on every Alchemy upgrade.
 
-After deployment verify:
-
-- custom Worker hostname, disabled direct/preview URLs, source version,
-  compatibility date, binding types, and secrets present without reading
-  their values;
-- D1 name, jurisdiction, replication mode, schema, migration ledger, and
-  recovery availability;
-- actual allow/block behavior for every rate-limit class;
-- Access allow and deny behavior with the exact audience;
-- `/health`, JSON:API content negotiation, `/openapi.json`, and `/api-docs`;
-- create/read/update/delete for one synthetic profile; and
-- absence of bodies, profile values, raw subjects, tokens, SQL, and bound
-  values in application-owned logs and traces.
+Complete the deployment verification checklist after the apply.
 
 Application access logs intentionally do not estimate D1 scans or writes from
 returned array lengths. Use Cloudflare's automatic D1 span attributes for
@@ -294,6 +410,8 @@ After a partial failure:
 
 Do not perform D1 Time Travel or another destructive recovery operation from
 this repository without separate approval and a current Cloudflare procedure.
+After any restore, reapply and verify every profile erasure recorded after the
+selected restore point before profile traffic resumes.
 
 ## References
 
@@ -306,4 +424,29 @@ this repository without separate approval and a current Cloudflare procedure.
 - [Cloudflare Access application tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/)
 - [Cloudflare Access session management](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/)
 - [Cloudflare Worker preview URLs](https://developers.cloudflare.com/workers/versions-and-deployments/preview-urls/)
-- [Cloudflare D1 trace attributes](https://developers.cloudflare.com/workers/observability/traces/spans-and-attributes/)
+- [Cloudflare Access authentication logs](https://developers.cloudflare.com/cloudflare-one/insights/logs/dashboard-logs/access-authentication-logs/)
+- [Cloudflare Audit Logs v2](https://developers.cloudflare.com/fundamentals/account/account-security/audit-logs/)
+- [Cloudflare D1 Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/)
+- [Cloudflare budget alerts](https://developers.cloudflare.com/billing/manage/budget-alerts/)
+- [Cloudflare Registrar DNSSEC](https://developers.cloudflare.com/registrar/get-started/enable-dnssec/)
+- [Cloudflare Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/)
+- [Cloudflare Minimum TLS Version](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/minimum-tls/)
+- [Cloudflare Certificate Transparency Monitoring](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/certificate-transparency-monitoring/)
+- [Cloudflare HSTS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/http-strict-transport-security/)
+- [Cloudflare Managed Rules](https://developers.cloudflare.com/waf/managed-rules/)
+- [Cloudflare Bot Fight Mode](https://developers.cloudflare.com/bots/plans/free/)
+- [Cloudflare DDoS alerts](https://developers.cloudflare.com/ddos-protection/reference/alerts/)
+- [Cloudflare 0-RTT](https://developers.cloudflare.com/speed/optimization/protocol/0-rtt-connection-resumption/)
+- [Cloudflare Smart Shield](https://developers.cloudflare.com/smart-shield/get-started/)
+- [Cloudflare Speed Brain](https://developers.cloudflare.com/speed/optimization/content/speed-brain/)
+- [Cloudflare Early Hints](https://developers.cloudflare.com/cache/advanced-configuration/early-hints/)
+- [Cloudflare Hotlink Protection](https://developers.cloudflare.com/waf/tools/scrape-shield/hotlink-protection/)
+- [Cloudflare leaked credentials detection](https://developers.cloudflare.com/waf/detections/leaked-credentials/)
+- [Cloudflare Precursor](https://developers.cloudflare.com/cloudflare-challenges/precursor/)
+- [Cloudflare restrictive email records](https://www.cloudflare.com/learning/dns/dns-records/protect-domains-without-email/)
+- [Cloudflare Worker Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
+
+[d1-metrics]: https://developers.cloudflare.com/d1/observability/metrics-analytics/
+[d1-query-api]: https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/
+[worker-spans]: https://developers.cloudflare.com/workers/observability/traces/spans-and-attributes/
+[workers-logs]: https://developers.cloudflare.com/workers/observability/logs/workers-logs/

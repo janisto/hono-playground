@@ -63,12 +63,14 @@ into human onboarding documentation.
 
 ## Project scope
 
-This repository is a pre-production playground for current Cloudflare Workers
-technology with a live staging deployment. Prefer a coherent current design
-over compatibility with an unpublished earlier shape. Keep implementations
-small, explicit, and backed by current first-party web documentation. Treat
-`README.md` and `docs/cloudflare-production.md` as the current public deployment
-status; do not infer production readiness from the existence of staging.
+This repository is a playground for current Cloudflare Workers technology.
+Prefer a coherent current design over compatibility with an unpublished
+earlier shape. Keep implementations small, explicit, and backed by current
+first-party web documentation. Keep `README.md` and
+`docs/cloudflare-production.md` limited to stable public architecture,
+configuration, and procedures. Put transient deployment progress, dates,
+revision hashes, live counts, and control-plane snapshots in an ignored
+`plans/` file when a task needs them.
 
 This is a public repository. Keep all deployment-specific values and secrets in
 the ignored `.env`; commit only names and safe placeholders in `.env.example`.
@@ -168,8 +170,8 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   stage before launching. A successful provider summary is insufficient: wait
   for the local port, probe at least `/health` and `/openapi.json`, stop the
   watcher, and remove the personal stage if it was created only for
-  verification. Keep any live staging or production date/status accurate until
-  that stage is explicitly redeployed and read back.
+  verification. Do not publish the canary's date, revision, or live-state
+  snapshot in the README, this file, or the deployment runbook.
 
 ## Repository shape
 
@@ -272,6 +274,11 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   Drizzle schema and snapshot model cannot represent.
 - Application repositories use Drizzle queries. Raw SQL is limited to tests
   that verify D1 behavior.
+- Operational data repair or erasure is not a migration. Do not encode it in a
+  Drizzle migration, add an administrative HTTP route, or paste a raw identity
+  into D1 Studio. Follow `docs/cloudflare-production.md`: use the D1 REST API
+  with SQL placeholders and bound `params`, assert the precondition and affected
+  row count, and record only the audit pseudonym rather than the raw subject.
 - `drizzle_migrations` is Alchemy's Wrangler-compatible ledger for the
   Drizzle-generated SQL files. It is not Drizzle ORM's runtime migrator table.
   Do not introduce a second migration executor or pass this ledger to one.
@@ -339,6 +346,15 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   match observability query conventions. Environment variables use
   `UPPER_SNAKE_CASE`. These are separate contracts and are not JSON:API member
   names.
+- Keep Cloudflare invocation logs and traces enabled. Cloudflare retains full
+  request URLs and parameterized D1 SQL statement text, while D1 Query Insights
+  omits bound parameter values. Never put credentials, Access subjects, profile
+  values, or other sensitive data in URL paths or query strings, and never
+  interpolate values into SQL. Application logs use route templates, safe
+  fixed fields, and keyed pseudonyms; they never log request or response bodies.
+- A telemetry privacy audit must inspect both application-owned events and the
+  enriched Cloudflare event/trace details plus D1 Query Insights. Alchemy's
+  compact log output does not expose every persisted automatic attribute.
 - A `204` response has no body or content type. All other success and error
   media types must match their documented representation exactly.
 

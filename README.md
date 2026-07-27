@@ -3,15 +3,7 @@
 A greenfield Cloudflare Workers API demonstrating a small, current stack:
 Hono, Alchemy, Drizzle, D1, and JSON:API 1.1.
 
-Staging is deployed at
-[staging.hono-playground.dev](https://staging.hono-playground.dev) from commit
-`26af818`. The Worker, D1 database, committed migration, bindings, custom
-domain, logs, and traces have been read back from Cloudflare. The profile path
-is protected by the owner-only Access policy; anonymous denial and a signed-in
-owner reaching the application were verified on 2026-07-26. Full live
-synthetic profile CRUD remains pending, and production has not been deployed.
-
-Live staging documentation:
+Hosted documentation:
 [Swagger UI](https://staging.hono-playground.dev/api-docs) and the
 [OpenAPI 3.1 document](https://staging.hono-playground.dev/openapi.json).
 
@@ -33,6 +25,14 @@ through Effect Config become `secret_text` bindings in the same Worker upload
 as the code and other bindings. This removes the separate code/type/secret
 workflow, but it does not make D1 migrations or external Access policy atomic
 with a Worker upload.
+
+Cloudflare invocation telemetry can retain full request URLs, and automatic D1
+telemetry can retain parameterized SQL statement text. Never place credentials,
+identity subjects, profile fields, or other sensitive values in URLs, and never
+interpolate them into SQL. Application-owned logs use route templates and
+pseudonymous owners instead of request bodies or raw identities. See the
+[deployment runbook](docs/cloudflare-production.md#telemetry-privacy-validation)
+for the required privacy validation.
 
 ## API
 
@@ -63,9 +63,7 @@ Swagger UI is provided by the official Hono middleware and loads the exact
 `swagger-ui-dist@5.32.11` assets from jsDelivr. That avoids a generated asset
 pipeline, but makes the documentation UI depend on that CDN. The OpenAPI JSON
 endpoint itself has no CDN dependency, and “Try it out” plus the online
-validator are disabled. A live Chromium check on 2026-07-26 rendered the
-staging UI, loaded both pinned assets, and fetched the OpenAPI document without
-a failed request, console error, or page error.
+validator are disabled.
 
 ## Setup
 
@@ -182,9 +180,8 @@ The D1 tests run the committed migrations in workerd and exercise the Drizzle
 repository against the resulting database. The Playwright test bundles the
 Worker and runs it in Miniflare; it verifies that a browser can load Swagger UI
 and fetch the OpenAPI 3.1 document without application or network failures.
-Cloudflare's official Vitest pool currently brings Wrangler transitively, but
-Wrangler is not a direct dependency or an application development/deployment
-surface.
+The pinned Cloudflare Vitest pool brings Wrangler transitively, but Wrangler is
+not a direct dependency or an application development/deployment surface.
 
 ## Plan and deploy
 
@@ -209,7 +206,8 @@ reassess the provider behavior on every Alchemy upgrade.
 Cloudflare Access application and policy management remains external to this
 repository. Complete the checklist in
 [docs/cloudflare-production.md](docs/cloudflare-production.md) before claiming
-staging or production readiness.
+staging or production readiness. The runbook also defines the operator
+procedure for erasing a profile after its Access identity has been removed.
 
 ## Contributing
 
@@ -231,7 +229,7 @@ Coding-agent execution rules and the full project contract live in
 [AGENTS.md](AGENTS.md). Reusable repository-specific agent workflows live in
 [.agents/skills/](.agents/skills/).
 
-## Current documentation
+## Documentation
 
 - [Alchemy Workers](https://alchemy.run/cloudflare/workers/workers/)
 - [Alchemy secrets and environment bindings](https://alchemy.run/cloudflare/security/secrets-env/)
