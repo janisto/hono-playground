@@ -1,0 +1,81 @@
+# Auto-label pull requests by changed paths and branch names.
+# https://github.com/actions/labeler
+
+application:
+  - changed-files:
+      - any-glob-to-any-file: "src/**"
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "test/**"
+          - "playwright.config.ts"
+          - "vitest.config.ts"
+
+database:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "drizzle/**"
+          - "drizzle.config.ts"
+          - "src/db/**"
+          - "src/repositories/**"
+
+infrastructure:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".env.example"
+          - "alchemy.run.ts"
+          - "infra/**"
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "README.md"
+          - "AGENTS.md"
+          - ".agents/**/*.md"
+          - ".github/**/*.md"
+          - "docs/**/*.md"
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "package.json"
+          - "pnpm-lock.yaml"
+          - "pnpm-workspace.yaml"
+
+tooling:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".node-version"
+          - "Justfile"
+          - "biome.json"
+          - "package.json"
+          - "pnpm-lock.yaml"
+          - "pnpm-workspace.yaml"
+          - "playwright.config.ts"
+          - "tsconfig*.json"
+          - "vitest.config.ts"
+
+github-actions:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/dependabot.yml"
+          - ".github/labeler.yml"
+          - ".github/workflows/**"
+          - ".github/zizmor.yml"
+
+feature:
+  - head-branch:
+      - "^feature"
+      - "feature"
+
+bug:
+  - head-branch:
+      - "^bug"
+      - "bug"
+
+improvement:
+  - head-branch:
+      - "^improve"
+      - "improve"
+      - "improvement"

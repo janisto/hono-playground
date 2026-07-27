@@ -1,0 +1,61 @@
+{
+  "name": "hono-playground",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.17.0+sha512.cca3cea332ad254bb84145f966d19f4879615210346fc92c79a047f23a0d7b3cca3c3792f0076ba1f1831d277efbcf0a9119b31a9a60eca7fb3d6231f331ef72",
+  "engines": {
+    "node": "24",
+    "pnpm": ">=11 <12"
+  },
+  "scripts": {
+    "dev": "alchemy dev",
+    "infra:plan": "pnpm db:check && alchemy plan",
+    "infra:deploy": "pnpm qa && alchemy deploy",
+    "infra:logs": "alchemy logs",
+    "infra:tail": "alchemy tail",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint .",
+    "typecheck": "tsc --noEmit && tsc --project tsconfig.tools.json",
+    "test": "vitest run",
+    "test:unit": "vitest run test/unit",
+    "test:integration": "vitest run test/integration",
+    "test:d1": "vitest run test/d1",
+    "coverage": "vitest run --coverage",
+    "audit": "pnpm audit --prod --audit-level high",
+    "db:preview": "drizzle-kit generate --explain",
+    "db:generate": "drizzle-kit generate --name",
+    "db:check": "drizzle-kit check && drizzle_status=\"$(drizzle-kit generate --explain --output=json)\" && printf '%s\\n' \"$drizzle_status\" && test \"$drizzle_status\" = '{\"status\":\"no_changes\",\"dialect\":\"sqlite\"}'",
+    "test:e2e": "playwright test",
+    "qa": "pnpm check && pnpm typecheck && pnpm db:check && pnpm coverage"
+  },
+  "dependencies": {
+    "@hono/swagger-ui": "0.6.1",
+    "@hono/zod-openapi": "1.5.1",
+    "drizzle-orm": "1.0.0-rc.4",
+    "hono": "4.12.32",
+    "jose": "6.2.4",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.5",
+    "@cloudflare/vitest-pool-workers": "0.18.8",
+    "@cloudflare/workers-types": "5.20260724.1",
+    "@effect/platform-node": "4.0.0-beta.101",
+    "@playwright/test": "1.62.0",
+    "@types/node": "24.13.3",
+    "@vitest/coverage-istanbul": "4.1.10",
+    "alchemy": "2.0.0-beta.64",
+    "drizzle-kit": "1.0.0-rc.4",
+    "effect": "4.0.0-beta.101",
+    "fast-check": "4.9.0",
+    "ioredis": "5.11.1",
+    "miniflare": "4.20260722.0",
+    "typescript": "7.0.2",
+    "vite": "8.1.5",
+    "vitest": "4.1.10"
+  }
+}

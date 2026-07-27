@@ -1,0 +1,168 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "3eb6720d-5b69-41e9-8887-3421177be740",
+  "prevIds": [
+    "00000000-0000-0000-0000-000000000000"
+  ],
+  "ddl": [
+    {
+      "name": "profiles",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "profiles"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "first_name",
+      "entityType": "columns",
+      "table": "profiles"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_name",
+      "entityType": "columns",
+      "table": "profiles"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "email",
+      "entityType": "columns",
+      "table": "profiles"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "phone_number",
+      "entityType": "columns",
+      "table": "profiles"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "false",
+      "generated": null,
+      "name": "marketing_opt_in",
+      "entityType": "columns",
+      "table": "profiles"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "terms_accepted",
+      "entityType": "columns",
+      "table": "profiles"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "profiles"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "profiles"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "profiles_id_pk",
+      "entityType": "pks",
+      "table": "profiles"
+    },
+    {
+      "value": "length(\"id\") BETWEEN 1 AND 128",
+      "name": "profiles_id_length",
+      "entityType": "checks",
+      "table": "profiles"
+    },
+    {
+      "value": "length(\"first_name\") BETWEEN 1 AND 100",
+      "name": "profiles_first_name_length",
+      "entityType": "checks",
+      "table": "profiles"
+    },
+    {
+      "value": "length(\"last_name\") BETWEEN 1 AND 100",
+      "name": "profiles_last_name_length",
+      "entityType": "checks",
+      "table": "profiles"
+    },
+    {
+      "value": "length(\"email\") BETWEEN 3 AND 254",
+      "name": "profiles_email_length",
+      "entityType": "checks",
+      "table": "profiles"
+    },
+    {
+      "value": "\n        length(\"phone_number\") BETWEEN 8 AND 16\n        AND substr(\"phone_number\", 1, 1) = '+'\n        AND substr(\"phone_number\", 2, 1) BETWEEN '1' AND '9'\n        AND substr(\"phone_number\", 2) NOT GLOB '*[^0-9]*'\n      ",
+      "name": "profiles_phone_number_format",
+      "entityType": "checks",
+      "table": "profiles"
+    },
+    {
+      "value": "\"marketing_opt_in\" IN (0, 1)",
+      "name": "profiles_marketing_opt_in_boolean",
+      "entityType": "checks",
+      "table": "profiles"
+    },
+    {
+      "value": "\"terms_accepted\" = 1",
+      "name": "profiles_terms_accepted",
+      "entityType": "checks",
+      "table": "profiles"
+    },
+    {
+      "value": "\"created_at\" >= 0",
+      "name": "profiles_created_at_nonnegative",
+      "entityType": "checks",
+      "table": "profiles"
+    },
+    {
+      "value": "\"updated_at\" >= \"created_at\"",
+      "name": "profiles_updated_at_order",
+      "entityType": "checks",
+      "table": "profiles"
+    }
+  ],
+  "renames": []
+}

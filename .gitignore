@@ -1,0 +1,15 @@
+plans/
+
+node_modules/
+.pnpm-store/
+.alchemy/
+dist/
+coverage/
+playwright-report/
+test-results/
+
+.env*
+!.env.example
+
+*.log
+.DS_Store
