@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../src/app.ts";
+import { InvalidAccessTokenError } from "../../src/auth/types.ts";
 import { resolveRoute } from "../../src/core/routes.ts";
 import type { RuntimeBindings } from "../../src/core/types.ts";
 import { JSON_API_MEDIA_TYPE } from "../../src/models/json-api.ts";
@@ -366,7 +367,6 @@ describe("known-resource method policy and strict paths", () => {
   it.each([
     ["/health/", "problem"],
     ["/v1/items/", "jsonapi"],
-    ["/v1/profiles/current/", "jsonapi"],
     ["/openapi.json/", "problem"],
     ["/api-docs/", "problem"],
   ])("does not redirect a trailing-slash path: %s", async (path, format) => {
@@ -388,6 +388,27 @@ describe("known-resource method policy and strict paths", () => {
         detail: "Not Found",
       });
     }
+  });
+
+  it("fails closed on an unregistered trailing-slash profile descendant", async () => {
+    const protectedApp = createApp({
+      accessVerifier: async () => {
+        throw new InvalidAccessTokenError();
+      },
+    });
+    const response = await protectedApp.request(
+      new Request(`${ORIGIN}/v1/profiles/current/`),
+      undefined,
+      TEST_BINDINGS,
+    );
+
+    expect(response.headers.get("Location")).toBeNull();
+    await expectJsonApiError(response, {
+      status: 403,
+      code: "access_assertion_invalid",
+      detail: "Access assertion is missing or invalid",
+      source: { header: "Cf-Access-Jwt-Assertion" },
+    });
   });
 
   it.each([

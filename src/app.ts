@@ -230,10 +230,8 @@ export const createApp = (dependencies: AppDependencies = {}) => {
   );
   app.use("*", runtimeConfiguration(dependencies.maximumRequestBytes));
   app.use("*", httpPolicy());
-  app.use("/v1/profiles", accessMiddleware(dependencies));
-  app.use("/v1/profiles/current", accessMiddleware(dependencies));
-  app.use("/v1/profiles", profileLimiter);
-  app.use("/v1/profiles/current", profileLimiter);
+  app.use("/v1/profiles/*", accessMiddleware(dependencies));
+  app.use("/v1/profiles/*", profileLimiter);
   app.use("/v1/profiles", strictJsonBody);
   app.use("/v1/profiles/current", strictJsonBody);
 

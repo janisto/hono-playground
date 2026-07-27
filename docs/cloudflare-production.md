@@ -35,8 +35,10 @@ identity.
   and do not provide a general destroy command.
 - **Ingress:** Use an Alchemy-managed custom hostname inside
   `hono-playground.dev`. Disable the stable `workers.dev` URL and version
-  previews. Protect profile routes with an exact-hostname Access application
-  and a reviewed allow policy.
+  previews. Protect profile routes with an Access application for the exact
+  hostname and the `v1/profiles` path, plus a reviewed allow policy. Keep the
+  path populated so public health, item, OpenAPI, and documentation routes do
+  not inherit Access authentication.
 - **Runtime:** Use the compatibility date in `infra/config.ts`. Select the
   newest date supported by every pinned local and hosted execution path; do not
   infer support from the hosted edge alone.
@@ -48,8 +50,9 @@ identity.
   profile reads, and profile writes. Treat counters as approximate and
   location-local, and require `Retry-After` on `429` responses.
 - **Secrets:** Use distinct HMAC keys for rate-limit partitioning and audit
-  pseudonyms. Store secret values only in the ignored `.env` and deploy them as
-  encrypted Worker bindings.
+  pseudonyms. Store secret values only in the ignored `.env.dev`,
+  `.env.staging`, and `.env.prod` files and deploy them as encrypted Worker
+  bindings.
 - **Access:** Derive profile ownership only from a verified Access `sub`.
   Require `type=app`, the exact issuer and audience, RS256, valid time claims,
   and a bounded subject. Do not use email addresses or service-token identities
@@ -121,7 +124,8 @@ identity.
 
 ## Required input
 
-Copy `.env.example` to the ignored `.env` and supply:
+Copy `.env.example` separately to the ignored `.env.dev`, `.env.staging`, and
+`.env.prod` files and supply:
 
 ```text
 PUBLIC_RATE_LIMIT_NAMESPACE_ID
@@ -136,15 +140,24 @@ AUDIT_SUBJECT_HMAC_KEY
 
 Before deployment:
 
-- choose three distinct positive-integer strings that do not collide with
-  another binding namespace in the target account (these bindings are not
-  visible in the Cloudflare dashboard);
+- choose three distinct positive-integer strings per environment that do not
+  collide with another stage or binding namespace in the target account (these
+  bindings are not visible in the Cloudflare dashboard);
 - select the lowercase custom hostname for this stage within the owned
   `hono-playground.dev` zone;
 - copy the team domain and audience from the exact Access application;
 - generate the two lowercase 64-hex HMAC values independently;
 - keep Cloudflare credentials and every secret outside Git; and
-- confirm the selected account and explicit stage.
+- configure the matching `dev`, `staging`, or `prod` Alchemy profile; and
+- confirm the selected account, environment file, profile, and explicit stage.
+
+The Justfile is the deployment selector. It pairs `dev` with `.env.dev`,
+profile `dev`, and the personal `dev_$USER` stage. For persistent environments,
+`just plan <environment>`, `just deploy <environment>`,
+`just logs <environment>`, and `just tail <environment>` pass the matching
+`.env.<environment>` file, profile, and stage. `plan` and `deploy` accept only
+`staging` or `prod` and have no default; a missing argument or environment file
+fails before Alchemy starts.
 
 Only `prod`, `staging`, and a personal `dev_<name>` stage are accepted.
 Unsupported stages fail before D1 or Worker provider operations can run. Do
@@ -208,7 +221,7 @@ that does not permit unsafe changes to deployed data.
    pnpm qa
    pnpm audit
    pnpm test:e2e
-   pnpm infra:plan --stage staging
+   just plan staging
    ```
 
 3. Review every proposed resource, binding, secret change, and migration. The
@@ -217,13 +230,13 @@ that does not permit unsafe changes to deployed data.
 4. Apply:
 
    ```sh
-   pnpm infra:deploy --stage staging
+   just deploy staging
    ```
 
 5. Plan again and explain any residual change:
 
    ```sh
-   pnpm infra:plan --stage staging
+   just plan staging
    ```
 
 6. Complete the deployment verification checklist below.
@@ -243,8 +256,9 @@ After every staging or production deployment:
 - inspect the D1 identity, jurisdiction, replication mode, schema, migration
   ledger, Query Insights, and recovery availability;
 - verify the documented media type and contract for `/health`,
-  `/v1/items`, `/openapi.json`, and `/api-docs`, and confirm `/.env` and
-  `/.git/HEAD` return safe RFC 9457 `404` documents;
+  `/v1/items`, `/openapi.json`, and `/api-docs`, and confirm `/.env`,
+  `/.env.dev`, `/.env.staging`, `/.env.prod`, and `/.git/HEAD` return safe RFC
+  9457 `404` documents;
 - load `/api-docs` in a real browser and require the pinned assets and OpenAPI
   document to load without failed requests, console errors, or page errors;
 - verify Access denial without an allowed identity and application access with
@@ -300,12 +314,27 @@ Profile routes fail closed in the Worker unless the Access assertion verifies
 with RS256, the exact issuer and audience, required time claims, `type=app`,
 and a bounded subject.
 
+Set the Access application's optional Path field to `v1/profiles`; Cloudflare's
+UI omits the leading slash. That scope protects both `/v1/profiles` and its
+descendants unless a more-specific Access application overrides it. Do not
+leave the field empty: an empty path protects every route on the hostname,
+including `/health`, `/v1/items`, `/openapi.json`, and `/api-docs`.
+
+The Worker Custom Domain already sends every path on the hostname to the same
+Worker, so adding a Hono route does not require another DNS record, Worker
+route, or custom domain. The Worker must independently apply Access assertion
+verification and profile-specific rate limiting through the verified Hono
+`/v1/profiles/*` middleware scope, which covers the collection root and its
+descendants. Body validation remains route-specific. Before deploying a
+protected route family outside the profile namespace, add a reviewed Access
+destination or application and matching Worker authentication middleware.
+
 Before production:
 
 1. Select an owned custom hostname. Direct
    `workers.dev` and version-preview ingress remain disabled.
-2. Create or verify the self-hosted Access application and exact reviewed
-   allow policy for that custom hostname.
+2. Create or verify the self-hosted Access application for the exact custom
+   hostname and `v1/profiles` path, with an exact reviewed allow policy.
 3. Set the exact hostname as `WORKER_DOMAIN`; Alchemy attaches it to the
    Worker during deployment and Cloudflare infers the existing zone.
 4. Read back the hostname/path scope, audience, policy order, identity
@@ -336,8 +365,8 @@ HTTP API and do not use a Drizzle migration:
    subject in an approved secret channel, not the ticket, source control, chat,
    or shell history.
 2. Use a least-privilege, short-lived Cloudflare API token with D1 Read and D1
-   Write for only the target account. Keep the token in the ignored `.env`;
-   never print it.
+   Write for only the target account. Keep the token in a separate ignored
+   `.env.operator` file that the Justfile never loads; never print it.
 3. Call the [D1 REST query endpoint][d1-query-api] with
    `SELECT count(*) AS matches FROM profiles WHERE id = ?` and pass the raw
    subject only in the request body's `params` array. Stop if the count is not
@@ -367,9 +396,9 @@ production use.
 
 ## Production apply
 
-Repeat the staging process with `--stage prod` from the exact approved
-revision. Freeze concurrent changes, explicitly accept the D1/Worker
-partial-failure boundary, and inspect a second plan after deployment.
+Repeat the staging process with `just plan prod` and `just deploy prod` from
+the exact approved revision. Freeze concurrent changes, explicitly accept the
+D1/Worker partial-failure boundary, and inspect a second plan after deployment.
 
 Pinned Alchemy `2.0.0-beta.64` ties version-preview URLs to its `url` property
 and ignores a separate `subdomain.previewsEnabled` input. This repository sets
@@ -391,8 +420,8 @@ approximate and location-local rather than a global exact counter.
 Use Alchemy for application logs and live tailing:
 
 ```sh
-pnpm infra:logs --stage prod
-pnpm infra:tail --stage prod
+just logs prod
+just tail prod
 ```
 
 Tail output is diagnostic, not a durable audit ledger.
@@ -419,10 +448,14 @@ selected restore point before profile traffic resumes.
 ## References
 
 - [Alchemy state store](https://alchemy.run/state-store/)
+- [Alchemy profiles](https://alchemy.run/environments/profiles/)
+- [Alchemy CLI](https://alchemy.run/cli/)
 - [Alchemy secrets and environment bindings](https://alchemy.run/cloudflare/security/secrets-env/)
 - [Alchemy D1](https://alchemy.run/cloudflare/data/d1/)
 - [Drizzle migrations](https://orm.drizzle.team/docs/migrations)
 - [Cloudflare D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/)
+- [Cloudflare Worker Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
+- [Cloudflare Access application paths](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/app-paths/)
 - [Cloudflare Access policies](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/)
 - [Cloudflare Access application tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/)
 - [Cloudflare Access session management](https://developers.cloudflare.com/cloudflare-one/access-controls/access-settings/session-management/)
@@ -438,6 +471,7 @@ selected restore point before profile traffic resumes.
 - [Cloudflare HSTS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/http-strict-transport-security/)
 - [Cloudflare Managed Rules](https://developers.cloudflare.com/waf/managed-rules/)
 - [Cloudflare Bot Fight Mode](https://developers.cloudflare.com/bots/plans/free/)
+- [Hono middleware path matching](https://hono.dev/docs/guides/middleware)
 - [Cloudflare DDoS alerts](https://developers.cloudflare.com/ddos-protection/reference/alerts/)
 - [Cloudflare 0-RTT](https://developers.cloudflare.com/speed/optimization/protocol/0-rtt-connection-resumption/)
 - [Cloudflare Smart Shield](https://developers.cloudflare.com/smart-shield/get-started/)

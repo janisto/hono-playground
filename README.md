@@ -48,6 +48,14 @@ for the required privacy validation.
 | `GET` | `/openapi.json` | OpenAPI `3.1.0` |
 | `GET` | `/api-docs` | Swagger UI |
 
+The Worker Custom Domain routes every path on its hostname to this application.
+Cloudflare Access is deliberately scoped to `/v1/profiles` and its descendants,
+so health, item, OpenAPI, and documentation routes remain public. A future
+protected route family outside that namespace requires its own reviewed Access
+destination and matching Worker middleware before deployment. See the
+[deployment runbook](docs/cloudflare-production.md#access) for the complete
+boundary.
+
 Resource requests and responses use `application/vnd.api+json`. Profile routes
 derive ownership from the verified Cloudflare Access `sub`; callers cannot
 choose an owner ID. Missing or invalid origin assertions return a JSON:API
@@ -72,25 +80,42 @@ Use the pinned Node 24 and pnpm 11 toolchain:
 ```sh
 corepack enable
 pnpm install --frozen-lockfile
-cp .env.example .env
+cp .env.example .env.dev
+```
+
+Operators should create only the additional environment files they are
+authorized to use:
+
+```sh
+cp .env.example .env.staging
+cp .env.example .env.prod
 ```
 
 Install [just](https://just.systems/man/en/packages.html) for thin repository
 command aliases such as `just dev`.
 
-Populate `.env` with the three Cloudflare rate-limit namespace IDs, the exact
-Access team domain and audience, and two distinct HMAC keys. `WORKER_DOMAIN`
-is also required for `staging` and `prod` and must be a hostname within the
-project-owned `hono-playground.dev` zone; local development may leave it empty.
-Generate each key independently:
+Populate each stage environment file with its own three Cloudflare rate-limit
+namespace IDs, exact Access team domain and audience, and two distinct HMAC
+keys. `WORKER_DOMAIN` is required in `.env.staging` and `.env.prod` and must be
+a hostname within the project-owned `hono-playground.dev` zone;
+`.env.dev` may leave it empty. Generate each key independently:
 
 ```sh
 openssl rand -hex 32
 ```
 
-Never commit `.env` or reuse one key for both purposes.
+Never commit stage environment files, share namespace IDs between stages, or
+reuse one key for both purposes.
 Alchemy rejects malformed or duplicate namespace IDs, invalid Access
 configuration, weak HMAC keys, and key reuse before creating the Worker.
+
+Configure and authenticate one Alchemy profile per environment you use:
+
+```sh
+pnpm exec alchemy login --profile dev --env-file .env.dev --configure
+pnpm exec alchemy login --profile staging --env-file .env.staging --configure
+pnpm exec alchemy login --profile prod --env-file .env.prod --configure
+```
 
 Start the Alchemy development loop:
 
@@ -98,18 +123,16 @@ Start the Alchemy development loop:
 just dev
 ```
 
-`just dev` is a thin alias for `pnpm dev`, which runs `alchemy dev` and serves
-the Worker at `http://localhost:8787`. With no `STAGE` environment override,
-Alchemy deploys development infrastructure into your personal
-[stage](https://alchemy.run/environments/stages/), `dev_$USER` by default.
-That stage has isolated state and physical resource names, so it does not
-overlap teammates, staging, or production. An explicit `STAGE` environment
-value takes precedence over `dev_$USER`; leave it unset for ordinary
-development.
+`just dev` runs `alchemy dev` with `.env.dev`, profile `dev`, and the explicit
+personal [stage](https://alchemy.run/environments/stages/) `dev_$USER`, then
+serves the Worker at `http://localhost:8787`. Passing every selector prevents a
+shell or environment-file default from redirecting development to staging or
+production. The personal stage has isolated state and physical resource names,
+so it does not overlap teammates, staging, or production.
 
-On first use, Alchemy prompts for Cloudflare authentication and saves the
-default provider profile outside this repository. Run
-`pnpm exec alchemy login` to refresh that profile.
+Alchemy stores named profiles outside this repository. Re-run
+`pnpm exec alchemy login` with the matching `--profile` and `--env-file`
+arguments, without `--configure`, to refresh an existing profile.
 
 This is not a cloud-free emulator. In Alchemy's
 [local development loop](https://alchemy.run/environments/local-development/),
@@ -186,12 +209,18 @@ not a direct dependency or an application development/deployment surface.
 ## Plan and deploy
 
 ```sh
-pnpm infra:plan --stage staging
-pnpm infra:deploy --stage staging
+just plan staging
+just deploy staging
 
-pnpm infra:plan --stage prod
-pnpm infra:deploy --stage prod
+just plan prod
+just deploy prod
 ```
+
+`plan` and `deploy` have no default environment: bare `just plan` or
+`just deploy` fails before Alchemy starts. Each recipe accepts only `staging`
+or `prod` and passes the matching `.env.<environment>` file, profile, and stage
+explicitly. `just logs <environment>` and `just tail <environment>` use the
+same pairing; `dev` maps to the personal `dev_$USER` stage.
 
 The first Alchemy operation can bootstrap account state even when the command
 is `plan`. Confirm the Cloudflare account and stage before approving it.
@@ -232,6 +261,7 @@ Coding-agent execution rules and the full project contract live in
 ## Documentation
 
 - [Alchemy Workers](https://alchemy.run/cloudflare/workers/workers/)
+- [Alchemy profiles](https://alchemy.run/environments/profiles/)
 - [Alchemy secrets and environment bindings](https://alchemy.run/cloudflare/security/secrets-env/)
 - [Alchemy D1](https://alchemy.run/cloudflare/data/d1/)
 - [Drizzle Kit migrations](https://orm.drizzle.team/docs/migrations)

@@ -102,6 +102,36 @@ afterEach(async () => {
 });
 
 describe("JSON:API profile resources", () => {
+  it("fails closed before routing an unregistered profile descendant", async () => {
+    const verify = vi.fn(async () => {
+      throw new InvalidAccessTokenError();
+    });
+    const profileRepositoryFactory = vi.fn();
+    const app = createApp({
+      accessVerifier: verify,
+      profileRepositoryFactory,
+    });
+
+    const response = await request(app, "/v1/profiles/export", {
+      headers: { Accept: JSON_API_MEDIA_TYPE },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("Content-Type")).toBe(JSON_API_MEDIA_TYPE);
+    expect(await response.json()).toMatchObject({
+      errors: [
+        {
+          status: "403",
+          code: "access_assertion_invalid",
+          source: { header: "Cf-Access-Jwt-Assertion" },
+        },
+      ],
+    });
+    expect(verify).toHaveBeenCalledOnce();
+    expect(verify).toHaveBeenCalledWith(undefined);
+    expect(profileRepositoryFactory).not.toHaveBeenCalled();
+  });
+
   it("denies arbitrary outbound fetch and allows only the derived Access JWKS endpoint", async () => {
     const teamDomain = "https://integration.cloudflareaccess.com";
     const audience = "integration-audience";

@@ -73,9 +73,10 @@ revision hashes, live counts, and control-plane snapshots in an ignored
 `plans/` file when a task needs them.
 
 This is a public repository. Keep all deployment-specific values and secrets in
-the ignored `.env`; commit only names and safe placeholders in `.env.example`.
-Never print or copy `.env` contents into source, documentation, tests, logs,
-commits, issues, or pull requests.
+the ignored `.env.dev`, `.env.staging`, and `.env.prod` files; commit only
+names and safe placeholders in `.env.example`. Never print or copy environment
+file contents into source, documentation, tests, logs, commits, issues, or pull
+requests.
 
 The project-owned Cloudflare zone is `hono-playground.dev`. Treat that zone as
 fixed deployment input unless the user explicitly changes it; do not substitute
@@ -165,13 +166,13 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   upstream blocker.
 - Validate the candidate with the secretless test gates and, only with explicit
   Cloudflare authority, a personal canary using the repository's canonical
-  `just dev` command and Alchemy's documented `dev_$USER` default. Confirm
-  `STAGE` is unset and the derived target is an exact personal `dev_<name>`
-  stage before launching. A successful provider summary is insufficient: wait
-  for the local port, probe at least `/health` and `/openapi.json`, stop the
-  watcher, and remove the personal stage if it was created only for
-  verification. Do not publish the canary's date, revision, or live-state
-  snapshot in the README, this file, or the deployment runbook.
+  `just dev` command. Confirm its resolved selectors are `.env.dev`, profile
+  `dev`, and an exact personal `dev_<name>` stage before launching. A successful
+  provider summary is insufficient: wait for the local port, probe at least
+  `/health` and `/openapi.json`, stop the watcher, and remove the personal stage
+  if it was created only for verification. Do not publish the canary's date,
+  revision, or live-state snapshot in the README, this file, or the deployment
+  runbook.
 
 ## Repository shape
 
@@ -363,14 +364,17 @@ fixed deployment input unless the user explicitly changes it; do not substitute
 - Run the narrowest relevant tests first, then `pnpm qa`. Run
   `pnpm test:e2e` when Worker bundling, OpenAPI, Swagger UI, CSP, or browser
   behavior changes, and run `pnpm audit` after dependency changes.
-- Use `just dev` for the Alchemy development loop. The thin recipe expands to
-  `pnpm dev`, serves on `http://127.0.0.1:8787`, and defaults to Alchemy's
-  personal `dev_$USER` stage. Confirm `STAGE` is unset and the derived target
-  matches `dev_<name>` before any task-authorized run; do not invent a separate
-  local-stage naming convention or bypass the Justfile recipe in agent work.
-  The loop needs native file watching and remote Cloudflare access; in a
-  sandboxed agent session, acquire those permissions before running it instead
-  of treating a sandbox-denied watcher as an application failure.
+- Use `just dev` for the Alchemy development loop. It explicitly selects
+  `.env.dev`, profile `dev`, and personal stage `dev_$USER`, and serves on
+  `http://127.0.0.1:8787`. Use `just plan staging|prod`,
+  `just deploy staging|prod`, and `just logs|tail dev|staging|prod`; the
+  Justfile derives and passes the matching environment file, profile, and
+  stage. Never bypass these pairings with raw Alchemy or package commands in
+  agent work. Bare `just plan` and `just deploy` must fail rather than choose a
+  persistent stage. The development loop needs native file watching and remote
+  Cloudflare access; in a sandboxed agent session, acquire those permissions
+  before running it instead of treating a sandbox-denied watcher as an
+  application failure.
 - Prefer adversarial assertions over snapshots of generated files: exercise
   malformed and duplicate protocol inputs, dependency failures, raw response
   bodies and headers, committed migrations in workerd, and observable side
@@ -383,10 +387,20 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   first `alchemy plan` can bootstrap remote state. Do not run development,
   plan, deploy, state, or removal operations without task authority for
   external Cloudflare changes, a verified account, and an exact resolved target
-  stage. For `just dev`, that target is `dev_$USER` when `STAGE` is unset.
+  environment file, profile, and stage. For `just dev`, those selectors are
+  `.env.dev`, profile `dev`, and the explicit `dev_$USER` stage.
 - Treat stable `workers.dev` and version-preview URLs as separate ingress
   surfaces. The pinned Alchemy beta enables previews with the stable URL and
   does not honor `subdomain.previewsEnabled`; keep `url: false` so both remain
-  disabled. Before exposing profile routes on an Alchemy-managed custom
-  domain, apply the exact reviewed Cloudflare Access policy, prove allowed and
-  denied requests, and read back both direct URL settings.
+  disabled.
+- On an Alchemy-managed custom domain, keep the Cloudflare Access application
+  scoped to the exact hostname and Path `v1/profiles`; that path covers the
+  collection root and descendants. Do not leave Path empty, because that would
+  protect `/health`, item routes, OpenAPI, documentation, and every future
+  route on the hostname. Keep the Worker authentication and profile-limit
+  middleware on the verified Hono `/v1/profiles/*` scope, which covers the
+  collection root and descendants; do not also register the root and double-run
+  those controls. Before exposing a protected route family outside that
+  namespace, add a reviewed Access destination or application and matching
+  Worker middleware. Prove allowed and denied requests and read back both
+  direct URL settings.
