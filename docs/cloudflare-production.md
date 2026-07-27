@@ -107,8 +107,11 @@ identity.
 - **Precursor:** Enable Precursor in Minimize Friction mode for this API
   hostname. Do not use Maximize Security on API paths used by `curl`,
   server-to-server, or other non-browser clients that cannot establish a
-  `cf_clearance` session. Disable JavaScript Detections when Precursor is
-  enabled, as required by Cloudflare's current guidance.
+  `cf_clearance` session.
+- **JavaScript Detections:** Keep JavaScript Detections disabled whenever
+  Precursor is enabled. On the Free plan, JavaScript Detections is coupled to
+  Bot Fight Mode and cannot be disabled independently, so keep Bot Fight Mode
+  disabled instead of enabling both features.
 - **Notifications:** Prefer Certificate Transparency Monitoring as the only
   zone security notification when account members will triage certificate
   issuance. Do not add the standard Free-plan HTTP DDoS alert, which reports
@@ -443,6 +446,7 @@ selected restore point before profile traffic resumes.
 - [Cloudflare Hotlink Protection](https://developers.cloudflare.com/waf/tools/scrape-shield/hotlink-protection/)
 - [Cloudflare leaked credentials detection](https://developers.cloudflare.com/waf/detections/leaked-credentials/)
 - [Cloudflare Precursor](https://developers.cloudflare.com/cloudflare-challenges/precursor/)
+- [Cloudflare JavaScript Detections](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/javascript-detections/)
 - [Cloudflare restrictive email records](https://www.cloudflare.com/learning/dns/dns-records/protect-domains-without-email/)
 - [Cloudflare Worker Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
 
