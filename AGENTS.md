@@ -363,7 +363,7 @@ fixed deployment input unless the user explicitly changes it; do not substitute
 
 - Run the narrowest relevant tests first, then `pnpm qa`. Run
   `pnpm test:e2e` when Worker bundling, OpenAPI, Swagger UI, CSP, or browser
-  behavior changes, and run `pnpm audit` after dependency changes.
+  behavior changes, and run `pnpm run audit` after dependency changes.
 - Use `just dev` for the Alchemy development loop. It explicitly selects
   `.env.dev`, profile `dev`, and personal stage `dev_$USER`, and serves on
   `http://127.0.0.1:8787`. Use `just plan staging|prod`,

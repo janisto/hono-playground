@@ -1,5 +1,3 @@
-set shell := ["zsh", "-cu"]
-
 dev_stage := "dev_" + env("USER", "")
 
 default:
@@ -60,7 +58,7 @@ tail environment:
     pnpm infra:tail --stage {{ quote(if environment == "dev" { dev_stage } else { environment }) }} --env-file {{ quote(".env." + environment) }} --profile {{ quote(environment) }}
 
 audit:
-    pnpm audit
+    pnpm run audit
 
 qa:
     pnpm qa

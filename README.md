@@ -125,7 +125,7 @@ just dev
 
 `just dev` runs `alchemy dev` with `.env.dev`, profile `dev`, and the explicit
 personal [stage](https://alchemy.run/environments/stages/) `dev_$USER`, then
-serves the Worker at `http://localhost:8787`. Passing every selector prevents a
+serves the Worker at `http://127.0.0.1:8787`. Passing every selector prevents a
 shell or environment-file default from redirecting development to staging or
 production. The personal stage has isolated state and physical resource names,
 so it does not overlap teammates, staging, or production.
@@ -189,7 +189,7 @@ pnpm test:d1
 pnpm coverage
 pnpm test:e2e
 pnpm qa
-pnpm audit
+pnpm run audit
 ```
 
 `pnpm qa` runs non-mutating formatting and lint checks, strict TypeScript
@@ -250,7 +250,7 @@ Before opening a pull request, run:
 
 ```sh
 pnpm qa
-pnpm audit
+pnpm run audit
 pnpm test:e2e
 ```
 

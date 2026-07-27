@@ -77,7 +77,7 @@ jobs:
           path: coverage
 
       - name: Audit production dependencies
-        run: pnpm audit
+        run: pnpm run audit
 
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium

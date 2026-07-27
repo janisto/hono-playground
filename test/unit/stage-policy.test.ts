@@ -38,8 +38,8 @@ describe("deployment stage policy", () => {
     },
   );
 
-  it.each(["api.example.com", "staging-api.example.com", "api.xn--bcher-kva.example"])(
-    "accepts the custom hostname %s",
+  it.each(["hono-playground.dev", "staging.hono-playground.dev", "api.staging.hono-playground.dev"])(
+    "accepts the owned custom hostname %s",
     (hostname) => {
       expect(deploymentHostname(hostname)).toBe(hostname);
     },
@@ -48,17 +48,20 @@ describe("deployment stage policy", () => {
   it.each([
     "",
     "localhost",
-    "HTTPS://api.example.com",
-    "api.example.com/",
+    "HTTPS://staging.hono-playground.dev",
+    "staging.hono-playground.dev/",
     "api_example.com",
-    "-api.example.com",
-    "api-.example.com",
-    "api..example.com",
-    "api.example.123",
+    "-api.hono-playground.dev",
+    "api-.hono-playground.dev",
+    "api..hono-playground.dev",
+    "api.hono-playground.123",
+    "example.com",
+    "hono-playground.dev.example.com",
+    "api.hono-playground.dev.example.com",
     "workers.dev",
     "hono-playground.workers.dev",
-    `api.${"a".repeat(64)}.example`,
-  ])("rejects the invalid or direct Cloudflare hostname %s", (hostname) => {
+    `api.${"a".repeat(64)}.hono-playground.dev`,
+  ])("rejects the invalid or unowned hostname %s", (hostname) => {
     expect(() => deploymentHostname(hostname)).toThrow("Invalid WORKER_DOMAIN");
   });
 });

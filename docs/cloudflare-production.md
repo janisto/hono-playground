@@ -219,7 +219,7 @@ that does not permit unsafe changes to deployed data.
 
    ```sh
    pnpm qa
-   pnpm audit
+   pnpm run audit
    pnpm test:e2e
    just plan staging
    ```
