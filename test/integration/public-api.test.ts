@@ -563,16 +563,16 @@ describe("OpenAPI 3.1 contract", () => {
           anyOf: [
             {
               type: "string",
-              description: "RFC 5646 language tag syntax",
-              pattern: "^[A-Za-z0-9]{1,8}(?:-[A-Za-z0-9]{1,8})*$",
+              description: "Well-formed RFC 5646 language tag",
+              pattern: expect.stringContaining("[A-Za-z]{2,3}"),
             },
             {
               type: "array",
               minItems: 1,
               items: {
                 type: "string",
-                description: "RFC 5646 language tag syntax",
-                pattern: "^[A-Za-z0-9]{1,8}(?:-[A-Za-z0-9]{1,8})*$",
+                description: "Well-formed RFC 5646 language tag",
+                pattern: expect.stringContaining("[A-Za-z]{2,3}"),
               },
             },
           ],

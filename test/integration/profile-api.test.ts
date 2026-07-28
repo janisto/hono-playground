@@ -403,6 +403,16 @@ describe("JSON:API profile resources", () => {
       "/data/links/self/hreflang",
     ],
     [
+      "PATCH numeric-only resource link language tag",
+      CURRENT_PROFILE_PATH,
+      updateDocument(
+        "malformed-standard-members-owner",
+        { firstName: "Grace" },
+        { links: { self: { href: "/client-resource", hreflang: "123" } } },
+      ),
+      "/data/links/self/hreflang",
+    ],
+    [
       "PATCH nested describedby link",
       CURRENT_PROFILE_PATH,
       updateDocument(

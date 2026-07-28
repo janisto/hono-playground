@@ -27,7 +27,18 @@ const MEDIA_TYPE_PATTERN = new RegExp(
   String.raw`^${HTTP_TOKEN_PATTERN}/${HTTP_TOKEN_PATTERN}(?:[\t ]*;[\t ]*${HTTP_TOKEN_PATTERN}=(?:${HTTP_TOKEN_PATTERN}|${HTTP_QUOTED_STRING_PATTERN}))*$`,
   "u",
 );
-const LANGUAGE_TAG_SYNTAX = /^[A-Za-z0-9]{1,8}(?:-[A-Za-z0-9]{1,8})*$/u;
+const LANGUAGE_TAG = `(?:[A-Za-z]{2,3}(?:-[A-Za-z]{3}){0,3}|[A-Za-z]{4}|[A-Za-z]{5,8})`;
+const LANGUAGE_TAG_SCRIPT = `(?:-[A-Za-z]{4})?`;
+const LANGUAGE_TAG_REGION = `(?:-(?:[A-Za-z]{2}|[0-9]{3}))?`;
+const LANGUAGE_TAG_VARIANTS = `(?:-(?:[A-Za-z0-9]{5,8}|[0-9][A-Za-z0-9]{3}))*`;
+const LANGUAGE_TAG_EXTENSIONS = `(?:-[0-9A-WY-Za-wy-z](?:-[A-Za-z0-9]{2,8})+)*`;
+const LANGUAGE_TAG_PRIVATE_USE = `(?:-x(?:-[A-Za-z0-9]{1,8})+)?`;
+const PRIVATE_USE_LANGUAGE_TAG = `x(?:-[A-Za-z0-9]{1,8})+`;
+const GRANDFATHERED_LANGUAGE_TAG = `(?:en-GB-oed|i-(?:ami|bnn|default|enochian|hak|klingon|lux|mingo|navajo|pwn|tao|tay|tsu)|sgn-(?:BE-FR|BE-NL|CH-DE)|art-lojban|cel-gaulish|no-(?:bok|nyn)|zh-(?:guoyu|hakka|min(?:-nan)?|xiang))`;
+const LANGUAGE_TAG_SYNTAX = new RegExp(
+  `^(?:${LANGUAGE_TAG}${LANGUAGE_TAG_SCRIPT}${LANGUAGE_TAG_REGION}${LANGUAGE_TAG_VARIANTS}${LANGUAGE_TAG_EXTENSIONS}${LANGUAGE_TAG_PRIVATE_USE}|${PRIVATE_USE_LANGUAGE_TAG}|${GRANDFATHERED_LANGUAGE_TAG})$`,
+  "iu",
+);
 
 const JsonApiMemberNameSchema = z
   .string()
@@ -68,7 +79,7 @@ const JsonApiLinkMediaTypeSchema = z
 const JsonApiLanguageTagSchema = z
   .string()
   .regex(LANGUAGE_TAG_SYNTAX, { error: "Invalid language tag syntax" })
-  .openapi({ description: "RFC 5646 language tag syntax", pattern: LANGUAGE_TAG_SYNTAX.source });
+  .openapi({ description: "Well-formed RFC 5646 language tag", pattern: LANGUAGE_TAG_SYNTAX.source });
 
 const JsonApiRequestLinkReference: z.ZodType = z.lazy(() => JsonApiRequestLinkSchema);
 
