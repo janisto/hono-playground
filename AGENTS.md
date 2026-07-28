@@ -306,6 +306,13 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   object for non-relationship data, and `links.self` only when that URL is
   fetchable. Never duplicate `id`, foreign keys, or relationships inside
   `attributes`.
+- Request `hreflang` is an ignored link hint. Keep its validation deliberately
+  lightweight: require an alphabetic primary chunk and bounded alphanumeric
+  subtags, rejecting major syntax errors such as numeric-only or whitespace
+  values. Do not add a registry, dependency, or full RFC parser for this hint.
+- Strict JSON parsing caps container nesting before Zod validation. That global
+  guard also bounds recursive `describedby` link objects; do not add a second
+  schema-specific depth limiter unless the validation order changes.
 - Implementation-defined JSON members use ASCII lower camel case, following
   the JSON:API recommendation. Standard members retain their specified names.
 - Collection URLs use the plural resource type. Individual mutation uses
