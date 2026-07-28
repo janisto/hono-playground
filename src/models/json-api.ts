@@ -22,6 +22,23 @@ const JsonApiProfileUriSchema = z
   .openapi({ format: "uri" });
 
 const REGISTERED_LINK_RELATION = /^[a-z][a-z0-9.-]*$/u;
+const JSON_API_MEMBER_NAME = /^[a-z][A-Za-z0-9]*$/u;
+const HTTP_TOKEN_PATTERN = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
+const HTTP_QUOTED_STRING_PATTERN = String.raw`"(?:[\t !#-\[\]-~\u0080-\u00ff]|\\[\t !-~\u0080-\u00ff])*"`;
+const MEDIA_TYPE_PATTERN = new RegExp(
+  String.raw`^${HTTP_TOKEN_PATTERN}/${HTTP_TOKEN_PATTERN}(?:[\t ]*;[\t ]*${HTTP_TOKEN_PATTERN}=(?:${HTTP_TOKEN_PATTERN}|${HTTP_QUOTED_STRING_PATTERN}))*$`,
+  "u",
+);
+const LANGUAGE_TAG_STRUCTURE = /^[A-Za-z0-9]{1,8}(?:-[A-Za-z0-9]{1,8})*$/u;
+const isLanguageTag = (value: string): boolean => {
+  try {
+    Intl.getCanonicalLocales(value);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const JsonApiLinkRelationSchema = z
   .string()
   .min(1)
@@ -36,14 +53,31 @@ const JsonApiLinkRelationSchema = z
     ],
   });
 
+const JsonApiLinkMediaTypeSchema = z
+  .string()
+  .regex(MEDIA_TYPE_PATTERN, { error: "Invalid media type" })
+  .openapi({ description: "Media type", pattern: MEDIA_TYPE_PATTERN.source });
+
+const JsonApiLanguageTagSchema = z
+  .string()
+  .refine(isLanguageTag, { error: "Invalid language tag" })
+  .openapi({ description: "RFC 5646 language tag", pattern: LANGUAGE_TAG_STRUCTURE.source });
+
+const JsonApiMemberNameSchema = z
+  .string()
+  .regex(JSON_API_MEMBER_NAME, { error: "Invalid JSON:API member name" })
+  .openapi({ description: "ASCII lower camel case JSON:API member name", pattern: JSON_API_MEMBER_NAME.source });
+
+const JsonApiRequestLinkReference: z.ZodType = z.lazy(() => JsonApiRequestLinkSchema);
+
 const JsonApiRequestLinkObjectSchema = z
   .strictObject({
     href: JsonApiLinkSchema,
     rel: JsonApiLinkRelationSchema.optional(),
-    describedby: JsonApiLinkSchema.optional(),
+    describedby: JsonApiRequestLinkReference.optional(),
     title: z.string().optional(),
-    type: z.string().min(1).optional(),
-    hreflang: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).optional(),
+    type: JsonApiLinkMediaTypeSchema.optional(),
+    hreflang: z.union([JsonApiLanguageTagSchema, z.array(JsonApiLanguageTagSchema).min(1)]).optional(),
     meta: JsonApiMetaSchema.optional(),
   })
   .openapi("JsonApiRequestLinkObject");
@@ -52,7 +86,17 @@ export const JsonApiRequestLinkSchema = z
   .union([JsonApiLinkSchema, JsonApiRequestLinkObjectSchema, z.null()])
   .openapi("JsonApiRequestLink");
 
-export const JsonApiRequestLinksSchema = z.record(z.string(), JsonApiRequestLinkSchema).openapi("JsonApiRequestLinks");
+const jsonApiRequestLinksOpenApi = {
+  description: "JSON:API links keyed by ASCII lower camel case member names",
+  propertyNames: {
+    type: "string",
+    pattern: JSON_API_MEMBER_NAME.source,
+  },
+};
+
+export const JsonApiRequestLinksSchema = z
+  .record(JsonApiMemberNameSchema, JsonApiRequestLinkSchema)
+  .openapi("JsonApiRequestLinks", jsonApiRequestLinksOpenApi);
 
 export const JsonApiRequestObjectSchema = z
   .strictObject({

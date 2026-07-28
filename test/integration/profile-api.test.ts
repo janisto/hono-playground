@@ -209,6 +209,11 @@ describe("JSON:API profile resources", () => {
         self: {
           href: "/client-document",
           rel: "https://example.test/relations/document",
+          describedby: {
+            href: "/client-schema",
+            type: "application/schema+json",
+            hreflang: ["en", "fi-FI"],
+          },
           title: "Client document",
           meta: { clientLink: true },
         },
@@ -246,7 +251,13 @@ describe("JSON:API profile resources", () => {
             type: "profiles",
             id: owner,
             attributes: { firstName: "Grace" },
-            links: { self: "/client-resource" },
+            links: {
+              self: {
+                href: "/client-resource",
+                type: 'application/vnd.api+json;profile="https://example.test/profiles"',
+                hreflang: "en-US",
+              },
+            },
             meta: { clientResource: true },
           },
         },
@@ -320,6 +331,24 @@ describe("JSON:API profile resources", () => {
       "/links/self/rel",
     ],
     [
+      "POST top-level link media type",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        links: { self: { href: "/client-document", type: "not a media type" } },
+      },
+      "/links/self/type",
+    ],
+    [
+      "POST top-level link member name",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        links: { "bad/key": null },
+      },
+      "/links/bad~1key",
+    ],
+    [
       "PATCH jsonapi version",
       CURRENT_PROFILE_PATH,
       {
@@ -353,6 +382,26 @@ describe("JSON:API profile resources", () => {
         { links: { self: { href: "/client-resource", rel: " " } } },
       ),
       "/data/links/self/rel",
+    ],
+    [
+      "PATCH resource link language tag",
+      CURRENT_PROFILE_PATH,
+      updateDocument(
+        "malformed-standard-members-owner",
+        { firstName: "Grace" },
+        { links: { self: { href: "/client-resource", hreflang: "not a language tag" } } },
+      ),
+      "/data/links/self/hreflang",
+    ],
+    [
+      "PATCH nested describedby link",
+      CURRENT_PROFILE_PATH,
+      updateDocument(
+        "malformed-standard-members-owner",
+        { firstName: "Grace" },
+        { links: { self: { href: "/client-resource", describedby: { href: "/a[b]" } } } },
+      ),
+      "/data/links/self/describedby/href",
     ],
   ] as const)(
     "rejects malformed standard member values for %s without writing",

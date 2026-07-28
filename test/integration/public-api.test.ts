@@ -528,15 +528,45 @@ describe("OpenAPI 3.1 contract", () => {
     });
     expect(schemas.JsonApiRequestLinks).toMatchObject({
       type: "object",
+      propertyNames: {
+        type: "string",
+        pattern: "^[a-z][A-Za-z0-9]*$",
+      },
       additionalProperties: { $ref: "#/components/schemas/JsonApiRequestLink" },
     });
     expect(schemas.JsonApiRequestLinkObject).toMatchObject({
       type: "object",
       properties: {
+        describedby: {
+          oneOf: [{ $ref: "#/components/schemas/JsonApiRequestLink" }, { type: "null" }],
+        },
         rel: {
           anyOf: [
             { type: "string", pattern: "^[a-z][a-z0-9.-]*$" },
             { type: "string", format: "uri" },
+          ],
+        },
+        type: {
+          type: "string",
+          description: "Media type",
+          pattern: expect.stringContaining("/"),
+        },
+        hreflang: {
+          anyOf: [
+            {
+              type: "string",
+              description: "RFC 5646 language tag",
+              pattern: "^[A-Za-z0-9]{1,8}(?:-[A-Za-z0-9]{1,8})*$",
+            },
+            {
+              type: "array",
+              minItems: 1,
+              items: {
+                type: "string",
+                description: "RFC 5646 language tag",
+                pattern: "^[A-Za-z0-9]{1,8}(?:-[A-Za-z0-9]{1,8})*$",
+              },
+            },
           ],
         },
       },
