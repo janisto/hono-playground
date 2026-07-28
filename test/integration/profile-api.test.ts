@@ -296,7 +296,7 @@ describe("JSON:API profile resources", () => {
       PROFILES_PATH,
       {
         ...createDocument(validCreateAttributes),
-        links: { self: "invalid URI with spaces" },
+        links: { self: "a#b#c" },
       },
       "/links/self",
     ],
@@ -305,7 +305,7 @@ describe("JSON:API profile resources", () => {
       PROFILES_PATH,
       {
         ...createDocument(validCreateAttributes),
-        jsonapi: { profile: ["relative-profile"] },
+        jsonapi: { profile: ["https://example.test/a[b]"] },
       },
       "/jsonapi/profile/0",
     ],
@@ -327,7 +327,11 @@ describe("JSON:API profile resources", () => {
     [
       "PATCH resource link object URI reference",
       CURRENT_PROFILE_PATH,
-      updateDocument("malformed-standard-members-owner", { firstName: "Grace" }, { links: { self: { href: "%" } } }),
+      updateDocument(
+        "malformed-standard-members-owner",
+        { firstName: "Grace" },
+        { links: { self: { href: "/a[b]" } } },
+      ),
       "/data/links/self/href",
     ],
   ] as const)(
