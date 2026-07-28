@@ -96,8 +96,11 @@ const parseMediaRange = (raw: string): MediaRange | null => {
   for (const segment of segments) {
     const equals = segment.indexOf("=");
     if (equals <= 0) return null;
-    const name = segment.slice(0, equals).trim().toLowerCase();
-    const value = parameterValue(segment.slice(equals + 1).trim());
+    const rawName = segment.slice(0, equals);
+    const rawValue = segment.slice(equals + 1);
+    if (rawName !== rawName.trim() || rawValue !== rawValue.trim()) return null;
+    const name = rawName.toLowerCase();
+    const value = parameterValue(rawValue);
     if (!TOKEN.test(name) || value === null) return null;
     if (name === "q") {
       if (sawQuality || value.quoted || !Q_VALUE.test(value.value)) return null;
@@ -154,7 +157,14 @@ const supportedJsonApiRange = (range: MediaRange): boolean => {
 
 export const acceptsJsonApi = (headerValue: string | null): boolean => {
   if (headerValue === null || headerValue.trim() === "") return true;
-  return acceptsBySpecificity(matchingRanges(headerValue, JSON_API_MEDIA_TYPE).filter(supportedJsonApiRange));
+  const ranges = matchingRanges(headerValue, JSON_API_MEDIA_TYPE);
+  const explicitJsonApiRanges = ranges.filter(
+    (range) => range.type === "application" && range.subtype === "vnd.api+json",
+  );
+  if (explicitJsonApiRanges.length > 0 && explicitJsonApiRanges.every((range) => !supportedJsonApiRange(range))) {
+    return false;
+  }
+  return acceptsBySpecificity(ranges.filter(supportedJsonApiRange));
 };
 
 export const isSupportedJsonApiContentType = (headerValue: string | null): boolean => {
@@ -166,8 +176,11 @@ export const isSupportedJsonApiContentType = (headerValue: string | null): boole
   for (const segment of segments) {
     const equals = segment.indexOf("=");
     if (equals <= 0) return false;
-    const name = segment.slice(0, equals).trim().toLowerCase();
-    const value = parameterValue(segment.slice(equals + 1).trim());
+    const rawName = segment.slice(0, equals);
+    const rawValue = segment.slice(equals + 1);
+    if (rawName !== rawName.trim() || rawValue !== rawValue.trim()) return false;
+    const name = rawName.toLowerCase();
+    const value = parameterValue(rawValue);
     if (!TOKEN.test(name) || value === null || parameters.has(name)) return false;
     parameters.set(name, value);
   }

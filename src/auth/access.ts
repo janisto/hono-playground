@@ -14,13 +14,14 @@ import {
 export const ACCESS_ASSERTION_HEADER = "Cf-Access-Jwt-Assertion";
 export const ACCESS_CLOCK_TOLERANCE_SECONDS = 5;
 export const MAX_ACCESS_SUBJECT_LENGTH = 128;
-export const MAX_ACCESS_AUDIENCE_LENGTH = 256;
+export const MAX_ACCESS_AUDIENCE_LENGTH = 64;
 
 const JWKS_TIMEOUT_MILLISECONDS = 3_000;
 const JWKS_COOLDOWN_MILLISECONDS = 30_000;
 const JWKS_CACHE_MAX_AGE_MILLISECONDS = 600_000;
 const CLOUDFLARE_ACCESS_HOST_SUFFIX = ".cloudflareaccess.com";
 const CLOUDFLARE_ACCESS_ORIGIN_SHAPE = /^https:\/\/[a-z0-9.-]+(?::443)?\/?$/i;
+const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
 
 class RemoteJwksResolutionError extends Error {
   constructor() {
@@ -65,6 +66,7 @@ export function parseAccessVerifierConfig(input: AccessVerifierConfigInput): Acc
   if (
     teamDomain.protocol !== "https:" ||
     !teamDomain.hostname.endsWith(CLOUDFLARE_ACCESS_HOST_SUFFIX) ||
+    !DNS_LABEL.test(teamDomain.hostname.slice(0, -CLOUDFLARE_ACCESS_HOST_SUFFIX.length)) ||
     teamDomain.username.length > 0 ||
     teamDomain.password.length > 0 ||
     teamDomain.port.length > 0 ||

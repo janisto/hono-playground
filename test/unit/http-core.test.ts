@@ -263,6 +263,10 @@ describe("representation negotiation", () => {
     `${JSON_API_MEDIA_TYPE};q="0.5"`,
     `${JSON_API_MEDIA_TYPE};q=0, */*;q=1`,
     `${JSON_API_MEDIA_TYPE};q=1;charset=utf-8`,
+    `${JSON_API_MEDIA_TYPE};charset=utf-8, */*;q=1`,
+    `${JSON_API_MEDIA_TYPE};ext="https://example.test/ext", */*;q=1`,
+    `${JSON_API_MEDIA_TYPE};profile = "https://example.test/profile"`,
+    `${JSON_API_MEDIA_TYPE};q =1`,
   ])("returns a JSON:API 406 for an unsupported JSON:API range: %s", async (accept) => {
     const response = await request("/v1/items", { headers: { Accept: accept } });
 
@@ -505,6 +509,8 @@ describe("JSON:API body preconditions and ordering", () => {
     [`${JSON_API_MEDIA_TYPE};profile="relative-profile"`, undefined],
     [`${JSON_API_MEDIA_TYPE};profile="https://example.test/%"`, undefined],
     [`${JSON_API_MEDIA_TYPE};profile="https://one.test/profile  https://two.test/profile"`, undefined],
+    [`${JSON_API_MEDIA_TYPE};profile = "https://example.test/profile"`, undefined],
+    [`${JSON_API_MEDIA_TYPE};profile= "https://example.test/profile"`, undefined],
     [JSON_API_MEDIA_TYPE, "gzip"],
   ])("rejects unsupported representation metadata before JSON parsing", async (contentType, contentEncoding) => {
     const response = await profileRequest("{", {

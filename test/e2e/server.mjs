@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import { Log, LogLevel, Miniflare } from "miniflare";
 import { build } from "vite";
 
+import { COMPATIBILITY_DATE } from "../../infra/config.ts";
+
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const result = await build({
   configFile: false,
@@ -39,10 +41,11 @@ const worker = new Miniflare({
     RATE_LIMIT_MODE: "none",
   },
   cf: false,
+  compatibilityDate: COMPATIBILITY_DATE,
   host: "127.0.0.1",
   log: new Log(LogLevel.ERROR),
   modules: true,
-  port: 8787,
+  port: 8788,
   script: entry.code,
 });
 

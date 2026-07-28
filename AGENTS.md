@@ -356,6 +356,12 @@ fixed deployment input unless the user explicitly changes it; do not substitute
 - A telemetry privacy audit must inspect both application-owned events and the
   enriched Cloudflare event/trace details plus D1 Query Insights. Alchemy's
   compact log output does not expose every persisted automatic attribute.
+- Known issue: Cloudflare Precursor injects a request-specific inline bootstrap
+  into `/api-docs`. The strict hash-based policy blocks that bootstrap and
+  Chromium logs a CSP violation, while Swagger UI continues to render. Keep
+  Precursor enabled and do not weaken the CSP to suppress this expected log.
+  Ignore only this known violation during live smoke tests; other console
+  errors remain failures.
 - A `204` response has no body or content type. All other success and error
   media types must match their documented representation exactly.
 

@@ -76,7 +76,7 @@ jobs:
           name: coverage
           path: coverage
 
-      - name: Audit production dependencies
+      - name: Audit dependencies
         run: pnpm run audit
 
       - name: Install Chromium

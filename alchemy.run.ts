@@ -50,7 +50,10 @@ const workerProps = Effect.gen(function* () {
   const stack = yield* Alchemy.Stack;
   const stage = stack.stage;
   const stagePolicy = deploymentStagePolicy(stage);
-  const domain = stagePolicy.persistent ? deploymentHostname(yield* Config.string("WORKER_DOMAIN")) : undefined;
+  const domain =
+    stage === "prod" || stage === "staging"
+      ? deploymentHostname(stage, yield* Config.string("WORKER_DOMAIN"))
+      : undefined;
 
   const namespaceIds = yield* Config.all({
     public: rateLimitNamespaceConfig("PUBLIC_RATE_LIMIT_NAMESPACE_ID"),

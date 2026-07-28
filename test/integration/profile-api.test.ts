@@ -186,6 +186,73 @@ describe("JSON:API profile resources", () => {
     expect(outbound.mock.calls[0]?.[0].toString()).toBe(`${teamDomain}/cdn-cgi/access/certs`);
   });
 
+  it("accepts and ignores valid standard document and resource metadata on mutations", async () => {
+    const owner = "standard-members-owner";
+    const create = vi.fn(async () => storedProfile(owner));
+    const update = vi.fn(async () => storedProfile(owner));
+    const app = createApp({
+      accessVerifier: async () => ({ sub: owner }),
+      profileRepositoryFactory: () => ({
+        create,
+        get: vi.fn(async () => storedProfile(owner)),
+        update,
+        delete: vi.fn(async () => true),
+      }),
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+    const standardMembers = {
+      jsonapi: { version: "1.1" },
+      links: { self: "/client-document" },
+      meta: { clientRequest: true },
+    };
+
+    const created = await request(
+      app,
+      PROFILES_PATH,
+      jsonApiRequest("POST", {
+        ...standardMembers,
+        data: {
+          type: "profiles",
+          attributes: validCreateAttributes,
+          links: { self: "/client-resource" },
+          meta: { clientResource: true },
+        },
+      }),
+    );
+    const updated = await request(
+      app,
+      CURRENT_PROFILE_PATH,
+      jsonApiRequest("PATCH", {
+        ...standardMembers,
+        data: {
+          type: "profiles",
+          id: owner,
+          attributes: { firstName: "Grace" },
+          links: { self: "/client-resource" },
+          meta: { clientResource: true },
+        },
+      }),
+    );
+
+    expect(created.status).toBe(201);
+    expect(updated.status).toBe(200);
+    expect(create).toHaveBeenCalledWith(
+      owner,
+      {
+        ...validCreateAttributes,
+        email: "ada@example.com",
+        marketingOptIn: false,
+        phoneNumber: "+358401234567",
+      },
+      expect.any(Date),
+    );
+    expect(update).toHaveBeenCalledWith(owner, { firstName: "Grace" }, expect.any(Date));
+    await expect(updated.json()).resolves.toMatchObject({
+      links: { self: CURRENT_PROFILE_PATH },
+      data: { links: { self: CURRENT_PROFILE_PATH } },
+    });
+  });
+
   it.each([
     [
       "invalid assertion",
@@ -674,6 +741,35 @@ describe("JSON:API profile resources", () => {
     expect(profileRepository.delete).not.toHaveBeenCalled();
   });
 
+  it("points missing required members at the nearest existing request object", async () => {
+    const profileRepository: ProfileRepository = {
+      create: vi.fn(async () => undefined),
+      get: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      delete: vi.fn(async () => false),
+    };
+    const app = createApp({
+      accessVerifier: async () => ({ sub: "missing-members-subject" }),
+      profileRepositoryFactory: () => profileRepository,
+    });
+
+    const response = await request(
+      app,
+      PROFILES_PATH,
+      jsonApiRequest("POST", createDocument({}), {
+        "Cf-Access-Jwt-Assertion": "test",
+      }),
+    );
+    const document = (await response.json()) as {
+      errors: Array<{ source?: { pointer?: string } }>;
+    };
+
+    expect(response.status).toBe(422);
+    expect(document.errors.length).toBeGreaterThan(0);
+    expect(document.errors.every((error) => error.source?.pointer === "/data/attributes")).toBe(true);
+    expect(profileRepository.create).not.toHaveBeenCalled();
+  });
+
   it.each([
     [
       "client-generated create ID",
@@ -715,6 +811,14 @@ describe("JSON:API profile resources", () => {
       CURRENT_PROFILE_PATH,
       "PATCH",
       updateDocument("another-subject", { firstName: "Grace" }),
+      409,
+      "resource_identity_mismatch",
+    ],
+    [
+      "oversized wrong update ID",
+      CURRENT_PROFILE_PATH,
+      "PATCH",
+      updateDocument("x".repeat(129), { firstName: "Grace" }),
       409,
       "resource_identity_mismatch",
     ],

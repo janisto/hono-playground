@@ -213,7 +213,7 @@ export const createApp = (dependencies: AppDependencies = {}) => {
             detail: "Resource type does not match endpoint",
           });
         }
-        throw zodValidationError(result.error, result.target === "query" ? "query" : "body");
+        throw zodValidationError(result.error, result.target === "query" ? "query" : "body", document);
       }
     },
   });

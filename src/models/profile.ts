@@ -112,19 +112,29 @@ export const ProfileDocumentSchema = z
 
 export const ProfileCreateDocumentSchema = z
   .strictObject({
+    jsonapi: z.record(z.string(), z.unknown()).optional(),
+    links: z.record(z.string(), z.unknown()).optional(),
+    meta: z.record(z.string(), z.unknown()).optional(),
     data: z.strictObject({
       type: z.literal("profiles"),
       attributes: ProfileCreateSchema,
+      links: z.record(z.string(), z.unknown()).optional(),
+      meta: z.record(z.string(), z.unknown()).optional(),
     }),
   })
   .openapi("ProfileCreateDocument");
 
 export const ProfileUpdateDocumentSchema = z
   .strictObject({
+    jsonapi: z.record(z.string(), z.unknown()).optional(),
+    links: z.record(z.string(), z.unknown()).optional(),
+    meta: z.record(z.string(), z.unknown()).optional(),
     data: z.strictObject({
       type: z.literal("profiles"),
-      id: ProfileSchema.shape.id,
+      id: z.string(),
       attributes: ProfileUpdateSchema.optional(),
+      links: z.record(z.string(), z.unknown()).optional(),
+      meta: z.record(z.string(), z.unknown()).optional(),
     }),
   })
   .openapi("ProfileUpdateDocument");

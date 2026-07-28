@@ -187,9 +187,26 @@ const issueDetail = (issue: core.$ZodIssue): string => {
 const encodeJsonPointerSegment = (segment: PropertyKey): string =>
   String(segment).replaceAll("~", "~0").replaceAll("/", "~1");
 
-const bodySource = (path: readonly PropertyKey[]): ValidationErrorDetail["source"] => {
-  if (path.length === 0) return undefined;
-  return { pointer: `/${path.map(encodeJsonPointerSegment).join("/")}` };
+const hasOwnPath = (value: unknown, path: readonly PropertyKey[]): boolean => {
+  let current = value;
+  for (const segment of path) {
+    if (typeof current !== "object" || current === null || !Object.hasOwn(current, segment)) {
+      return false;
+    }
+    current = Reflect.get(current, segment);
+  }
+  return true;
+};
+
+const bodySource = (path: readonly PropertyKey[], input?: unknown): ValidationErrorDetail["source"] => {
+  const existingPath = [...path];
+  if (input !== undefined) {
+    while (existingPath.length > 0 && !hasOwnPath(input, existingPath)) {
+      existingPath.pop();
+    }
+  }
+  if (existingPath.length === 0) return undefined;
+  return { pointer: `/${existingPath.map(encodeJsonPointerSegment).join("/")}` };
 };
 
 const querySource = (path: readonly PropertyKey[], fallback?: string): ValidationErrorDetail["source"] => {
@@ -197,7 +214,11 @@ const querySource = (path: readonly PropertyKey[], fallback?: string): Validatio
   return parameter === undefined ? undefined : { parameter };
 };
 
-export const validationErrorsFromZod = (error: ZodError, target: "body" | "query"): ValidationErrorDetail[] => {
+export const validationErrorsFromZod = (
+  error: ZodError,
+  target: "body" | "query",
+  input?: unknown,
+): ValidationErrorDetail[] => {
   const details: ValidationErrorDetail[] = [];
   let truncated = false;
   const append = (detail: ValidationErrorDetail): boolean => {
@@ -228,7 +249,7 @@ export const validationErrorsFromZod = (error: ZodError, target: "body" | "query
       }
     } else {
       const source =
-        target === "body" ? bodySource(issue.path) : querySource(issue.path.map((segment) => String(segment)));
+        target === "body" ? bodySource(issue.path, input) : querySource(issue.path.map((segment) => String(segment)));
       append({
         detail: issueDetail(issue),
         ...(source === undefined ? {} : { source }),
@@ -258,8 +279,8 @@ export const validationError = (errors: ValidationErrorDetail[], target: "body" 
         errors,
       });
 
-export const zodValidationError = (error: ZodError, target: "body" | "query" = "body"): AppError =>
-  validationError(validationErrorsFromZod(error, target), target);
+export const zodValidationError = (error: ZodError, target: "body" | "query" = "body", input?: unknown): AppError =>
+  validationError(validationErrorsFromZod(error, target, input), target);
 
 export const problemResponse = (error: AppError, method = "GET"): Response => {
   const headers = new Headers(error.headers);
