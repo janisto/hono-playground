@@ -208,6 +208,7 @@ describe("JSON:API profile resources", () => {
       links: {
         self: {
           href: "/client-document",
+          rel: "https://example.test/relations/document",
           title: "Client document",
           meta: { clientLink: true },
         },
@@ -227,7 +228,7 @@ describe("JSON:API profile resources", () => {
           data: {
             type: "profiles",
             attributes: validCreateAttributes,
-            links: { self: "/client-resource" },
+            links: { self: { href: "/client-resource", rel: "self" } },
             meta: { clientResource: true },
           },
         },
@@ -310,6 +311,15 @@ describe("JSON:API profile resources", () => {
       "/jsonapi/profile/0",
     ],
     [
+      "POST top-level link relation",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        links: { self: { href: "/client-document", rel: "not a relation" } },
+      },
+      "/links/self/rel",
+    ],
+    [
       "PATCH jsonapi version",
       CURRENT_PROFILE_PATH,
       {
@@ -333,6 +343,16 @@ describe("JSON:API profile resources", () => {
         { links: { self: { href: "/a[b]" } } },
       ),
       "/data/links/self/href",
+    ],
+    [
+      "PATCH resource link relation",
+      CURRENT_PROFILE_PATH,
+      updateDocument(
+        "malformed-standard-members-owner",
+        { firstName: "Grace" },
+        { links: { self: { href: "/client-resource", rel: " " } } },
+      ),
+      "/data/links/self/rel",
     ],
   ] as const)(
     "rejects malformed standard member values for %s without writing",

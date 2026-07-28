@@ -31,6 +31,7 @@ interface JsonObject {
   readonly components?: unknown;
   readonly info?: unknown;
   readonly headers?: unknown;
+  readonly JsonApiRequestLinkObject?: unknown;
   readonly JsonApiRequestLinks?: unknown;
   readonly JsonApiRequestObject?: unknown;
   readonly openapi?: unknown;
@@ -528,6 +529,17 @@ describe("OpenAPI 3.1 contract", () => {
     expect(schemas.JsonApiRequestLinks).toMatchObject({
       type: "object",
       additionalProperties: { $ref: "#/components/schemas/JsonApiRequestLink" },
+    });
+    expect(schemas.JsonApiRequestLinkObject).toMatchObject({
+      type: "object",
+      properties: {
+        rel: {
+          anyOf: [
+            { type: "string", pattern: "^[a-z][a-z0-9.-]*$" },
+            { type: "string", format: "uri" },
+          ],
+        },
+      },
     });
     expect(JSON.stringify(document).toLowerCase()).not.toContain("application/cbor");
     expect(JSON.stringify(document).toLowerCase()).not.toContain("cf-access-jwt-assertion");

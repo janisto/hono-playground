@@ -21,10 +21,25 @@ const JsonApiProfileUriSchema = z
   .refine(isAbsoluteUri, { error: "Invalid profile URI" })
   .openapi({ format: "uri" });
 
+const REGISTERED_LINK_RELATION = /^[a-z][a-z0-9.-]*$/u;
+const JsonApiLinkRelationSchema = z
+  .string()
+  .min(1)
+  .refine((value) => REGISTERED_LINK_RELATION.test(value) || isAbsoluteUri(value), {
+    error: "Invalid link relation type",
+  })
+  .openapi({
+    description: "Registered or extension link relation type",
+    anyOf: [
+      { type: "string", pattern: REGISTERED_LINK_RELATION.source },
+      { type: "string", format: "uri" },
+    ],
+  });
+
 const JsonApiRequestLinkObjectSchema = z
   .strictObject({
     href: JsonApiLinkSchema,
-    rel: z.string().min(1).optional(),
+    rel: JsonApiLinkRelationSchema.optional(),
     describedby: JsonApiLinkSchema.optional(),
     title: z.string().optional(),
     type: z.string().min(1).optional(),
