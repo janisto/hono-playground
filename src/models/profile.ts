@@ -1,5 +1,11 @@
 import { z } from "@hono/zod-openapi";
-import { JsonApiLinkSchema, JsonApiObjectSchema } from "./json-api.ts";
+import {
+  JsonApiLinkSchema,
+  JsonApiMetaSchema,
+  JsonApiObjectSchema,
+  JsonApiRequestLinksSchema,
+  JsonApiRequestObjectSchema,
+} from "./json-api.ts";
 
 const boundedName = () =>
   z
@@ -112,29 +118,29 @@ export const ProfileDocumentSchema = z
 
 export const ProfileCreateDocumentSchema = z
   .strictObject({
-    jsonapi: z.record(z.string(), z.unknown()).optional(),
-    links: z.record(z.string(), z.unknown()).optional(),
-    meta: z.record(z.string(), z.unknown()).optional(),
+    jsonapi: JsonApiRequestObjectSchema.optional(),
+    links: JsonApiRequestLinksSchema.optional(),
+    meta: JsonApiMetaSchema.optional(),
     data: z.strictObject({
       type: z.literal("profiles"),
       attributes: ProfileCreateSchema,
-      links: z.record(z.string(), z.unknown()).optional(),
-      meta: z.record(z.string(), z.unknown()).optional(),
+      links: JsonApiRequestLinksSchema.optional(),
+      meta: JsonApiMetaSchema.optional(),
     }),
   })
   .openapi("ProfileCreateDocument");
 
 export const ProfileUpdateDocumentSchema = z
   .strictObject({
-    jsonapi: z.record(z.string(), z.unknown()).optional(),
-    links: z.record(z.string(), z.unknown()).optional(),
-    meta: z.record(z.string(), z.unknown()).optional(),
+    jsonapi: JsonApiRequestObjectSchema.optional(),
+    links: JsonApiRequestLinksSchema.optional(),
+    meta: JsonApiMetaSchema.optional(),
     data: z.strictObject({
       type: z.literal("profiles"),
       id: z.string(),
       attributes: ProfileUpdateSchema.optional(),
-      links: z.record(z.string(), z.unknown()).optional(),
-      meta: z.record(z.string(), z.unknown()).optional(),
+      links: JsonApiRequestLinksSchema.optional(),
+      meta: JsonApiMetaSchema.optional(),
     }),
   })
   .openapi("ProfileUpdateDocument");

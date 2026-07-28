@@ -201,8 +201,16 @@ describe("JSON:API profile resources", () => {
       now: () => new Date("2026-07-22T12:00:00.000Z"),
     });
     const standardMembers = {
-      jsonapi: { version: "1.1" },
-      links: { self: "/client-document" },
+      jsonapi: { version: "1.1", meta: { clientVersion: true } },
+      links: {
+        self: {
+          href: "/client-document",
+          title: "Client document",
+          meta: { clientLink: true },
+        },
+        describedby: "/client-schema",
+        related: null,
+      },
       meta: { clientRequest: true },
     };
 
@@ -252,6 +260,72 @@ describe("JSON:API profile resources", () => {
       data: { links: { self: CURRENT_PROFILE_PATH } },
     });
   });
+
+  it.each([
+    [
+      "POST jsonapi version",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        jsonapi: { version: 1 },
+      },
+      "/jsonapi/version",
+    ],
+    [
+      "POST top-level link",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        links: { self: 123 },
+      },
+      "/links/self",
+    ],
+    [
+      "PATCH jsonapi version",
+      CURRENT_PROFILE_PATH,
+      {
+        ...updateDocument("malformed-standard-members-owner", { firstName: "Grace" }),
+        jsonapi: { version: 1 },
+      },
+      "/jsonapi/version",
+    ],
+    [
+      "PATCH resource link",
+      CURRENT_PROFILE_PATH,
+      updateDocument("malformed-standard-members-owner", { firstName: "Grace" }, { links: { self: 123 } }),
+      "/data/links/self",
+    ],
+  ] as const)(
+    "rejects malformed standard member values for %s without writing",
+    async (_name, path, document, pointer) => {
+      const create = vi.fn(async () => storedProfile("malformed-standard-members-owner"));
+      const update = vi.fn(async () => storedProfile("malformed-standard-members-owner"));
+      const app = createApp({
+        accessVerifier: async () => ({ sub: "malformed-standard-members-owner" }),
+        profileRepositoryFactory: () => ({
+          create,
+          get: vi.fn(async () => storedProfile("malformed-standard-members-owner")),
+          update,
+          delete: vi.fn(async () => true),
+        }),
+      });
+
+      const response = await request(app, path, jsonApiRequest(path === PROFILES_PATH ? "POST" : "PATCH", document));
+
+      expect(response.status).toBe(422);
+      await expect(response.json()).resolves.toMatchObject({
+        errors: [
+          {
+            status: "422",
+            code: "validation_failed",
+            source: { pointer },
+          },
+        ],
+      });
+      expect(create).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     [
