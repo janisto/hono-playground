@@ -1,5 +1,6 @@
 import { JSON_API_MEDIA_TYPE } from "../models/json-api.ts";
 import { AppError } from "./errors.ts";
+import { isAbsoluteUri } from "./uri.ts";
 
 type MediaRange = {
   type: string;
@@ -15,10 +16,6 @@ type ParameterValue = {
 
 const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u;
 const Q_VALUE = /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/u;
-const ABSOLUTE_URI_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
-const URI_CHARACTERS = /^[A-Za-z0-9:/?#[\]@!$&'()*+,;=._~%+-]+$/u;
-const INVALID_PERCENT_ESCAPE = /%(?![0-9A-Fa-f]{2})/u;
-
 const splitQuoted = (value: string, separator: string): string[] => {
   const parts: string[] = [];
   let current = "";
@@ -63,17 +60,7 @@ const parameterValue = (raw: string): ParameterValue | null => {
 const isJsonApiUriList = (parameter: ParameterValue): boolean => {
   if (!parameter.quoted || parameter.value.length === 0) return false;
   const uris = parameter.value.split(" ");
-  return uris.every((uri) => {
-    if (
-      uri.length === 0 ||
-      !URI_CHARACTERS.test(uri) ||
-      INVALID_PERCENT_ESCAPE.test(uri) ||
-      !ABSOLUTE_URI_SCHEME.test(uri)
-    ) {
-      return false;
-    }
-    return URL.canParse(uri);
-  });
+  return uris.every((uri) => uri.length > 0 && isAbsoluteUri(uri));
 };
 
 const parseMediaRange = (raw: string): MediaRange | null => {

@@ -516,7 +516,13 @@ describe("OpenAPI 3.1 contract", () => {
     expect(schemas).toHaveProperty("JsonApiErrorDocument");
     expect(schemas.JsonApiRequestObject).toMatchObject({
       type: "object",
-      properties: { version: { type: "string" } },
+      properties: {
+        version: { type: "string" },
+        profile: {
+          type: "array",
+          items: { type: "string", format: "uri" },
+        },
+      },
       additionalProperties: false,
     });
     expect(schemas.JsonApiRequestLinks).toMatchObject({

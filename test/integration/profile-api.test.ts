@@ -9,6 +9,8 @@ import type { Profile } from "../../src/models/profile.ts";
 import type { ProfileRepository } from "../../src/repositories/profile-repository.ts";
 
 const JSON_API_MEDIA_TYPE = "application/vnd.api+json";
+const JSON_API_PROFILES = ["https://example.test/profile", "urn:example:profile"] as const;
+const PROFILED_JSON_API_MEDIA_TYPE = `${JSON_API_MEDIA_TYPE};profile="${JSON_API_PROFILES.join(" ")}"`;
 const CURRENT_PROFILE_PATH = "/v1/profiles/current";
 const PROFILES_PATH = "/v1/profiles";
 
@@ -46,14 +48,15 @@ const authenticatedHeaders = (headers: HeadersInit = {}): Headers => {
   return result;
 };
 
-const jsonApiRequest = (method: string, document: unknown, headers: HeadersInit = {}): RequestInit => ({
-  method,
-  headers: authenticatedHeaders({
-    "Content-Type": JSON_API_MEDIA_TYPE,
-    ...Object.fromEntries(new Headers(headers)),
-  }),
-  body: JSON.stringify(document),
-});
+const jsonApiRequest = (method: string, document: unknown, headers: HeadersInit = {}): RequestInit => {
+  const requestHeaders = authenticatedHeaders(headers);
+  if (!requestHeaders.has("Content-Type")) requestHeaders.set("Content-Type", JSON_API_MEDIA_TYPE);
+  return {
+    method,
+    headers: requestHeaders,
+    body: JSON.stringify(document),
+  };
+};
 
 const createDocument = (attributes: Record<string, unknown>, extraData = {}) => ({
   data: {
@@ -201,7 +204,7 @@ describe("JSON:API profile resources", () => {
       now: () => new Date("2026-07-22T12:00:00.000Z"),
     });
     const standardMembers = {
-      jsonapi: { version: "1.1", meta: { clientVersion: true } },
+      jsonapi: { version: "1.1", profile: [...JSON_API_PROFILES], meta: { clientVersion: true } },
       links: {
         self: {
           href: "/client-document",
@@ -217,29 +220,37 @@ describe("JSON:API profile resources", () => {
     const created = await request(
       app,
       PROFILES_PATH,
-      jsonApiRequest("POST", {
-        ...standardMembers,
-        data: {
-          type: "profiles",
-          attributes: validCreateAttributes,
-          links: { self: "/client-resource" },
-          meta: { clientResource: true },
+      jsonApiRequest(
+        "POST",
+        {
+          ...standardMembers,
+          data: {
+            type: "profiles",
+            attributes: validCreateAttributes,
+            links: { self: "/client-resource" },
+            meta: { clientResource: true },
+          },
         },
-      }),
+        { "Content-Type": PROFILED_JSON_API_MEDIA_TYPE },
+      ),
     );
     const updated = await request(
       app,
       CURRENT_PROFILE_PATH,
-      jsonApiRequest("PATCH", {
-        ...standardMembers,
-        data: {
-          type: "profiles",
-          id: owner,
-          attributes: { firstName: "Grace" },
-          links: { self: "/client-resource" },
-          meta: { clientResource: true },
+      jsonApiRequest(
+        "PATCH",
+        {
+          ...standardMembers,
+          data: {
+            type: "profiles",
+            id: owner,
+            attributes: { firstName: "Grace" },
+            links: { self: "/client-resource" },
+            meta: { clientResource: true },
+          },
         },
-      }),
+        { "Content-Type": PROFILED_JSON_API_MEDIA_TYPE },
+      ),
     );
 
     expect(created.status).toBe(201);
@@ -281,6 +292,24 @@ describe("JSON:API profile resources", () => {
       "/links/self",
     ],
     [
+      "POST top-level URI-reference link",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        links: { self: "invalid URI with spaces" },
+      },
+      "/links/self",
+    ],
+    [
+      "POST JSON:API profile URI",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        jsonapi: { profile: ["relative-profile"] },
+      },
+      "/jsonapi/profile/0",
+    ],
+    [
       "PATCH jsonapi version",
       CURRENT_PROFILE_PATH,
       {
@@ -294,6 +323,12 @@ describe("JSON:API profile resources", () => {
       CURRENT_PROFILE_PATH,
       updateDocument("malformed-standard-members-owner", { firstName: "Grace" }, { links: { self: 123 } }),
       "/data/links/self",
+    ],
+    [
+      "PATCH resource link object URI reference",
+      CURRENT_PROFILE_PATH,
+      updateDocument("malformed-standard-members-owner", { firstName: "Grace" }, { links: { self: { href: "%" } } }),
+      "/data/links/self/href",
     ],
   ] as const)(
     "rejects malformed standard member values for %s without writing",
