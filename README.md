@@ -10,11 +10,11 @@ Hosted documentation:
 ## Stack
 
 - Hono `4.12.32` routes requests and generates OpenAPI 3.1.
-- Alchemy `2.0.0-beta.64` owns Worker development, infrastructure, bindings,
+- Alchemy `2.0.0-beta.65` owns Worker development, infrastructure, bindings,
   secrets, state, and deployment.
 - Drizzle ORM and Drizzle Kit `1.0.0-rc.4` own database access and migration
   generation.
-- Effect `4.0.0-beta.101` is limited to the Alchemy program.
+- Effect `4.0.0-beta.102` is limited to the Alchemy program.
 - Cloudflare D1 persists profiles; Cloudflare Access authenticates profile
   owners.
 
@@ -96,9 +96,9 @@ command aliases such as `just dev`.
 
 Populate each stage environment file with its own three Cloudflare rate-limit
 namespace IDs, exact Access team domain and audience, and two distinct HMAC
-keys. `WORKER_DOMAIN` is required in `.env.staging` and `.env.prod` and must be
-a hostname within the project-owned `hono-playground.dev` zone;
-`.env.dev` may leave it empty. Generate each key independently:
+keys. `WORKER_DOMAIN` must be `staging.hono-playground.dev` in `.env.staging`
+and `hono-playground.dev` in `.env.prod`; `.env.dev` may leave it empty.
+Generate each key independently:
 
 ```sh
 openssl rand -hex 32
@@ -141,7 +141,7 @@ bindings are real, stage-isolated Cloudflare resources. Development therefore
 requires Cloudflare authentication, can create remote state, and does not
 delete that state when the watcher stops. The source pins compatibility date
 `2026-07-11`, the newest date accepted by the local workerd nested under
-Alchemy `2.0.0-beta.64`; the hosted edge supports newer dates, but selecting
+Alchemy `2.0.0-beta.65`; the hosted edge supports newer dates, but selecting
 one would break this development command. Use the Vitest and Playwright suites
 for secretless local validation. Infrastructure accepts only `prod`,
 `staging`, and Alchemy's personal `dev_<name>` stages; a typo or pull-request
@@ -195,14 +195,16 @@ pnpm run audit
 `pnpm qa` runs non-mutating formatting and lint checks, strict TypeScript
 checks, Drizzle migration consistency and freshness checks, and coverage. The
 configured workflows run Biome independently, preserve append-only migration
-history plus type, migration, coverage, production dependency audit, and
+history plus type, migration, coverage, dependency audit, and
 real-browser documentation gates, publish the coverage artifact, and audit
 GitHub Actions with zizmor.
 
 The D1 tests run the committed migrations in workerd and exercise the Drizzle
 repository against the resulting database. The Playwright test bundles the
 Worker and runs it in Miniflare; it verifies that a browser can load Swagger UI
-and fetch the OpenAPI 3.1 document without application or network failures.
+and fetch the OpenAPI 3.1 document without page, console, request, or HTTP
+failures. The fixture uses the same Worker compatibility date as deployment and
+also exercises JSON:API profile negotiation.
 The pinned Cloudflare Vitest pool brings Wrangler transitively, but Wrangler is
 not a direct dependency or an application development/deployment surface.
 
@@ -226,8 +228,9 @@ The first Alchemy operation can bootstrap account state even when the command
 is `plan`. Confirm the Cloudflare account and stage before approving it.
 `staging` and `prod` D1 databases use a retain removal policy. The Worker sets
 Alchemy's `url` property to `false`, which disables its stable `workers.dev`
-URL and version-preview URLs in the pinned provider. Staging and production
-require a validated `WORKER_DOMAIN`; Alchemy attaches that custom hostname
+URL and version-preview URLs in the pinned provider. Staging requires
+`staging.hono-playground.dev` and production requires `hono-playground.dev`;
+Alchemy attaches that custom hostname
 while Cloudflare Access application and policy management remain external.
 Read back the custom domain and both direct URL settings after deployment, and
 reassess the provider behavior on every Alchemy upgrade.

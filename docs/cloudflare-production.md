@@ -152,8 +152,8 @@ Before deployment:
 - choose three distinct positive-integer strings per environment that do not
   collide with another stage or binding namespace in the target account (these
   bindings are not visible in the Cloudflare dashboard);
-- select the lowercase custom hostname for this stage within the owned
-  `hono-playground.dev` zone;
+- set `WORKER_DOMAIN` to `staging.hono-playground.dev` for staging or
+  `hono-playground.dev` for production;
 - copy the team domain and audience from the exact Access application;
 - generate the two lowercase 64-hex HMAC values independently;
 - keep Cloudflare credentials and every secret outside Git; and
@@ -180,9 +180,10 @@ same upload as code and ordinary bindings. A rotation is therefore a Worker
 deployment. Rotating the rate-limit key starts new application buckets;
 rotating the audit key breaks pseudonym continuity.
 
-The Alchemy program validates namespace syntax and uniqueness, the Access team
-domain and audience, HMAC strength, and HMAC separation before it can create
-the Worker. Runtime validation remains in place as defense in depth.
+The Alchemy program validates the exact stage hostname, namespace syntax and
+uniqueness, the Access team domain and audience, HMAC strength, and HMAC
+separation before it can create the Worker. Runtime validation remains in place
+as defense in depth.
 
 ## Production environment bootstrap
 
@@ -415,12 +416,12 @@ destination or application and matching Worker authentication middleware.
 
 Before production:
 
-1. Select an owned custom hostname. Direct
-   `workers.dev` and version-preview ingress remain disabled.
+1. Use the fixed `hono-playground.dev` custom hostname. Direct `workers.dev`
+   and version-preview ingress remain disabled.
 2. Create or verify the self-hosted Access application for the exact custom
    hostname and `v1/profiles` path, with an exact reviewed allow policy.
-3. Set the exact hostname as `WORKER_DOMAIN`; Alchemy attaches it to the
-   Worker during deployment and Cloudflare infers the existing zone.
+3. Set `WORKER_DOMAIN=hono-playground.dev`; Alchemy attaches it to the Worker
+   during deployment and Cloudflare infers the existing zone.
 4. Read back the hostname/path scope, audience, policy order, identity
    providers, session duration, cookie settings, and unauthenticated denial.
 5. Put that exact team domain and audience into the production deployment
@@ -484,7 +485,7 @@ Repeat the staging process with `just plan prod` and `just deploy prod` from
 the exact approved revision. Freeze concurrent changes, explicitly accept the
 D1/Worker partial-failure boundary, and inspect a second plan after deployment.
 
-Pinned Alchemy `2.0.0-beta.64` ties version-preview URLs to its `url` property
+Pinned Alchemy `2.0.0-beta.65` ties version-preview URLs to its `url` property
 and ignores a separate `subdomain.previewsEnabled` input. This repository sets
 `url: false`, which disables both direct surfaces in the pinned provider.
 Verify both settings live and reassess this behavior on every Alchemy upgrade.

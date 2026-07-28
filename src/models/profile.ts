@@ -1,5 +1,11 @@
 import { z } from "@hono/zod-openapi";
-import { JsonApiLinkSchema, JsonApiObjectSchema } from "./json-api.ts";
+import {
+  JsonApiLinkSchema,
+  JsonApiMetaSchema,
+  JsonApiObjectSchema,
+  JsonApiRequestLinksSchema,
+  JsonApiRequestObjectSchema,
+} from "./json-api.ts";
 
 const boundedName = () =>
   z
@@ -112,19 +118,29 @@ export const ProfileDocumentSchema = z
 
 export const ProfileCreateDocumentSchema = z
   .strictObject({
+    jsonapi: JsonApiRequestObjectSchema.optional(),
+    links: JsonApiRequestLinksSchema.optional(),
+    meta: JsonApiMetaSchema.optional(),
     data: z.strictObject({
       type: z.literal("profiles"),
       attributes: ProfileCreateSchema,
+      links: JsonApiRequestLinksSchema.optional(),
+      meta: JsonApiMetaSchema.optional(),
     }),
   })
   .openapi("ProfileCreateDocument");
 
 export const ProfileUpdateDocumentSchema = z
   .strictObject({
+    jsonapi: JsonApiRequestObjectSchema.optional(),
+    links: JsonApiRequestLinksSchema.optional(),
+    meta: JsonApiMetaSchema.optional(),
     data: z.strictObject({
       type: z.literal("profiles"),
-      id: ProfileSchema.shape.id,
+      id: z.string(),
       attributes: ProfileUpdateSchema.optional(),
+      links: JsonApiRequestLinksSchema.optional(),
+      meta: JsonApiMetaSchema.optional(),
     }),
   })
   .openapi("ProfileUpdateDocument");

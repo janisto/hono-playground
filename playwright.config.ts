@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const host = "127.0.0.1";
-const port = 8787;
+const port = 8788;
 const baseURL = `http://${host}:${port}`;
 const { CI } = process.env;
 const isCI = Boolean(CI);

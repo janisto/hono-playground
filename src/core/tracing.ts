@@ -1,6 +1,6 @@
 import { tracing } from "cloudflare:workers";
 
-export type SpanName = "access.verify" | "profile.service" | "profile.repository" | "response.validate";
+export type SpanName = "access.verify";
 
 type MinimalSpan = {
   readonly isTraced: boolean;

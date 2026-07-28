@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../src/app.ts";
-import { enterSpanWith, type SpanName, type Tracer } from "../../src/core/tracing.ts";
+import { enterSpanWith, type Tracer } from "../../src/core/tracing.ts";
 import type { RuntimeBindings } from "../../src/core/types.ts";
 import type { ProfileRepository } from "../../src/repositories/profile-repository.ts";
 
@@ -212,6 +212,123 @@ describe("structured application events", () => {
     expect(events).not.toContainEqual(expect.objectContaining({ event: "profile.audit", result: "success" }));
     expect(JSON.stringify(events)).not.toContain("private-repository-failure-marker");
   });
+
+  it.each([
+    [
+      "update",
+      new Request(`${ORIGIN}/v1/profiles/current`, {
+        method: "PATCH",
+        headers: {
+          Accept: "application/vnd.api+json",
+          "Content-Type": "application/vnd.api+json",
+          "X-Request-ID": "update-audit-event-id",
+        },
+        body: JSON.stringify({
+          data: {
+            type: "profiles",
+            id: SUBJECT,
+            attributes: { firstName: "Grace" },
+          },
+        }),
+      }),
+      200,
+      "update-audit-event-id",
+    ],
+    [
+      "delete",
+      new Request(`${ORIGIN}/v1/profiles/current`, {
+        method: "DELETE",
+        headers: {
+          Accept: "application/vnd.api+json",
+          "X-Request-ID": "delete-audit-event-id",
+        },
+      }),
+      204,
+      "delete-audit-event-id",
+    ],
+  ] as const)(
+    "emits a privacy-safe audit event after a successful profile %s",
+    async (action, request, status, requestId) => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const update = vi.fn(() => Promise.resolve(STORED_PROFILE));
+      const remove = vi.fn(() => Promise.resolve(true));
+      const application = createApp({
+        accessVerifier: () => Promise.resolve({ sub: SUBJECT }),
+        profileRepositoryFactory: () => ({ ...repository, update, delete: remove }),
+        now: () => new Date("2026-07-22T12:00:00.000Z"),
+      });
+
+      const response = await application.request(request.clone(), undefined, TEST_BINDINGS);
+
+      expect(response.status).toBe(status);
+      expect(action === "update" ? update : remove).toHaveBeenCalledOnce();
+      const events = log.mock.calls.map(([event]) => event as Record<string, unknown> & { event?: unknown });
+      expect(events.find((event) => event.event === "profile.audit")).toEqual({
+        schema_version: 1,
+        event: "profile.audit",
+        level: "info",
+        action,
+        result: "success",
+        request_id: requestId,
+        owner: expect.stringMatching(/^[0-9a-f]{32}$/),
+      });
+      const serializedEvents = JSON.stringify(events);
+      for (const privateValue of [
+        SUBJECT,
+        STORED_PROFILE.firstName,
+        STORED_PROFILE.lastName,
+        STORED_PROFILE.email,
+        STORED_PROFILE.phoneNumber,
+      ]) {
+        expect(serializedEvents).not.toContain(privateValue);
+      }
+    },
+  );
+
+  it.each(["update", "delete"] as const)(
+    "does not emit a success audit event when profile %s fails",
+    async (action) => {
+      const privateMarker = `private-${action}-repository-failure-marker`;
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const failure = vi.fn(() => Promise.reject(new Error(privateMarker)));
+      const application = createApp({
+        accessVerifier: () => Promise.resolve({ sub: SUBJECT }),
+        profileRepositoryFactory: () => ({
+          ...repository,
+          ...(action === "update" ? { update: failure } : { delete: failure }),
+        }),
+      });
+      const request =
+        action === "update"
+          ? new Request(`${ORIGIN}/v1/profiles/current`, {
+              method: "PATCH",
+              headers: {
+                Accept: "application/vnd.api+json",
+                "Content-Type": "application/vnd.api+json",
+              },
+              body: JSON.stringify({
+                data: {
+                  type: "profiles",
+                  id: SUBJECT,
+                  attributes: { firstName: "Grace" },
+                },
+              }),
+            })
+          : new Request(`${ORIGIN}/v1/profiles/current`, {
+              method: "DELETE",
+              headers: { Accept: "application/vnd.api+json" },
+            });
+
+      const response = await application.request(request, undefined, TEST_BINDINGS);
+
+      expect(response.status).toBe(500);
+      const events = [...log.mock.calls, ...errorLog.mock.calls].map(([event]) => event);
+      expect(events).not.toContainEqual(expect.objectContaining({ event: "profile.audit", result: "success" }));
+      expect(JSON.stringify(events)).not.toContain(privateMarker);
+    },
+  );
 
   it("does not fabricate D1 scan or write counts from returned rows", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -467,8 +584,8 @@ describe("structured application events", () => {
   });
 });
 
-describe("custom span wrapper", () => {
-  it("uses only the fixed names and preserves callback values", () => {
+describe("custom access span wrapper", () => {
+  it("uses the fixed access-verification name and preserves the callback value", () => {
     const names: string[] = [];
     const span = { isTraced: true, setAttribute: vi.fn() };
     const tracer: Tracer = {
@@ -477,17 +594,11 @@ describe("custom span wrapper", () => {
         return callback(span);
       },
     };
-    const spanNames = [
-      "access.verify",
-      "profile.service",
-      "profile.repository",
-      "response.validate",
-    ] as const satisfies readonly SpanName[];
 
-    const values = spanNames.map((name) => enterSpanWith(tracer, name, (activeSpan) => activeSpan?.isTraced));
+    const value = enterSpanWith(tracer, "access.verify", (activeSpan) => activeSpan?.isTraced);
 
-    expect(names).toEqual(spanNames);
-    expect(values).toEqual([true, true, true, true]);
+    expect(names).toEqual(["access.verify"]);
+    expect(value).toBe(true);
     expect(span.setAttribute).not.toHaveBeenCalled();
   });
 
@@ -501,13 +612,13 @@ describe("custom span wrapper", () => {
     };
 
     expect(() =>
-      enterSpanWith(tracer, "response.validate", () => {
+      enterSpanWith(tracer, "access.verify", () => {
         throw failure;
       }),
     ).toThrow(failure);
-    expect(enterSpanWith(undefined, "response.validate", (activeSpan) => activeSpan)).toBeUndefined();
+    expect(enterSpanWith(undefined, "access.verify", (activeSpan) => activeSpan)).toBeUndefined();
     expect(() =>
-      enterSpanWith(undefined, "response.validate", () => {
+      enterSpanWith(undefined, "access.verify", () => {
         throw failure;
       }),
     ).toThrow(failure);

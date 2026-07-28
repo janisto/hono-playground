@@ -147,6 +147,10 @@ describe("Cloudflare Access verifier configuration", () => {
     "https://team.cloudflareaccess.com?query=yes",
     "https://team.cloudflareaccess.com#fragment",
     " https://team.cloudflareaccess.com",
+    "https://team.name.cloudflareaccess.com",
+    "https://-team.cloudflareaccess.com",
+    "https://team-.cloudflareaccess.com",
+    `https://${"a".repeat(64)}.cloudflareaccess.com`,
   ])("rejects a non-canonical or untrusted team domain: %s", (teamDomain) => {
     expect(() => parseAccessVerifierConfig({ teamDomain, audience: AUDIENCE })).toThrow(AccessConfigurationError);
   });
@@ -161,6 +165,18 @@ describe("Cloudflare Access verifier configuration", () => {
     "a".repeat(MAX_ACCESS_AUDIENCE_LENGTH + 1),
   ])("rejects an invalid audience: %s", (audience) => {
     expect(() => parseAccessVerifierConfig({ teamDomain: TEAM_DOMAIN, audience })).toThrow(AccessConfigurationError);
+  });
+
+  it("accepts the documented Access team-name and audience boundaries", () => {
+    expect(
+      parseAccessVerifierConfig({
+        teamDomain: `https://${"a".repeat(63)}.cloudflareaccess.com`,
+        audience: "a".repeat(MAX_ACCESS_AUDIENCE_LENGTH),
+      }),
+    ).toMatchObject({
+      issuer: `https://${"a".repeat(63)}.cloudflareaccess.com`,
+      audience: "a".repeat(MAX_ACCESS_AUDIENCE_LENGTH),
+    });
   });
 
   it("rejects mutually exclusive dependency seams", () => {

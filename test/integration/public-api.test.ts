@@ -31,6 +31,9 @@ interface JsonObject {
   readonly components?: unknown;
   readonly info?: unknown;
   readonly headers?: unknown;
+  readonly JsonApiRequestLinkObject?: unknown;
+  readonly JsonApiRequestLinks?: unknown;
+  readonly JsonApiRequestObject?: unknown;
   readonly openapi?: unknown;
   readonly operationId?: unknown;
   readonly paths?: unknown;
@@ -487,6 +490,7 @@ describe("OpenAPI 3.1 contract", () => {
     const paths = object(document.paths, "OpenAPI paths");
     const components = object(document.components, "OpenAPI components");
     const schemas = object(components.schemas, "OpenAPI schemas");
+    const { JsonApiMeta: jsonApiMeta } = schemas;
     const operations = operationEntries(document);
 
     expect(document.openapi).toBe("3.1.0");
@@ -512,6 +516,69 @@ describe("OpenAPI 3.1 contract", () => {
     expect(schemas).toHaveProperty("ProfileDocument");
     expect(schemas).toHaveProperty("ItemCollectionDocument");
     expect(schemas).toHaveProperty("JsonApiErrorDocument");
+    expect(schemas.JsonApiRequestObject).toMatchObject({
+      type: "object",
+      properties: {
+        version: { type: "string" },
+        profile: {
+          type: "array",
+          items: { type: "string", format: "uri" },
+        },
+      },
+      additionalProperties: false,
+    });
+    expect(schemas.JsonApiRequestLinks).toMatchObject({
+      type: "object",
+      propertyNames: {
+        type: "string",
+        pattern: "^[a-z][A-Za-z0-9]*$",
+      },
+      additionalProperties: { $ref: "#/components/schemas/JsonApiRequestLink" },
+    });
+    expect(jsonApiMeta).toMatchObject({
+      type: "object",
+      propertyNames: {
+        type: "string",
+        pattern: "^[a-z][A-Za-z0-9]*$",
+      },
+    });
+    expect(schemas.JsonApiRequestLinkObject).toMatchObject({
+      type: "object",
+      properties: {
+        describedby: {
+          oneOf: [{ $ref: "#/components/schemas/JsonApiRequestLink" }, { type: "null" }],
+        },
+        rel: {
+          anyOf: [
+            { type: "string", pattern: "^[a-z][a-z0-9.-]*$" },
+            { type: "string", format: "uri" },
+          ],
+        },
+        type: {
+          type: "string",
+          description: "Media type",
+          pattern: expect.stringContaining("/"),
+        },
+        hreflang: {
+          anyOf: [
+            {
+              type: "string",
+              description: "RFC 5646 language tag syntax",
+              pattern: "^[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*$",
+            },
+            {
+              type: "array",
+              minItems: 1,
+              items: {
+                type: "string",
+                description: "RFC 5646 language tag syntax",
+                pattern: "^[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*$",
+              },
+            },
+          ],
+        },
+      },
+    });
     expect(JSON.stringify(document).toLowerCase()).not.toContain("application/cbor");
     expect(JSON.stringify(document).toLowerCase()).not.toContain("cf-access-jwt-assertion");
     expect(JSON.stringify(document)).toContain(JSON_API_MEDIA_TYPE);

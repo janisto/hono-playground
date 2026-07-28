@@ -39,15 +39,6 @@ const applyFinalHeaders = (response: Response, bindings: RuntimeBindings, pathna
   headers.set("X-Request-ID", id);
   headers.set("Cache-Control", "no-store");
   headers.set("Content-Security-Policy", pathname === apiDocumentationRoute.path ? DOCS_CSP : API_CSP);
-  headers.set("Cross-Origin-Opener-Policy", "same-origin");
-  headers.set("Cross-Origin-Resource-Policy", "same-origin");
-  headers.set(
-    "Permissions-Policy",
-    "accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=()",
-  );
-  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-  headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("X-Frame-Options", "DENY");
 
   if (bindings.ENVIRONMENT === "staging" || bindings.ENVIRONMENT === "production") {
     headers.set("Strict-Transport-Security", "max-age=300");

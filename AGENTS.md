@@ -145,8 +145,8 @@ fixed deployment input unless the user explicitly changes it; do not substitute
 - `infra/config.ts` is the compatibility-date source of truth. Set it to the
   newest date supported by every pinned execution path, not automatically to
   today's date or the newest date accepted by Cloudflare's hosted edge. With
-  the current lock, Alchemy `2.0.0-beta.64` resolves
-  `@distilled.cloud/cloudflare-runtime@0.13.8` and its
+  the current lock, Alchemy `2.0.0-beta.65` resolves
+  `@distilled.cloud/cloudflare-runtime@0.13.10` and its
   `workerd@1.20260704.1`; that local binary accepts compatibility dates only
   through `2026-07-11`, so the project date is `2026-07-11`.
 - Before changing dependencies or the date, query the accepted live registry
@@ -306,6 +306,13 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   object for non-relationship data, and `links.self` only when that URL is
   fetchable. Never duplicate `id`, foreign keys, or relationships inside
   `attributes`.
+- Request `hreflang` is an ignored link hint. Keep its validation deliberately
+  lightweight: require an alphabetic primary chunk and bounded alphanumeric
+  subtags, rejecting major syntax errors such as numeric-only or whitespace
+  values. Do not add a registry, dependency, or full RFC parser for this hint.
+- Strict JSON parsing caps container nesting before Zod validation. That global
+  guard also bounds recursive `describedby` link objects; do not add a second
+  schema-specific depth limiter unless the validation order changes.
 - Implementation-defined JSON members use ASCII lower camel case, following
   the JSON:API recommendation. Standard members retain their specified names.
 - Collection URLs use the plural resource type. Individual mutation uses
@@ -356,6 +363,12 @@ fixed deployment input unless the user explicitly changes it; do not substitute
 - A telemetry privacy audit must inspect both application-owned events and the
   enriched Cloudflare event/trace details plus D1 Query Insights. Alchemy's
   compact log output does not expose every persisted automatic attribute.
+- Known issue: Cloudflare Precursor injects a request-specific inline bootstrap
+  into `/api-docs`. The strict hash-based policy blocks that bootstrap and
+  Chromium logs a CSP violation, while Swagger UI continues to render. Keep
+  Precursor enabled and do not weaken the CSP to suppress this expected log.
+  Ignore only this known violation during live smoke tests; other console
+  errors remain failures.
 - A `204` response has no body or content type. All other success and error
   media types must match their documented representation exactly.
 

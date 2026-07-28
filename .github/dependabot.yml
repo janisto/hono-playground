@@ -4,8 +4,7 @@ updates:
     directory: "/"
     versioning-strategy: "increase-if-necessary"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "quarterly"
       time: "06:00"
       timezone: "Europe/Helsinki"
     cooldown:
@@ -52,8 +51,7 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "quarterly"
       time: "06:30"
       timezone: "Europe/Helsinki"
     cooldown:

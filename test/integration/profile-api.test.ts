@@ -9,6 +9,8 @@ import type { Profile } from "../../src/models/profile.ts";
 import type { ProfileRepository } from "../../src/repositories/profile-repository.ts";
 
 const JSON_API_MEDIA_TYPE = "application/vnd.api+json";
+const JSON_API_PROFILES = ["https://example.test/profile", "urn:example:profile"] as const;
+const PROFILED_JSON_API_MEDIA_TYPE = `${JSON_API_MEDIA_TYPE};profile="${JSON_API_PROFILES.join(" ")}"`;
 const CURRENT_PROFILE_PATH = "/v1/profiles/current";
 const PROFILES_PATH = "/v1/profiles";
 
@@ -46,14 +48,15 @@ const authenticatedHeaders = (headers: HeadersInit = {}): Headers => {
   return result;
 };
 
-const jsonApiRequest = (method: string, document: unknown, headers: HeadersInit = {}): RequestInit => ({
-  method,
-  headers: authenticatedHeaders({
-    "Content-Type": JSON_API_MEDIA_TYPE,
-    ...Object.fromEntries(new Headers(headers)),
-  }),
-  body: JSON.stringify(document),
-});
+const jsonApiRequest = (method: string, document: unknown, headers: HeadersInit = {}): RequestInit => {
+  const requestHeaders = authenticatedHeaders(headers);
+  if (!requestHeaders.has("Content-Type")) requestHeaders.set("Content-Type", JSON_API_MEDIA_TYPE);
+  return {
+    method,
+    headers: requestHeaders,
+    body: JSON.stringify(document),
+  };
+};
 
 const createDocument = (attributes: Record<string, unknown>, extraData = {}) => ({
   data: {
@@ -185,6 +188,271 @@ describe("JSON:API profile resources", () => {
     expect(outbound).toHaveBeenCalledOnce();
     expect(outbound.mock.calls[0]?.[0].toString()).toBe(`${teamDomain}/cdn-cgi/access/certs`);
   });
+
+  it("accepts and ignores valid standard document and resource metadata on mutations", async () => {
+    const owner = "standard-members-owner";
+    const create = vi.fn(async () => storedProfile(owner));
+    const update = vi.fn(async () => storedProfile(owner));
+    const app = createApp({
+      accessVerifier: async () => ({ sub: owner }),
+      profileRepositoryFactory: () => ({
+        create,
+        get: vi.fn(async () => storedProfile(owner)),
+        update,
+        delete: vi.fn(async () => true),
+      }),
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+    const standardMembers = {
+      jsonapi: { version: "1.1", profile: [...JSON_API_PROFILES], meta: { clientVersion: true } },
+      links: {
+        self: {
+          href: "https://[V1.fe]/client-document",
+          rel: "https://example.test/relations/document",
+          describedby: {
+            href: "/client-schema",
+            type: "application/schema+json",
+            hreflang: ["en", "x-private", "i-klingon"],
+          },
+          title: "Client document",
+          meta: { clientLink: true },
+        },
+        describedby: "/client-schema",
+        related: null,
+      },
+      meta: { clientRequest: true },
+    };
+
+    const created = await request(
+      app,
+      PROFILES_PATH,
+      jsonApiRequest(
+        "POST",
+        {
+          ...standardMembers,
+          data: {
+            type: "profiles",
+            attributes: validCreateAttributes,
+            links: { self: { href: "/client-resource", rel: "self" } },
+            meta: { clientResource: true },
+          },
+        },
+        { "Content-Type": PROFILED_JSON_API_MEDIA_TYPE },
+      ),
+    );
+    const updated = await request(
+      app,
+      CURRENT_PROFILE_PATH,
+      jsonApiRequest(
+        "PATCH",
+        {
+          ...standardMembers,
+          data: {
+            type: "profiles",
+            id: owner,
+            attributes: { firstName: "Grace" },
+            links: {
+              self: {
+                href: "/client-resource",
+                type: 'application/vnd.api+json;profile="https://example.test/profiles"',
+                hreflang: "zh-min-nan",
+              },
+            },
+            meta: { clientResource: true },
+          },
+        },
+        { "Content-Type": PROFILED_JSON_API_MEDIA_TYPE },
+      ),
+    );
+
+    expect(created.status).toBe(201);
+    expect(updated.status).toBe(200);
+    expect(create).toHaveBeenCalledWith(
+      owner,
+      {
+        ...validCreateAttributes,
+        email: "ada@example.com",
+        marketingOptIn: false,
+        phoneNumber: "+358401234567",
+      },
+      expect.any(Date),
+    );
+    expect(update).toHaveBeenCalledWith(owner, { firstName: "Grace" }, expect.any(Date));
+    await expect(updated.json()).resolves.toMatchObject({
+      links: { self: CURRENT_PROFILE_PATH },
+      data: { links: { self: CURRENT_PROFILE_PATH } },
+    });
+  });
+
+  it.each([
+    [
+      "POST jsonapi version",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        jsonapi: { version: 1 },
+      },
+      "/jsonapi/version",
+    ],
+    [
+      "POST top-level link",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        links: { self: 123 },
+      },
+      "/links/self",
+    ],
+    [
+      "POST top-level URI-reference link",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        links: { self: "a#b#c" },
+      },
+      "/links/self",
+    ],
+    [
+      "POST JSON:API profile URI",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        jsonapi: { profile: ["https://example.test/a[b]"] },
+      },
+      "/jsonapi/profile/0",
+    ],
+    [
+      "POST top-level link relation",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        links: { self: { href: "/client-document", rel: "not a relation" } },
+      },
+      "/links/self/rel",
+    ],
+    [
+      "POST top-level link media type",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        links: { self: { href: "/client-document", type: "not a media type" } },
+      },
+      "/links/self/type",
+    ],
+    [
+      "POST top-level link member name",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        links: { "bad/key": null },
+      },
+      "/links/bad~1key",
+    ],
+    [
+      "POST top-level meta member name",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        meta: { "bad/key": true },
+      },
+      "/meta/bad~1key",
+    ],
+    [
+      "PATCH jsonapi version",
+      CURRENT_PROFILE_PATH,
+      {
+        ...updateDocument("malformed-standard-members-owner", { firstName: "Grace" }),
+        jsonapi: { version: 1 },
+      },
+      "/jsonapi/version",
+    ],
+    [
+      "PATCH resource link",
+      CURRENT_PROFILE_PATH,
+      updateDocument("malformed-standard-members-owner", { firstName: "Grace" }, { links: { self: 123 } }),
+      "/data/links/self",
+    ],
+    [
+      "PATCH resource link object URI reference",
+      CURRENT_PROFILE_PATH,
+      updateDocument(
+        "malformed-standard-members-owner",
+        { firstName: "Grace" },
+        { links: { self: { href: "/a[b]" } } },
+      ),
+      "/data/links/self/href",
+    ],
+    [
+      "PATCH resource link relation",
+      CURRENT_PROFILE_PATH,
+      updateDocument(
+        "malformed-standard-members-owner",
+        { firstName: "Grace" },
+        { links: { self: { href: "/client-resource", rel: " " } } },
+      ),
+      "/data/links/self/rel",
+    ],
+    [
+      "PATCH resource link language tag",
+      CURRENT_PROFILE_PATH,
+      updateDocument(
+        "malformed-standard-members-owner",
+        { firstName: "Grace" },
+        { links: { self: { href: "/client-resource", hreflang: "not a language tag" } } },
+      ),
+      "/data/links/self/hreflang",
+    ],
+    [
+      "PATCH numeric-only resource link language tag",
+      CURRENT_PROFILE_PATH,
+      updateDocument(
+        "malformed-standard-members-owner",
+        { firstName: "Grace" },
+        { links: { self: { href: "/client-resource", hreflang: "123" } } },
+      ),
+      "/data/links/self/hreflang",
+    ],
+    [
+      "PATCH nested describedby link",
+      CURRENT_PROFILE_PATH,
+      updateDocument(
+        "malformed-standard-members-owner",
+        { firstName: "Grace" },
+        { links: { self: { href: "/client-resource", describedby: { href: "/a[b]" } } } },
+      ),
+      "/data/links/self/describedby/href",
+    ],
+  ] as const)(
+    "rejects malformed standard member values for %s without writing",
+    async (_name, path, document, pointer) => {
+      const create = vi.fn(async () => storedProfile("malformed-standard-members-owner"));
+      const update = vi.fn(async () => storedProfile("malformed-standard-members-owner"));
+      const app = createApp({
+        accessVerifier: async () => ({ sub: "malformed-standard-members-owner" }),
+        profileRepositoryFactory: () => ({
+          create,
+          get: vi.fn(async () => storedProfile("malformed-standard-members-owner")),
+          update,
+          delete: vi.fn(async () => true),
+        }),
+      });
+
+      const response = await request(app, path, jsonApiRequest(path === PROFILES_PATH ? "POST" : "PATCH", document));
+
+      expect(response.status).toBe(422);
+      await expect(response.json()).resolves.toMatchObject({
+        errors: [
+          {
+            status: "422",
+            code: "validation_failed",
+            source: { pointer },
+          },
+        ],
+      });
+      expect(create).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     [
@@ -674,6 +942,35 @@ describe("JSON:API profile resources", () => {
     expect(profileRepository.delete).not.toHaveBeenCalled();
   });
 
+  it("points missing required members at the nearest existing request object", async () => {
+    const profileRepository: ProfileRepository = {
+      create: vi.fn(async () => undefined),
+      get: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      delete: vi.fn(async () => false),
+    };
+    const app = createApp({
+      accessVerifier: async () => ({ sub: "missing-members-subject" }),
+      profileRepositoryFactory: () => profileRepository,
+    });
+
+    const response = await request(
+      app,
+      PROFILES_PATH,
+      jsonApiRequest("POST", createDocument({}), {
+        "Cf-Access-Jwt-Assertion": "test",
+      }),
+    );
+    const document = (await response.json()) as {
+      errors: Array<{ source?: { pointer?: string } }>;
+    };
+
+    expect(response.status).toBe(422);
+    expect(document.errors.length).toBeGreaterThan(0);
+    expect(document.errors.every((error) => error.source?.pointer === "/data/attributes")).toBe(true);
+    expect(profileRepository.create).not.toHaveBeenCalled();
+  });
+
   it.each([
     [
       "client-generated create ID",
@@ -715,6 +1012,14 @@ describe("JSON:API profile resources", () => {
       CURRENT_PROFILE_PATH,
       "PATCH",
       updateDocument("another-subject", { firstName: "Grace" }),
+      409,
+      "resource_identity_mismatch",
+    ],
+    [
+      "oversized wrong update ID",
+      CURRENT_PROFILE_PATH,
+      "PATCH",
+      updateDocument("x".repeat(129), { firstName: "Grace" }),
       409,
       "resource_identity_mismatch",
     ],
