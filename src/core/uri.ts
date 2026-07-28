@@ -9,7 +9,7 @@ const QUERY_OR_FRAGMENT = new RegExp(`^(?:${PCHAR}|[/?])*$`, "u");
 const USER_INFO = new RegExp(`^(?:${UNRESERVED}|${PCT_ENCODED}|${SUB_DELIMITER}|:)*$`, "u");
 const REGISTERED_NAME = new RegExp(`^(?:${UNRESERVED}|${PCT_ENCODED}|${SUB_DELIMITER})*$`, "u");
 const PORT = /^[0-9]*$/u;
-const IPV_FUTURE = new RegExp(`^v[0-9A-Fa-f]+\\.(?:${UNRESERVED}|${SUB_DELIMITER}|:)+$`, "u");
+const IPV_FUTURE = new RegExp(`^v[0-9A-Fa-f]+\\.(?:${UNRESERVED}|${SUB_DELIMITER}|:)+$`, "iu");
 
 const hasValidSegments = (path: string): boolean => path.split("/").every((segment) => SEGMENT.test(segment));
 

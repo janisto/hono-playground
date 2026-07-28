@@ -1,5 +1,4 @@
 import type { MiddlewareHandler } from "hono";
-import { bodyLimit } from "hono/body-limit";
 
 import { precheckJsonApiBody } from "./body.ts";
 import { requireAccept, requireJsonApiAccept } from "./content-negotiation.ts";
@@ -27,14 +26,6 @@ const requiredRepresentation = (metadata: RouteMetadata): { mediaType: string; a
   if (metadata.kind === "public") return { mediaType: "application/json", advertised: "application/json" };
   return undefined;
 };
-
-const payloadTooLarge = (declaredByContentLength: boolean): AppError =>
-  new AppError({
-    status: 413,
-    code: "payload_too_large",
-    detail: "Request body too large",
-    ...(declaredByContentLength ? { source: { header: "Content-Length" } } : {}),
-  });
 
 export const httpPolicy = (): MiddlewareHandler<AppEnvironment> => {
   return async (c, next) => {
@@ -86,17 +77,7 @@ export const httpPolicy = (): MiddlewareHandler<AppEnvironment> => {
     }
 
     const maximumBytes = c.get("runtimeConfig").maximumRequestBytes;
-    await bodyLimit({
-      maxSize: maximumBytes,
-      onError: () => {
-        const declaredLength = c.req.header("Content-Length");
-        throw payloadTooLarge(
-          declaredLength !== undefined && /^\d+$/u.test(declaredLength) && Number(declaredLength) > maximumBytes,
-        );
-      },
-    })(c, async () => {
-      c.set("jsonApiBodyText", await precheckJsonApiBody(c.req.raw.clone(), maximumBytes));
-      await next();
-    });
+    c.set("jsonApiBodyText", await precheckJsonApiBody(c.req.raw.clone(), maximumBytes));
+    await next();
   };
 };

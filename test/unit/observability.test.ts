@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../src/app.ts";
-import { enterSpanWith, type SpanName, type Tracer } from "../../src/core/tracing.ts";
+import { enterSpanWith, type Tracer } from "../../src/core/tracing.ts";
 import type { RuntimeBindings } from "../../src/core/types.ts";
 import type { ProfileRepository } from "../../src/repositories/profile-repository.ts";
 
@@ -584,8 +584,8 @@ describe("structured application events", () => {
   });
 });
 
-describe("custom span wrapper", () => {
-  it("uses only the fixed names and preserves callback values", () => {
+describe("custom access span wrapper", () => {
+  it("uses the fixed access-verification name and preserves the callback value", () => {
     const names: string[] = [];
     const span = { isTraced: true, setAttribute: vi.fn() };
     const tracer: Tracer = {
@@ -594,17 +594,11 @@ describe("custom span wrapper", () => {
         return callback(span);
       },
     };
-    const spanNames = [
-      "access.verify",
-      "profile.service",
-      "profile.repository",
-      "response.validate",
-    ] as const satisfies readonly SpanName[];
 
-    const values = spanNames.map((name) => enterSpanWith(tracer, name, (activeSpan) => activeSpan?.isTraced));
+    const value = enterSpanWith(tracer, "access.verify", (activeSpan) => activeSpan?.isTraced);
 
-    expect(names).toEqual(spanNames);
-    expect(values).toEqual([true, true, true, true]);
+    expect(names).toEqual(["access.verify"]);
+    expect(value).toBe(true);
     expect(span.setAttribute).not.toHaveBeenCalled();
   });
 
@@ -618,13 +612,13 @@ describe("custom span wrapper", () => {
     };
 
     expect(() =>
-      enterSpanWith(tracer, "response.validate", () => {
+      enterSpanWith(tracer, "access.verify", () => {
         throw failure;
       }),
     ).toThrow(failure);
-    expect(enterSpanWith(undefined, "response.validate", (activeSpan) => activeSpan)).toBeUndefined();
+    expect(enterSpanWith(undefined, "access.verify", (activeSpan) => activeSpan)).toBeUndefined();
     expect(() =>
-      enterSpanWith(undefined, "response.validate", () => {
+      enterSpanWith(undefined, "access.verify", () => {
         throw failure;
       }),
     ).toThrow(failure);

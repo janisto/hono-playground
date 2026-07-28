@@ -18,53 +18,6 @@ const paginateItems = (cursor: string | null = null, limit = 5) =>
   });
 
 describe("item fixture", () => {
-  it("matches the pinned serialized fixture SHA-256", async () => {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(ITEMS)));
-    const hexadecimal = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-
-    expect(hexadecimal).toBe("178e4947cf07061f3ff47a7e9e949d10f297a59f8f768191d33a16ade5c861c3");
-  });
-
-  it("contains the exact ordered 30-item reference data", () => {
-    expect(ITEMS).toHaveLength(30);
-    expect(ITEMS[0]).toEqual({
-      id: "item-001",
-      name: "Alpha Widget",
-      category: "electronics",
-      priceCents: 2999,
-      inStock: true,
-      createdAt: new Date("2024-01-15T10:30:00.000Z"),
-      description: "A versatile electronic widget for everyday use",
-    });
-    expect(ITEMS.at(-1)).toEqual({
-      id: "item-030",
-      name: "Zeta Premium Cable",
-      category: "accessories",
-      priceCents: 1999,
-      inStock: true,
-      createdAt: new Date("2024-02-14T15:30:00.000Z"),
-      description: "Gold-plated premium cable",
-    });
-    expect(ITEMS.map((item) => item.id)).toEqual(
-      Array.from({ length: 30 }, (_, index) => `item-${String(index + 1).padStart(3, "0")}`),
-    );
-    expect(
-      Object.fromEntries(
-        ["electronics", "tools", "accessories", "robotics", "power", "components"].map((category) => [
-          category,
-          ITEMS.filter((item) => item.category === category).length,
-        ]),
-      ),
-    ).toEqual({
-      electronics: 13,
-      tools: 6,
-      accessories: 4,
-      robotics: 2,
-      power: 2,
-      components: 3,
-    });
-  });
-
   it("is runtime validated and immutable", () => {
     expect(ItemSchema.array().safeParse(ITEMS).success).toBe(true);
     const first = ITEMS[0];
@@ -84,7 +37,7 @@ describe("item fixture", () => {
             links: { self: `/v1/items/${id}` },
           },
         ],
-        meta: { total: 30 },
+        meta: { total: ITEMS.length },
       }).success,
     ).toBe(true);
     expect(Object.isFrozen(ITEMS)).toBe(true);

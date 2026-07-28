@@ -490,6 +490,7 @@ describe("OpenAPI 3.1 contract", () => {
     const paths = object(document.paths, "OpenAPI paths");
     const components = object(document.components, "OpenAPI components");
     const schemas = object(components.schemas, "OpenAPI schemas");
+    const { JsonApiMeta: jsonApiMeta } = schemas;
     const operations = operationEntries(document);
 
     expect(document.openapi).toBe("3.1.0");
@@ -534,6 +535,13 @@ describe("OpenAPI 3.1 contract", () => {
       },
       additionalProperties: { $ref: "#/components/schemas/JsonApiRequestLink" },
     });
+    expect(jsonApiMeta).toMatchObject({
+      type: "object",
+      propertyNames: {
+        type: "string",
+        pattern: "^[a-z][A-Za-z0-9]*$",
+      },
+    });
     expect(schemas.JsonApiRequestLinkObject).toMatchObject({
       type: "object",
       properties: {
@@ -555,7 +563,7 @@ describe("OpenAPI 3.1 contract", () => {
           anyOf: [
             {
               type: "string",
-              description: "RFC 5646 language tag",
+              description: "RFC 5646 language tag syntax",
               pattern: "^[A-Za-z0-9]{1,8}(?:-[A-Za-z0-9]{1,8})*$",
             },
             {
@@ -563,7 +571,7 @@ describe("OpenAPI 3.1 contract", () => {
               minItems: 1,
               items: {
                 type: "string",
-                description: "RFC 5646 language tag",
+                description: "RFC 5646 language tag syntax",
                 pattern: "^[A-Za-z0-9]{1,8}(?:-[A-Za-z0-9]{1,8})*$",
               },
             },

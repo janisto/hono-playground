@@ -13,8 +13,6 @@ export const JsonApiLinkSchema = z.string().min(1).refine(isUriReference, { erro
   format: "uri-reference",
 });
 
-export const JsonApiMetaSchema = z.record(z.string(), z.unknown()).openapi("JsonApiMeta");
-
 const JsonApiProfileUriSchema = z
   .string()
   .min(1)
@@ -29,15 +27,24 @@ const MEDIA_TYPE_PATTERN = new RegExp(
   String.raw`^${HTTP_TOKEN_PATTERN}/${HTTP_TOKEN_PATTERN}(?:[\t ]*;[\t ]*${HTTP_TOKEN_PATTERN}=(?:${HTTP_TOKEN_PATTERN}|${HTTP_QUOTED_STRING_PATTERN}))*$`,
   "u",
 );
-const LANGUAGE_TAG_STRUCTURE = /^[A-Za-z0-9]{1,8}(?:-[A-Za-z0-9]{1,8})*$/u;
-const isLanguageTag = (value: string): boolean => {
-  try {
-    Intl.getCanonicalLocales(value);
-    return true;
-  } catch {
-    return false;
-  }
+const LANGUAGE_TAG_SYNTAX = /^[A-Za-z0-9]{1,8}(?:-[A-Za-z0-9]{1,8})*$/u;
+
+const JsonApiMemberNameSchema = z
+  .string()
+  .regex(JSON_API_MEMBER_NAME, { error: "Invalid JSON:API member name" })
+  .openapi({ description: "ASCII lower camel case JSON:API member name", pattern: JSON_API_MEMBER_NAME.source });
+
+const jsonApiMetaOpenApi = {
+  description: "Metadata keyed by ASCII lower camel case member names",
+  propertyNames: {
+    type: "string",
+    pattern: JSON_API_MEMBER_NAME.source,
+  },
 };
+
+export const JsonApiMetaSchema = z
+  .record(JsonApiMemberNameSchema, z.unknown())
+  .openapi("JsonApiMeta", jsonApiMetaOpenApi);
 
 const JsonApiLinkRelationSchema = z
   .string()
@@ -60,13 +67,8 @@ const JsonApiLinkMediaTypeSchema = z
 
 const JsonApiLanguageTagSchema = z
   .string()
-  .refine(isLanguageTag, { error: "Invalid language tag" })
-  .openapi({ description: "RFC 5646 language tag", pattern: LANGUAGE_TAG_STRUCTURE.source });
-
-const JsonApiMemberNameSchema = z
-  .string()
-  .regex(JSON_API_MEMBER_NAME, { error: "Invalid JSON:API member name" })
-  .openapi({ description: "ASCII lower camel case JSON:API member name", pattern: JSON_API_MEMBER_NAME.source });
+  .regex(LANGUAGE_TAG_SYNTAX, { error: "Invalid language tag syntax" })
+  .openapi({ description: "RFC 5646 language tag syntax", pattern: LANGUAGE_TAG_SYNTAX.source });
 
 const JsonApiRequestLinkReference: z.ZodType = z.lazy(() => JsonApiRequestLinkSchema);
 

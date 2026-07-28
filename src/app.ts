@@ -222,7 +222,15 @@ export const createApp = (dependencies: AppDependencies = {}) => {
   app.use(
     "*",
     secureHeaders({
-      permissionsPolicy: {},
+      permissionsPolicy: {
+        accelerometer: [],
+        camera: [],
+        geolocation: [],
+        gyroscope: [],
+        microphone: [],
+        payment: [],
+        usb: [],
+      },
       referrerPolicy: "strict-origin-when-cross-origin",
       strictTransportSecurity: false,
       xFrameOptions: "DENY",
@@ -243,7 +251,7 @@ export const createApp = (dependencies: AppDependencies = {}) => {
   });
 
   app.openapi(healthRoute, (c) => {
-    const body = enterSpan("response.validate", () => HealthResponseSchema.parse({ status: "healthy" }));
+    const body = HealthResponseSchema.parse({ status: "healthy" });
     return c.json(body, 200);
   });
 
@@ -275,16 +283,14 @@ export const createApp = (dependencies: AppDependencies = {}) => {
       throw error;
     }
 
-    const body = enterSpan("response.validate", () =>
-      ItemCollectionDocumentSchema.parse({
-        jsonapi: JSON_API_OBJECT,
-        links: {
-          ...result.links,
-        },
-        data: result.items.map(itemResource),
-        meta: { total: result.total },
-      }),
-    );
+    const body = ItemCollectionDocumentSchema.parse({
+      jsonapi: JSON_API_OBJECT,
+      links: {
+        ...result.links,
+      },
+      data: result.items.map(itemResource),
+      meta: { total: result.total },
+    });
     return jsonApiResponse(c.json(body, 200));
   });
 
@@ -294,15 +300,13 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     if (item === undefined) {
       throw new AppError({ status: 404, code: "not_found", detail: "Item not found" });
     }
-    const body = enterSpan("response.validate", () =>
-      ItemDocumentSchema.parse({
-        jsonapi: JSON_API_OBJECT,
-        links: {
-          self: `/v1/items/${item.id}`,
-        },
-        data: itemResource(item),
-      }),
-    );
+    const body = ItemDocumentSchema.parse({
+      jsonapi: JSON_API_OBJECT,
+      links: {
+        self: `/v1/items/${item.id}`,
+      },
+      data: itemResource(item),
+    });
     return jsonApiResponse(c.json(body, 200));
   });
 
@@ -311,10 +315,8 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     if (subject === undefined) throw internalError();
     const auditOwner = await profileAuditOwner(c, subject);
     const service = profileService(c, dependencies);
-    const profile = await enterSpan("profile.service", () =>
-      enterSpan("profile.repository", () => service.create(subject, c.req.valid("json").data.attributes)),
-    );
-    const body = enterSpan("response.validate", () => profileDocument(profile));
+    const profile = await service.create(subject, c.req.valid("json").data.attributes);
+    const body = profileDocument(profile);
     const response = jsonApiResponse(c.json(body, 201));
     response.headers.set("Location", "/v1/profiles/current");
     console.log({
@@ -333,10 +335,8 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     const subject = c.get("identitySubject");
     if (subject === undefined) throw internalError();
     const service = profileService(c, dependencies);
-    const profile = await enterSpan("profile.service", () =>
-      enterSpan("profile.repository", () => service.get(subject)),
-    );
-    const body = enterSpan("response.validate", () => profileDocument(profile));
+    const profile = await service.get(subject);
+    const body = profileDocument(profile);
     return jsonApiResponse(c.json(body, 200));
   });
 
@@ -353,10 +353,8 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     }
     const auditOwner = await profileAuditOwner(c, subject);
     const service = profileService(c, dependencies);
-    const profile = await enterSpan("profile.service", () =>
-      enterSpan("profile.repository", () => service.update(subject, input.attributes ?? {})),
-    );
-    const body = enterSpan("response.validate", () => profileDocument(profile));
+    const profile = await service.update(subject, input.attributes ?? {});
+    const body = profileDocument(profile);
     console.log({
       schema_version: 1,
       event: "profile.audit",
@@ -374,7 +372,7 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     if (subject === undefined) throw internalError();
     const auditOwner = await profileAuditOwner(c, subject);
     const service = profileService(c, dependencies);
-    await enterSpan("profile.service", () => enterSpan("profile.repository", () => service.delete(subject)));
+    await service.delete(subject);
     console.log({
       schema_version: 1,
       event: "profile.audit",

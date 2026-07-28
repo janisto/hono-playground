@@ -485,7 +485,7 @@ Repeat the staging process with `just plan prod` and `just deploy prod` from
 the exact approved revision. Freeze concurrent changes, explicitly accept the
 D1/Worker partial-failure boundary, and inspect a second plan after deployment.
 
-Pinned Alchemy `2.0.0-beta.64` ties version-preview URLs to its `url` property
+Pinned Alchemy `2.0.0-beta.65` ties version-preview URLs to its `url` property
 and ignores a separate `subdomain.previewsEnabled` input. This repository sets
 `url: false`, which disables both direct surfaces in the pinned provider.
 Verify both settings live and reassess this behavior on every Alchemy upgrade.

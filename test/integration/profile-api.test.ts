@@ -207,12 +207,12 @@ describe("JSON:API profile resources", () => {
       jsonapi: { version: "1.1", profile: [...JSON_API_PROFILES], meta: { clientVersion: true } },
       links: {
         self: {
-          href: "/client-document",
+          href: "https://[V1.fe]/client-document",
           rel: "https://example.test/relations/document",
           describedby: {
             href: "/client-schema",
             type: "application/schema+json",
-            hreflang: ["en", "fi-FI"],
+            hreflang: ["en", "x-private", "i-klingon"],
           },
           title: "Client document",
           meta: { clientLink: true },
@@ -255,7 +255,7 @@ describe("JSON:API profile resources", () => {
               self: {
                 href: "/client-resource",
                 type: 'application/vnd.api+json;profile="https://example.test/profiles"',
-                hreflang: "en-US",
+                hreflang: "zh-min-nan",
               },
             },
             meta: { clientResource: true },
@@ -347,6 +347,15 @@ describe("JSON:API profile resources", () => {
         links: { "bad/key": null },
       },
       "/links/bad~1key",
+    ],
+    [
+      "POST top-level meta member name",
+      PROFILES_PATH,
+      {
+        ...createDocument(validCreateAttributes),
+        meta: { "bad/key": true },
+      },
+      "/meta/bad~1key",
     ],
     [
       "PATCH jsonapi version",

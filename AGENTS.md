@@ -145,8 +145,8 @@ fixed deployment input unless the user explicitly changes it; do not substitute
 - `infra/config.ts` is the compatibility-date source of truth. Set it to the
   newest date supported by every pinned execution path, not automatically to
   today's date or the newest date accepted by Cloudflare's hosted edge. With
-  the current lock, Alchemy `2.0.0-beta.64` resolves
-  `@distilled.cloud/cloudflare-runtime@0.13.8` and its
+  the current lock, Alchemy `2.0.0-beta.65` resolves
+  `@distilled.cloud/cloudflare-runtime@0.13.10` and its
   `workerd@1.20260704.1`; that local binary accepts compatibility dates only
   through `2026-07-11`, so the project date is `2026-07-11`.
 - Before changing dependencies or the date, query the accepted live registry

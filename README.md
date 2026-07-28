@@ -10,7 +10,7 @@ Hosted documentation:
 ## Stack
 
 - Hono `4.12.32` routes requests and generates OpenAPI 3.1.
-- Alchemy `2.0.0-beta.64` owns Worker development, infrastructure, bindings,
+- Alchemy `2.0.0-beta.65` owns Worker development, infrastructure, bindings,
   secrets, state, and deployment.
 - Drizzle ORM and Drizzle Kit `1.0.0-rc.4` own database access and migration
   generation.
@@ -141,7 +141,7 @@ bindings are real, stage-isolated Cloudflare resources. Development therefore
 requires Cloudflare authentication, can create remote state, and does not
 delete that state when the watcher stops. The source pins compatibility date
 `2026-07-11`, the newest date accepted by the local workerd nested under
-Alchemy `2.0.0-beta.64`; the hosted edge supports newer dates, but selecting
+Alchemy `2.0.0-beta.65`; the hosted edge supports newer dates, but selecting
 one would break this development command. Use the Vitest and Playwright suites
 for secretless local validation. Infrastructure accepts only `prod`,
 `staging`, and Alchemy's personal `dev_<name>` stages; a typo or pull-request

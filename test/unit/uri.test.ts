@@ -12,6 +12,7 @@ describe("RFC 3986 URI validation", () => {
     "https://user:password@example.test:8443/profiles/current",
     "https://[2001:db8::1]/profiles/current",
     "https://[v1.fe]/profiles/current",
+    "https://[V1.fe]/profiles/current",
     "relative:first-segment",
     "urn:oasis:names:specification:docbook:dtd:xml:4.1.2",
   ])("accepts the URI reference %j", (value) => {

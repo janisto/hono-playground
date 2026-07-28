@@ -598,6 +598,16 @@ describe("JSON:API body preconditions and ordering", () => {
     });
   });
 
+  it("accepts a body exactly at the configured byte limit before schema validation", async () => {
+    const response = await profileRequest("{}", {}, 2);
+
+    await expectJsonApiError(response, {
+      status: 422,
+      code: "validation_failed",
+      detail: "Invalid value type",
+    });
+  });
+
   it("identifies Content-Length when the declared body size exceeds the limit", async () => {
     const response = await profileRequest(
       "{}",

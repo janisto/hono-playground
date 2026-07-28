@@ -1,6 +1,5 @@
 import { and, eq, ne, or, type SQL } from "drizzle-orm";
 import { type DrizzleD1Database, drizzle } from "drizzle-orm/d1";
-import { z } from "zod";
 
 import type { OperatorCode } from "../core/errors.ts";
 import { type NewProfileRow, type ProfileRow, profiles } from "../db/schema.ts";
@@ -19,18 +18,6 @@ export const TRANSIENT_D1_ERROR_MESSAGES = [
 ] as const;
 
 const transientD1ErrorMessages = new Set<string>(TRANSIENT_D1_ERROR_MESSAGES);
-
-const StoredProfileSchema = z.strictObject({
-  id: z.string(),
-  firstName: z.string(),
-  lastName: z.string(),
-  email: z.string(),
-  phoneNumber: z.string(),
-  marketingOptIn: z.boolean(),
-  termsAccepted: z.literal(true),
-  createdAt: z.date(),
-  updatedAt: z.date(),
-});
 
 export interface ProfileRepository {
   create(id: string, input: ProfileCreate, timestamp: Date): Promise<Profile | undefined>;
@@ -91,25 +78,8 @@ const repositoryError = (error: unknown): ProfileRepositoryError => {
 };
 
 const profileFromRow = (value: unknown): Profile => {
-  const stored = StoredProfileSchema.safeParse(value);
-  if (!stored.success) throw new ProfileRepositoryError();
-
-  const row = stored.data;
-  const profile = ProfileSchema.safeParse({
-    id: row.id,
-    firstName: row.firstName,
-    lastName: row.lastName,
-    email: row.email,
-    phoneNumber: row.phoneNumber,
-    marketingOptIn: row.marketingOptIn,
-    termsAccepted: row.termsAccepted,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  });
+  const profile = ProfileSchema.safeParse(value);
   if (!profile.success) throw new ProfileRepositoryError();
-  if (profile.data.email !== row.email || profile.data.phoneNumber !== row.phoneNumber) {
-    throw new ProfileRepositoryError();
-  }
   return profile.data;
 };
 

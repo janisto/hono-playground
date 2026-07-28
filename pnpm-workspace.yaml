@@ -9,7 +9,7 @@ trustLockfile: false
 blockExoticSubdeps: true
 peerDependencyRules:
   allowedVersions:
-    '@distilled.cloud/cloudflare': 0.30.1
+    '@distilled.cloud/cloudflare': 0.30.2
 allowBuilds:
   '@scarf/scarf': false
   esbuild: true
@@ -17,11 +17,11 @@ allowBuilds:
   sharp: false
   workerd: true
 minimumReleaseAgeExclude:
-  - '@distilled.cloud/cloudflare@0.30.1'
+  - '@distilled.cloud/cloudflare@0.30.2'
   - '@effect/platform-node@4.0.0-beta.102'
   - '@cloudflare/vitest-pool-workers@0.18.8'
   - '@cloudflare/workers-types@5.20260727.1'
-  - alchemy@2.0.0-beta.64
+  - alchemy@2.0.0-beta.65
   - drizzle-kit@1.0.0-rc.4
   - drizzle-orm@1.0.0-rc.4
   - effect@4.0.0-beta.102
