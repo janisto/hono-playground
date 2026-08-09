@@ -10,16 +10,16 @@ importers:
     dependencies:
       '@hono/swagger-ui':
         specifier: 0.6.1
-        version: 0.6.1(hono@4.12.32)
+        version: 0.6.1(hono@4.12.34)
       '@hono/zod-openapi':
         specifier: 1.5.1
-        version: 1.5.1(hono@4.12.32)(zod@4.4.3)
+        version: 1.5.1(hono@4.12.34)(zod@4.4.3)
       drizzle-orm:
         specifier: 1.0.0-rc.4
         version: 1.0.0-rc.4(@cloudflare/workers-types@5.20260727.1)(@effect/sql-d1@4.0.0-beta.102(effect@4.0.0-beta.102))(@libsql/client@0.17.4)(effect@4.0.0-beta.102)(mysql2@3.23.1(@types/node@24.13.3))(pg@8.22.0)(zod@4.4.3)
       hono:
-        specifier: 4.12.32
-        version: 4.12.32
+        specifier: 4.12.34
+        version: 4.12.34
       jose:
         specifier: 6.2.4
         version: 6.2.4
@@ -100,7 +100,9 @@ packages:
   '@aws-sdk/core@3.977.0':
     resolution: {integrity: sha512-w+iANjPGOj4fHxWeyjfRt+xeRX8BIOVStqdTcMebfeIJicTiBTMAbQurQuVfAxHpUfsoV+fWaEQvGpO6IWifLQ==}
     engines: {node: '>=20.0.0'}
-    deprecated: Deprecated due to a bug in JSON exponent notation (e.g. ECS timestamps). Upgrade to @aws-sdk/core@3.977.1. https://github.com/aws/aws-sdk-js-v3/issues/8224
+    deprecated: |-
+      Deprecated due to Document number parsing bug in JSON, see
+        https://github.com/aws/aws-sdk-js-v3/issues/8246. Newer version available.
 
   '@aws-sdk/credential-provider-cognito-identity@3.972.60':
     resolution: {integrity: sha512-16Fxa3veKIO6nHJr+vN76z3BkSU7725lzruc5S2SQSTUTbK4TXtmi8033WQljZj4k1+383UsMaNOHN6B76fK5A==}
@@ -1968,8 +1970,8 @@ packages:
     resolution: {integrity: sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ==}
     engines: {node: '>=8'}
 
-  hono@4.12.32:
-    resolution: {integrity: sha512-XcuyW9qE2kJn07PkecMOBd5Vq/hMy7mmGw+idz1yblbg9N17ijJODrvPkn7/dwL3Kulj8LcRJ69DLOWf91dRUg==}
+  hono@4.12.34:
+    resolution: {integrity: sha512-GqXJqY/xJkJmuloTrnV1ZEXG3fqte+VjkUqoRNZXcrUidiUOP4fMSIHHY4tsqZBK++kVyWmt/AAfSUuy57/eSA==}
     engines: {node: '>=16.9.0'}
 
   html-escaper@2.0.2:
@@ -3453,21 +3455,21 @@ snapshots:
   '@esbuild/win32-x64@0.28.1':
     optional: true
 
-  '@hono/swagger-ui@0.6.1(hono@4.12.32)':
+  '@hono/swagger-ui@0.6.1(hono@4.12.34)':
     dependencies:
-      hono: 4.12.32
+      hono: 4.12.34
 
-  '@hono/zod-openapi@1.5.1(hono@4.12.32)(zod@4.4.3)':
+  '@hono/zod-openapi@1.5.1(hono@4.12.34)(zod@4.4.3)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 8.5.0(zod@4.4.3)
-      '@hono/zod-validator': 0.9.0(hono@4.12.32)(zod@4.4.3)
-      hono: 4.12.32
+      '@hono/zod-validator': 0.9.0(hono@4.12.34)(zod@4.4.3)
+      hono: 4.12.34
       openapi3-ts: 4.6.0
       zod: 4.4.3
 
-  '@hono/zod-validator@0.9.0(hono@4.12.32)(zod@4.4.3)':
+  '@hono/zod-validator@0.9.0(hono@4.12.34)(zod@4.4.3)':
     dependencies:
-      hono: 4.12.32
+      hono: 4.12.34
       zod: 4.4.3
 
   '@img/colour@1.1.0': {}
@@ -4394,7 +4396,7 @@ snapshots:
 
   has-flag@4.0.0: {}
 
-  hono@4.12.32: {}
+  hono@4.12.34: {}
 
   html-escaper@2.0.2: {}
 
