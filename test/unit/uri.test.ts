@@ -5,7 +5,7 @@ import { isAbsoluteUri, isUriReference } from "../../src/core/uri.ts";
 describe("RFC 3986 URI validation", () => {
   it.each([
     "",
-    "/v1/profiles/current",
+    "/v1/profile",
     "../profiles/current?include=items#contact",
     "//example.test/profiles/current",
     "https://example.test/profiles/current",

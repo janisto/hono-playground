@@ -3,10 +3,16 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context, MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
-
 import {
+  githubOwnerRepositoriesRoute,
+  githubOwnerRoute,
+  githubRepositoryActivityRoute,
+  githubRepositoryLanguagesRoute,
+  githubRepositoryRoute,
+  githubRepositoryTagsRoute,
   healthRoute,
-  itemGetRoute,
+  helloGetRoute,
+  helloPostRoute,
   itemsRoute,
   profileDeleteRoute,
   profileGetRoute,
@@ -15,6 +21,8 @@ import {
 } from "./api/routes.ts";
 import { ACCESS_ASSERTION_HEADER, createAccessVerifier } from "./auth/access.ts";
 import type { AccessVerifier } from "./auth/types.ts";
+import { readBoundedJsonBody } from "./core/body.ts";
+import { selectProblemContentType } from "./core/content-negotiation.ts";
 import { auditPseudonym } from "./core/crypto.ts";
 import {
   AppError,
@@ -33,18 +41,36 @@ import { enterSpan } from "./core/tracing.ts";
 import type { AppEnvironment } from "./core/types.ts";
 import { ITEMS } from "./data/items.ts";
 import { renderSwaggerUiBody, SWAGGER_UI_VERSION } from "./docs/swagger.ts";
+import {
+  GitHubActivityPageSchema,
+  GitHubLanguagesSchema,
+  GitHubOwnerSchema,
+  GitHubRepositoryPageSchema,
+  GitHubRepositorySchema,
+  GitHubTagPageSchema,
+} from "./models/github.ts";
 import { HealthResponseSchema } from "./models/health.ts";
-import { type Item, ItemCollectionDocumentSchema, ItemDocumentSchema, type ItemResource } from "./models/items.ts";
-import { JSON_API_MEDIA_TYPE, JSON_API_OBJECT } from "./models/json-api.ts";
+import { GreetingSchema } from "./models/hello.ts";
+import { type Item, ItemCollectionDocumentSchema, type ItemResource } from "./models/items.ts";
+import {
+  JSON_API_MEDIA_TYPE,
+  JSON_API_OBJECT,
+  JsonApiIncludedSchema,
+  JsonApiRelationshipsSchema,
+} from "./models/json-api.ts";
 import { type Profile, ProfileDocumentSchema, type ProfileResource } from "./models/profile.ts";
-import { InvalidCursorError, MAX_CURSOR_LENGTH } from "./pagination/cursor.ts";
+import { InvalidCursorError } from "./pagination/cursor.ts";
+import { buildGitHubTarget, serializeLinkHeader } from "./pagination/link.ts";
 import { paginate } from "./pagination/paginate.ts";
 import { DrizzleProfileRepository, type ProfileRepository } from "./repositories/profile-repository.ts";
+import { GitHubClient, type GitHubClientOptions } from "./services/github-client.ts";
+import { GitHubService } from "./services/github-service.ts";
 import { ProfileService } from "./services/profile-service.ts";
 
 export type AppDependencies = {
   accessVerifier?: AccessVerifier;
   profileRepositoryFactory?: (c: Context<AppEnvironment>) => ProfileRepository;
+  githubClientOptions?: GitHubClientOptions;
   now?: () => Date;
   maximumRequestBytes?: number;
 };
@@ -64,19 +90,20 @@ const profileService = (c: Context<AppEnvironment>, dependencies: AppDependencie
     ? new ProfileService(createRepository(c, dependencies))
     : new ProfileService(createRepository(c, dependencies), dependencies.now);
 
-const accessMiddleware = (dependencies: AppDependencies): MiddlewareHandler<AppEnvironment> => {
-  return async (c, next) => {
+const accessMiddleware =
+  (dependencies: AppDependencies): MiddlewareHandler<AppEnvironment> =>
+  async (c, next) => {
     const verifier =
       dependencies.accessVerifier ??
-      createAccessVerifier({
-        teamDomain: c.env.ACCESS_TEAM_DOMAIN,
-        audience: c.env.ACCESS_AUD,
-      });
-    const identity = await enterSpan("access.verify", () => verifier(c.req.header(ACCESS_ASSERTION_HEADER)));
+      createAccessVerifier({ teamDomain: c.env.ACCESS_TEAM_DOMAIN, audience: c.env.ACCESS_AUD });
+    const assertion = c.req.header(ACCESS_ASSERTION_HEADER);
+    if (assertion === undefined || assertion.length === 0 || assertion.includes(",")) {
+      throw new AppError({ code: "forbidden", source: { header: ACCESS_ASSERTION_HEADER } });
+    }
+    const identity = await enterSpan("access.verify", () => verifier(assertion));
     c.set("identitySubject", identity.sub);
     await next();
   };
-};
 
 const profileLimiter: MiddlewareHandler<AppEnvironment> = async (c, next) => {
   const subject = c.get("identitySubject");
@@ -85,18 +112,20 @@ const profileLimiter: MiddlewareHandler<AppEnvironment> = async (c, next) => {
   await next();
 };
 
-const strictJsonBody: MiddlewareHandler<AppEnvironment> = async (c, next) => {
-  if (c.req.method !== "POST" && c.req.method !== "PATCH") {
+const strictBody: MiddlewareHandler<AppEnvironment> = async (c, next) => {
+  const headers = c.get("bodyHeaders");
+  if (headers === undefined) {
     await next();
     return;
   }
-  const text = c.get("jsonApiBodyText");
-  if (text === undefined) throw internalError("runtime_configuration_invalid");
+  const text = await readBoundedJsonBody(c.req.raw, c.get("runtimeConfig").maximumRequestBytes, headers);
   try {
     assertStrictJsonText(text);
   } catch {
     throw invalidJsonError();
   }
+  Object.assign(c.req.bodyCache, { text: Promise.resolve(text) });
+  c.set("bodyText", text);
   await next();
 };
 
@@ -117,15 +146,7 @@ const jsonApiResponse = <T extends Response>(response: T): T => {
 
 const itemResource = (item: Item): ItemResource => {
   const { id, createdAt, ...attributes } = item;
-  return {
-    type: "items",
-    id,
-    attributes: {
-      ...attributes,
-      createdAt: createdAt.toISOString(),
-    },
-    links: { self: `/v1/items/${id}` },
-  };
+  return { type: "items", id, attributes: { ...attributes, createdAt: createdAt.toISOString() } };
 };
 
 const profileResource = (profile: Profile): ProfileResource => {
@@ -133,88 +154,74 @@ const profileResource = (profile: Profile): ProfileResource => {
   return {
     type: "profiles",
     id,
-    attributes: {
-      ...attributes,
-      createdAt: createdAt.toISOString(),
-      updatedAt: updatedAt.toISOString(),
-    },
-    links: { self: "/v1/profiles/current" },
+    attributes: { ...attributes, createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString() },
+    links: { self: "/v1/profile" },
   };
 };
 
 const profileDocument = (profile: Profile) =>
   ProfileDocumentSchema.parse({
     jsonapi: JSON_API_OBJECT,
-    links: {
-      self: "/v1/profiles/current",
-    },
+    links: { self: "/v1/profile" },
     data: profileResource(profile),
   });
 
-const hasUnrecognizedKey = (
-  error: {
-    readonly issues: readonly {
-      readonly code: string;
-      readonly path: readonly PropertyKey[];
-      readonly keys?: readonly string[];
-    }[];
-  },
-  path: readonly PropertyKey[],
-  key: string,
-): boolean =>
-  error.issues.some(
-    (issue) =>
-      issue.code === "unrecognized_keys" &&
-      issue.path.length === path.length &&
-      issue.path.every((segment, index) => segment === path[index]) &&
-      issue.keys?.includes(key) === true,
-  );
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
-const hasOwnMemberAt = (value: unknown, path: readonly PropertyKey[]): boolean => {
-  let current = value;
-  for (const segment of path) {
-    if (typeof current !== "object" || current === null || !Object.hasOwn(current, segment)) {
-      return false;
-    }
-    current = Reflect.get(current, segment);
+const parsedBody = (c: Context<AppEnvironment>): unknown => {
+  const text = c.get("bodyText");
+  if (text === undefined) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw invalidJsonError();
   }
-  return true;
 };
 
+const profileProtocolRules = (document: unknown, method: "POST" | "PATCH", subject?: string): void => {
+  if (!isObject(document)) return;
+  if (JsonApiIncludedSchema.safeParse(document["included"]).success) {
+    throw new AppError({ code: "relationships_unsupported" });
+  }
+  const data = document["data"];
+  if (!isObject(data)) return;
+  if (JsonApiRelationshipsSchema.safeParse(data["relationships"]).success) {
+    throw new AppError({ code: "relationships_unsupported" });
+  }
+  if (method === "POST" && Object.hasOwn(data, "id")) {
+    throw new AppError({ code: "client_generated_id_unsupported" });
+  }
+  if (typeof data["type"] === "string" && data["type"] !== "profiles") {
+    throw new AppError({ code: "profile_resource_mismatch" });
+  }
+  if (method === "PATCH" && typeof data["id"] === "string" && subject !== undefined && data["id"] !== subject) {
+    throw new AppError({ code: "profile_resource_mismatch" });
+  }
+};
+
+const githubLink = (
+  path: string,
+  limit: number,
+  result: Readonly<{ nextCursor?: string; prevCursor?: string }>,
+): string | undefined =>
+  serializeLinkHeader({
+    ...(result.nextCursor === undefined ? {} : { next: buildGitHubTarget(path, limit, result.nextCursor) }),
+    ...(result.prevCursor === undefined ? {} : { prev: buildGitHubTarget(path, limit, result.prevCursor) }),
+  });
+
 export const createApp = (dependencies: AppDependencies = {}) => {
+  const githubService = new GitHubService(new GitHubClient(dependencies.githubClientOptions));
   const app = new OpenAPIHono<AppEnvironment>({
     strict: true,
     defaultHook: async (result, c) => {
-      if (!result.success) {
-        const pathname = new URL(c.req.url).pathname;
-        const document = result.target === "json" ? await c.req.json<unknown>() : undefined;
-        if (
-          c.req.method === "POST" &&
-          pathname === "/v1/profiles" &&
-          hasOwnMemberAt(document, ["data", "id"]) &&
-          hasUnrecognizedKey(result.error, ["data"], "id")
-        ) {
-          throw new AppError({
-            status: 403,
-            code: "client_generated_id_unsupported",
-            detail: "Client-generated profile IDs are not supported",
-          });
-        }
-        if (
-          pathname.startsWith("/v1/profiles") &&
-          hasOwnMemberAt(document, ["data", "type"]) &&
-          result.error.issues.some(
-            (issue) => issue.path.length === 2 && issue.path[0] === "data" && issue.path[1] === "type",
-          )
-        ) {
-          throw new AppError({
-            status: 409,
-            code: "resource_type_mismatch",
-            detail: "Resource type does not match endpoint",
-          });
-        }
-        throw zodValidationError(result.error, result.target === "query" ? "query" : "body", document);
+      if (result.success) return;
+      const target = result.target === "param" ? "path" : result.target === "query" ? "query" : "body";
+      const document = result.target === "json" ? parsedBody(c) : undefined;
+      if (result.target === "json" && new URL(c.req.url).pathname === "/v1/profile") {
+        profileProtocolRules(document, c.req.method === "POST" ? "POST" : "PATCH", c.get("identitySubject"));
       }
+      throw zodValidationError(result.error, target, document);
     },
   });
 
@@ -238,10 +245,10 @@ export const createApp = (dependencies: AppDependencies = {}) => {
   );
   app.use("*", runtimeConfiguration(dependencies.maximumRequestBytes));
   app.use("*", httpPolicy());
-  app.use("/v1/profiles/*", accessMiddleware(dependencies));
-  app.use("/v1/profiles/*", profileLimiter);
-  app.use("/v1/profiles", strictJsonBody);
-  app.use("/v1/profiles/current", strictJsonBody);
+  app.use("/v1/hello", strictBody);
+  app.use("/v1/profile/*", accessMiddleware(dependencies));
+  app.use("/v1/profile/*", profileLimiter);
+  app.use("/v1/profile/*", strictBody);
 
   app.openAPIRegistry.registerComponent("securitySchemes", "CloudflareAccess", {
     type: "apiKey",
@@ -250,75 +257,53 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     description: "Cloudflare Access browser session cookie.",
   });
 
-  app.openapi(healthRoute, (c) => {
-    const body = HealthResponseSchema.parse({ status: "healthy" });
-    return c.json(body, 200);
+  app.openapi(healthRoute, (c) => c.json(HealthResponseSchema.parse({ status: "healthy" }), 200));
+  app.openapi(helloGetRoute, (c) => c.json(GreetingSchema.parse({ message: "Hello, World!" }), 200));
+  app.openapi(helloPostRoute, (c) => {
+    const { name } = c.req.valid("json");
+    return c.json(GreetingSchema.parse({ message: `Hello, ${name}!` }), 200);
   });
 
   app.openapi(itemsRoute, (c) => {
     const query = c.req.valid("query");
-    const cursor = query["page[cursor]"];
     const category = query["filter[category]"];
-    const limit = query["page[limit]"];
-    if (cursor !== undefined && cursor.length > MAX_CURSOR_LENGTH) {
-      throw new AppError({ status: 400, code: "invalid_cursor", detail: "Invalid cursor" });
-    }
+    const cursor = query["page[cursor]"];
     const filtered = category === undefined ? ITEMS : ITEMS.filter((item) => item.category === category);
-
     let result: ReturnType<typeof paginate<(typeof ITEMS)[number]>>;
     try {
       result = paginate({
         items: filtered,
-        ...(cursor === undefined ? {} : { cursor }),
-        limit,
-        cursorType: "item",
+        limit: query["page[limit]"],
         getId: (item) => item.id,
         basePath: "/v1/items",
+        suppliedLimit: c.get("parsedQuery").has("page[limit]"),
+        ...(cursor === undefined ? {} : { cursor }),
         ...(category === undefined ? {} : { category }),
       });
     } catch (error) {
-      if (error instanceof InvalidCursorError) {
-        throw new AppError({ status: 400, code: "invalid_cursor", detail: "Invalid cursor" });
-      }
+      if (error instanceof InvalidCursorError)
+        throw new AppError({ code: "invalid_request", source: { parameter: "page[cursor]" } });
       throw error;
     }
-
     const body = ItemCollectionDocumentSchema.parse({
       jsonapi: JSON_API_OBJECT,
-      links: {
-        ...result.links,
-      },
+      links: result.links,
       data: result.items.map(itemResource),
       meta: { total: result.total },
     });
-    return jsonApiResponse(c.json(body, 200));
-  });
-
-  app.openapi(itemGetRoute, (c) => {
-    const { itemId } = c.req.valid("param");
-    const item = ITEMS.find((candidate) => candidate.id === itemId);
-    if (item === undefined) {
-      throw new AppError({ status: 404, code: "not_found", detail: "Item not found" });
-    }
-    const body = ItemDocumentSchema.parse({
-      jsonapi: JSON_API_OBJECT,
-      links: {
-        self: `/v1/items/${item.id}`,
-      },
-      data: itemResource(item),
-    });
-    return jsonApiResponse(c.json(body, 200));
+    const response = jsonApiResponse(c.json(body, 200));
+    if (result.linkHeader !== undefined) response.headers.set("Link", result.linkHeader);
+    return response;
   });
 
   app.openapi(profilePostRoute, async (c) => {
     const subject = c.get("identitySubject");
     if (subject === undefined) throw internalError();
+    profileProtocolRules(parsedBody(c), "POST", subject);
     const auditOwner = await profileAuditOwner(c, subject);
-    const service = profileService(c, dependencies);
-    const profile = await service.create(subject, c.req.valid("json").data.attributes);
-    const body = profileDocument(profile);
-    const response = jsonApiResponse(c.json(body, 201));
-    response.headers.set("Location", "/v1/profiles/current");
+    const profile = await profileService(c, dependencies).create(subject, c.req.valid("json").data.attributes);
+    const response = jsonApiResponse(c.json(profileDocument(profile), 201));
+    response.headers.set("Location", "/v1/profile");
     console.log({
       schema_version: 1,
       event: "profile.audit",
@@ -334,27 +319,15 @@ export const createApp = (dependencies: AppDependencies = {}) => {
   app.openapi(profileGetRoute, async (c) => {
     const subject = c.get("identitySubject");
     if (subject === undefined) throw internalError();
-    const service = profileService(c, dependencies);
-    const profile = await service.get(subject);
-    const body = profileDocument(profile);
-    return jsonApiResponse(c.json(body, 200));
+    return jsonApiResponse(c.json(profileDocument(await profileService(c, dependencies).get(subject)), 200));
   });
 
   app.openapi(profilePatchRoute, async (c) => {
     const subject = c.get("identitySubject");
     if (subject === undefined) throw internalError();
-    const input = c.req.valid("json").data;
-    if (input.id !== subject) {
-      throw new AppError({
-        status: 409,
-        code: "resource_identity_mismatch",
-        detail: "Resource ID does not match the current profile",
-      });
-    }
+    profileProtocolRules(parsedBody(c), "PATCH", subject);
     const auditOwner = await profileAuditOwner(c, subject);
-    const service = profileService(c, dependencies);
-    const profile = await service.update(subject, input.attributes ?? {});
-    const body = profileDocument(profile);
+    const profile = await profileService(c, dependencies).update(subject, c.req.valid("json").data.attributes);
     console.log({
       schema_version: 1,
       event: "profile.audit",
@@ -364,15 +337,14 @@ export const createApp = (dependencies: AppDependencies = {}) => {
       request_id: c.get("requestId"),
       ...(auditOwner === undefined ? {} : { owner: auditOwner }),
     });
-    return jsonApiResponse(c.json(body, 200));
+    return jsonApiResponse(c.json(profileDocument(profile), 200));
   });
 
   app.openapi(profileDeleteRoute, async (c) => {
     const subject = c.get("identitySubject");
     if (subject === undefined) throw internalError();
     const auditOwner = await profileAuditOwner(c, subject);
-    const service = profileService(c, dependencies);
-    await service.delete(subject);
+    await profileService(c, dependencies).delete(subject);
     console.log({
       schema_version: 1,
       event: "profile.audit",
@@ -385,12 +357,75 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     return c.body(null, 204);
   });
 
+  app.openapi(githubOwnerRoute, async (c) => {
+    const { owner } = c.req.valid("param");
+    return c.json(GitHubOwnerSchema.parse(await githubService.getOwner(owner, c.req.raw.signal)), 200);
+  });
+
+  app.openapi(githubOwnerRepositoriesRoute, async (c) => {
+    const { owner } = c.req.valid("param");
+    const { limit, cursor } = c.req.valid("query");
+    const result = await githubService.listOwnerRepositories(
+      owner,
+      { limit, ...(cursor === undefined ? {} : { cursor }) },
+      c.req.raw.signal,
+    );
+    const response = c.json(GitHubRepositoryPageSchema.parse({ repos: result.items, count: result.items.length }), 200);
+    const link = githubLink(`/v1/github/owners/${owner}/repos`, limit, result);
+    if (link !== undefined) response.headers.set("Link", link);
+    return response;
+  });
+
+  app.openapi(githubRepositoryRoute, async (c) => {
+    const { owner, repo } = c.req.valid("param");
+    return c.json(GitHubRepositorySchema.parse(await githubService.getRepository(owner, repo, c.req.raw.signal)), 200);
+  });
+
+  app.openapi(githubRepositoryActivityRoute, async (c) => {
+    const { owner, repo } = c.req.valid("param");
+    const { limit, cursor } = c.req.valid("query");
+    const result = await githubService.listRepositoryActivity(
+      owner,
+      repo,
+      { limit, ...(cursor === undefined ? {} : { cursor }) },
+      c.req.raw.signal,
+    );
+    const response = c.json(
+      GitHubActivityPageSchema.parse({ activities: result.items, count: result.items.length }),
+      200,
+    );
+    const link = githubLink(`/v1/github/repos/${owner}/${repo}/activity`, limit, result);
+    if (link !== undefined) response.headers.set("Link", link);
+    return response;
+  });
+
+  app.openapi(githubRepositoryLanguagesRoute, async (c) => {
+    const { owner, repo } = c.req.valid("param");
+    const languages = await githubService.listRepositoryLanguages(owner, repo, c.req.raw.signal);
+    return c.json(GitHubLanguagesSchema.parse({ languages }), 200);
+  });
+
+  app.openapi(githubRepositoryTagsRoute, async (c) => {
+    const { owner, repo } = c.req.valid("param");
+    const { limit, cursor } = c.req.valid("query");
+    const result = await githubService.listRepositoryTags(
+      owner,
+      repo,
+      { limit, ...(cursor === undefined ? {} : { cursor }) },
+      c.req.raw.signal,
+    );
+    const response = c.json(GitHubTagPageSchema.parse({ tags: result.items, count: result.items.length }), 200);
+    const link = githubLink(`/v1/github/repos/${owner}/${repo}/tags`, limit, result);
+    if (link !== undefined) response.headers.set("Link", link);
+    return response;
+  });
+
   const openApiDocument = app.getOpenAPI31Document({
     openapi: "3.1.0",
     info: {
       title: "Hono Playground",
       version: "0.1.0",
-      description: "Cloudflare Workers REST API using Hono, Alchemy, Drizzle, and JSON:API.",
+      description: "Cloudflare Workers portable API using Hono, Alchemy, Drizzle, and JSON:API.",
     },
     servers: [{ url: "/" }],
   });
@@ -408,11 +443,11 @@ export const createApp = (dependencies: AppDependencies = {}) => {
 
   app.notFound((c) => {
     c.set("outcome", "not_found");
-    const error = new AppError({ status: 404, code: "not_found", detail: "Not Found" });
+    const error = new AppError({ code: "not_found" });
     const pathname = new URL(c.req.url).pathname;
-    return pathname === "/v1" || pathname.startsWith("/v1/")
+    return pathname === "/v1/profile" || pathname.startsWith("/v1/profile/")
       ? jsonApiErrorResponse(error, c.req.method)
-      : problemResponse(error, c.req.method);
+      : problemResponse(error, c.req.method, selectProblemContentType(c.req.header("Accept") ?? null));
   });
 
   app.onError((error, c) => {
@@ -442,9 +477,9 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     }
     const pathname = new URL(c.req.url).pathname;
     const metadata = resolveRoute(pathname, c.req.method).metadata;
-    return isJsonApiRoute(metadata) || pathname === "/v1" || pathname.startsWith("/v1/")
+    return isJsonApiRoute(metadata) || pathname === "/v1/profile" || pathname.startsWith("/v1/profile/")
       ? jsonApiErrorResponse(normalized, c.req.method)
-      : problemResponse(normalized, c.req.method);
+      : problemResponse(normalized, c.req.method, selectProblemContentType(c.req.header("Accept") ?? null));
   });
 
   return app;

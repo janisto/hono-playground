@@ -8,23 +8,10 @@ import {
 
 export type ProfileClock = () => Date;
 
-const profileNotFound = (): AppError => new AppError({ status: 404, code: "not_found", detail: "Profile not found" });
-
-const profileConflict = (): AppError =>
-  new AppError({
-    status: 409,
-    code: "profile_conflict",
-    detail: "Profile already exists",
-  });
-
-const databaseUnavailable = (retryAfter: boolean): AppError =>
-  new AppError({
-    status: 503,
-    code: "database_unavailable",
-    detail: "Database temporarily unavailable",
-    ...(retryAfter ? { headers: { "Retry-After": "1" } } : {}),
-    operatorCode: "profile_database_unavailable",
-  });
+const notFound = (): AppError => new AppError({ code: "profile_not_found" });
+const exists = (): AppError => new AppError({ code: "profile_exists" });
+const unavailable = (): AppError =>
+  new AppError({ code: "dependency_unavailable", operatorCode: "profile_database_unavailable" });
 
 export class ProfileService {
   readonly #repository: ProfileRepository;
@@ -37,45 +24,45 @@ export class ProfileService {
 
   async create(subject: string, input: ProfileCreate): Promise<Profile> {
     const profile = await this.#repositoryCall(() => this.#repository.create(subject, input, this.#timestamp()));
-    if (profile === undefined) throw profileConflict();
+    if (profile === undefined) throw exists();
     return profile;
   }
 
   async get(subject: string): Promise<Profile> {
-    const profile = await this.#repositoryCall(() => this.#repository.get(subject), true);
-    if (profile === undefined) throw profileNotFound();
+    const profile = await this.#repositoryCall(() => this.#repository.get(subject));
+    if (profile === undefined) throw notFound();
     return profile;
   }
 
   async update(subject: string, input: ProfileUpdate): Promise<Profile> {
-    if (Object.keys(input).length === 0) return this.get(subject);
-
-    const profile = await this.#repositoryCall(() => this.#repository.update(subject, input, this.#timestamp()), true);
-    if (profile === undefined) throw profileNotFound();
+    const profile = await this.#repositoryCall(() => this.#repository.update(subject, input, this.#timestamp()));
+    if (profile === undefined) throw notFound();
     return profile;
   }
 
   async delete(subject: string): Promise<void> {
-    const deleted = await this.#repositoryCall(() => this.#repository.delete(subject));
-    if (!deleted) throw profileNotFound();
+    if (!(await this.#repositoryCall(() => this.#repository.delete(subject)))) throw notFound();
   }
 
   #timestamp(): Date {
     try {
-      const timestamp = this.#now();
-      if (!Number.isFinite(timestamp.getTime())) throw new TypeError("Invalid clock");
+      const source = this.#now();
+      const value = source.getTime();
+      if (!Number.isFinite(value) || value < 0 || value > 253_402_300_799_999) throw new TypeError("invalid clock");
+      const timestamp = new Date(Math.trunc(value));
+      if (!/^[0-9]{4}-/u.test(timestamp.toISOString())) throw new TypeError("clock outside timestamp domain");
       return timestamp;
     } catch {
       throw internalError();
     }
   }
 
-  async #repositoryCall<T>(operation: () => Promise<T>, retryAfter = false): Promise<T> {
+  async #repositoryCall<T>(operation: () => Promise<T>): Promise<T> {
     try {
       return await operation();
     } catch (error) {
       if (error instanceof AppError) throw error;
-      if (error instanceof ProfileRepositoryUnavailableError) throw databaseUnavailable(retryAfter);
+      if (error instanceof ProfileRepositoryUnavailableError) throw unavailable();
       if (error instanceof ProfileRepositoryError) throw internalError(error.operatorCode);
       throw internalError();
     }

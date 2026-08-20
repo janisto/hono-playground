@@ -36,9 +36,9 @@ identity.
 - **Ingress:** Use an Alchemy-managed custom hostname inside
   `hono-playground.dev`. Disable the stable `workers.dev` URL and version
   previews. Protect profile routes with an Access application for the exact
-  hostname and the `v1/profiles` path, plus a reviewed allow policy. Keep the
-  path populated so public health, item, OpenAPI, and documentation routes do
-  not inherit Access authentication.
+  hostname and the `v1/profile` path, plus a reviewed allow policy. Keep the
+  path populated so public health, hello, item, GitHub, OpenAPI, and
+  documentation routes do not inherit Access authentication.
 - **Runtime:** Use the compatibility date in `infra/config.ts`. Select the
   newest date supported by every pinned local and hosted execution path; do not
   infer support from the hosted edge alone.
@@ -189,7 +189,7 @@ as defense in depth.
 
 Create the production inputs only after the production Access application
 exists. Configure it for the exact `hono-playground.dev` hostname and
-`v1/profiles` path with the reviewed allow policy and Cloudflare identity
+`v1/profile` path with the reviewed allow policy and Cloudflare identity
 provider. Enable Instant Auth and `HttpOnly`, keep Binding Cookie disabled,
 then copy the application's exact team domain and audience.
 
@@ -340,8 +340,9 @@ After every staging or production deployment:
   routine Cloudflare-managed certificate;
 - inspect the D1 identity, jurisdiction, replication mode, schema, migration
   ledger, Query Insights, and recovery availability;
-- verify the documented media type and contract for `/health`,
-  `/v1/items`, `/openapi.json`, and `/api-docs`, and confirm `/.env`,
+- verify the documented media type and contract for `/health`, both
+  `/v1/hello` methods, `/v1/items`, all six `/v1/github` operations,
+  `/openapi.json`, and `/api-docs`, and confirm `/.env`,
   `/.env.dev`, `/.env.staging`, `/.env.prod`, and `/.git/HEAD` return safe RFC
   9457 `404` documents;
 - load `/api-docs` in a real browser and require the pinned assets and OpenAPI
@@ -399,17 +400,18 @@ Profile routes fail closed in the Worker unless the Access assertion verifies
 with RS256, the exact issuer and audience, required time claims, `type=app`,
 and a bounded subject.
 
-Set the Access application's optional Path field to `v1/profiles`; Cloudflare's
-UI omits the leading slash. That scope protects both `/v1/profiles` and its
+Set the Access application's optional Path field to `v1/profile`; Cloudflare's
+UI omits the leading slash. That scope protects both `/v1/profile` and its
 descendants unless a more-specific Access application overrides it. Do not
 leave the field empty: an empty path protects every route on the hostname,
-including `/health`, `/v1/items`, `/openapi.json`, and `/api-docs`.
+including `/health`, `/v1/hello`, `/v1/items`, `/v1/github`, `/openapi.json`,
+and `/api-docs`.
 
 The Worker Custom Domain already sends every path on the hostname to the same
 Worker, so adding a Hono route does not require another DNS record, Worker
 route, or custom domain. The Worker must independently apply Access assertion
 verification and profile-specific rate limiting through the verified Hono
-`/v1/profiles/*` middleware scope, which covers the collection root and its
+`/v1/profile/*` middleware scope, which covers the singleton root and its
 descendants. Body validation remains route-specific. Before deploying a
 protected route family outside the profile namespace, add a reviewed Access
 destination or application and matching Worker authentication middleware.
@@ -419,7 +421,7 @@ Before production:
 1. Use the fixed `hono-playground.dev` custom hostname. Direct `workers.dev`
    and version-preview ingress remain disabled.
 2. Create or verify the self-hosted Access application for the exact custom
-   hostname and `v1/profiles` path, with an exact reviewed allow policy.
+   hostname and `v1/profile` path, with an exact reviewed allow policy.
 3. Set `WORKER_DOMAIN=hono-playground.dev`; Alchemy attaches it to the Worker
    during deployment and Cloudflare infers the existing zone.
 4. Read back the hostname/path scope, audience, policy order, identity
@@ -435,7 +437,7 @@ Cloudflare Access `sub` is unique to an email address within an account, but
 Cloudflare assigns a different value after a user is removed and re-added.
 Revoking or deprovisioning an Access user stops authentication; it does not
 delete the profile owned by the old subject in D1. The authenticated
-`DELETE /v1/profiles/current` route supports self-service erasure while the
+`DELETE /v1/profile` route supports self-service erasure while the
 identity is active. Do not switch ownership to mutable or recyclable email
 addresses.
 

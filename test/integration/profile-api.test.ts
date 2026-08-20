@@ -6,13 +6,16 @@ import { createApp } from "../../src/app.ts";
 import { AccessConfigurationError, AccessJwksUnavailableError, InvalidAccessTokenError } from "../../src/auth/types.ts";
 import type { RuntimeBindings } from "../../src/core/types.ts";
 import type { Profile } from "../../src/models/profile.ts";
-import type { ProfileRepository } from "../../src/repositories/profile-repository.ts";
+import {
+  type ProfileRepository,
+  ProfileRepositoryUnavailableError,
+} from "../../src/repositories/profile-repository.ts";
 
 const JSON_API_MEDIA_TYPE = "application/vnd.api+json";
 const JSON_API_PROFILES = ["https://example.test/profile", "urn:example:profile"] as const;
 const PROFILED_JSON_API_MEDIA_TYPE = `${JSON_API_MEDIA_TYPE};profile="${JSON_API_PROFILES.join(" ")}"`;
-const CURRENT_PROFILE_PATH = "/v1/profiles/current";
-const PROFILES_PATH = "/v1/profiles";
+const CURRENT_PROFILE_PATH = "/v1/profile";
+const PROFILES_PATH = "/v1/profile";
 
 const subject = (): string => `profile-api-${crypto.randomUUID()}`;
 const trackedSubjects = new Set<string>();
@@ -78,7 +81,7 @@ const updateDocument = (id: string, attributes?: Record<string, unknown>, extraD
 const validCreateAttributes = {
   firstName: "Ada",
   lastName: "Lovelace",
-  email: " ADA@example.com ",
+  contactEmail: " ADA@example.com ",
   phoneNumber: " +358401234567 ",
   termsAccepted: true,
 };
@@ -87,7 +90,7 @@ const storedProfile = (id: string): Profile => ({
   id,
   firstName: "Ada",
   lastName: "Lovelace",
-  email: "ada@example.com",
+  contactEmail: "Ada@example.com",
   phoneNumber: "+358401234567",
   marketingOptIn: false,
   termsAccepted: true,
@@ -115,7 +118,7 @@ describe("JSON:API profile resources", () => {
       profileRepositoryFactory,
     });
 
-    const response = await request(app, "/v1/profiles/export", {
+    const response = await request(app, "/v1/profile/export", {
       headers: { Accept: JSON_API_MEDIA_TYPE },
     });
 
@@ -125,13 +128,12 @@ describe("JSON:API profile resources", () => {
       errors: [
         {
           status: "403",
-          code: "access_assertion_invalid",
+          code: "forbidden",
           source: { header: "Cf-Access-Jwt-Assertion" },
         },
       ],
     });
-    expect(verify).toHaveBeenCalledOnce();
-    expect(verify).toHaveBeenCalledWith(undefined);
+    expect(verify).not.toHaveBeenCalled();
     expect(profileRepositoryFactory).not.toHaveBeenCalled();
   });
 
@@ -271,7 +273,7 @@ describe("JSON:API profile resources", () => {
       owner,
       {
         ...validCreateAttributes,
-        email: "ada@example.com",
+        contactEmail: "ADA@example.com",
         marketingOptIn: false,
         phoneNumber: "+358401234567",
       },
@@ -424,7 +426,7 @@ describe("JSON:API profile resources", () => {
     ],
   ] as const)(
     "rejects malformed standard member values for %s without writing",
-    async (_name, path, document, pointer) => {
+    async (name, path, document, pointer) => {
       const create = vi.fn(async () => storedProfile("malformed-standard-members-owner"));
       const update = vi.fn(async () => storedProfile("malformed-standard-members-owner"));
       const app = createApp({
@@ -437,7 +439,7 @@ describe("JSON:API profile resources", () => {
         }),
       });
 
-      const response = await request(app, path, jsonApiRequest(path === PROFILES_PATH ? "POST" : "PATCH", document));
+      const response = await request(app, path, jsonApiRequest(name.startsWith("POST") ? "POST" : "PATCH", document));
 
       expect(response.status).toBe(422);
       await expect(response.json()).resolves.toMatchObject({
@@ -455,20 +457,12 @@ describe("JSON:API profile resources", () => {
   );
 
   it.each([
-    [
-      "invalid assertion",
-      new InvalidAccessTokenError(),
-      403,
-      "Access assertion is missing or invalid",
-      undefined,
-      undefined,
-      undefined,
-    ],
+    ["invalid assertion", new InvalidAccessTokenError(), 403, "Access is forbidden", undefined, undefined, undefined],
     [
       "JWKS outage",
       new AccessJwksUnavailableError(),
       503,
-      "Authentication service unavailable",
+      "A required dependency is unavailable",
       "Retry-After",
       "30",
       "access_jwks_unavailable",
@@ -477,7 +471,7 @@ describe("JSON:API profile resources", () => {
       "verifier configuration",
       new AccessConfigurationError(),
       500,
-      "Internal Server Error",
+      "Internal server error",
       undefined,
       undefined,
       "access_verifier_configuration_invalid",
@@ -568,9 +562,9 @@ describe("JSON:API profile resources", () => {
     expect(response.status).toBe(400);
     expect(document.errors[0]).toMatchObject({
       status: "400",
-      code: "invalid_query_parameter",
-      source: { parameter: "unknown" },
+      code: "invalid_request",
     });
+    expect(document.errors[0]).not.toHaveProperty("source");
     expect(JSON.stringify(document)).not.toContain("sensitive-marker");
     expect(profileRepository.create).not.toHaveBeenCalled();
     expect(profileRepository.get).not.toHaveBeenCalled();
@@ -583,6 +577,7 @@ describe("JSON:API profile resources", () => {
     trackedSubjects.add(owner);
     const times = [
       new Date("2026-07-22T10:00:00.000Z"),
+      new Date("2026-07-22T10:15:00.000Z"),
       new Date("2026-07-22T10:30:00.000Z"),
       new Date("2026-07-22T11:00:00.000Z"),
     ];
@@ -609,7 +604,7 @@ describe("JSON:API profile resources", () => {
         attributes: {
           firstName: "Ada",
           lastName: "Lovelace",
-          email: "ada@example.com",
+          contactEmail: "ADA@example.com",
           phoneNumber: "+358401234567",
           marketingOptIn: false,
           termsAccepted: true,
@@ -629,7 +624,7 @@ describe("JSON:API profile resources", () => {
           ...validCreateAttributes,
           firstName: "Grace",
           lastName: "Hopper",
-          email: "grace@example.com",
+          contactEmail: "grace@example.com",
         }),
       ),
     );
@@ -638,7 +633,7 @@ describe("JSON:API profile resources", () => {
       errors: [
         {
           status: "409",
-          code: "profile_conflict",
+          code: "profile_exists",
           detail: "Profile already exists",
         },
       ],
@@ -658,7 +653,11 @@ describe("JSON:API profile resources", () => {
     expect(head.headers.get("Content-Type")).toBe(JSON_API_MEDIA_TYPE);
     expect(await head.text()).toBe("");
 
-    const noOpPatch = await request(app, CURRENT_PROFILE_PATH, jsonApiRequest("PATCH", updateDocument(owner)));
+    const noOpPatch = await request(
+      app,
+      CURRENT_PROFILE_PATH,
+      jsonApiRequest("PATCH", updateDocument(owner, { firstName: "Ada" })),
+    );
     expect(noOpPatch.status).toBe(200);
     await expect(noOpPatch.json()).resolves.toEqual(initial);
 
@@ -686,6 +685,7 @@ describe("JSON:API profile resources", () => {
     });
     expect(deleted.status).toBe(204);
     expect(deleted.headers.get("Content-Type")).toBeNull();
+    expect(deleted.headers.get("Content-Length")).toBeNull();
     expect(await deleted.text()).toBe("");
 
     const missing = await request(app, CURRENT_PROFILE_PATH, {
@@ -693,6 +693,58 @@ describe("JSON:API profile resources", () => {
     });
     expect(missing.status).toBe(404);
     expect(times).toHaveLength(0);
+  });
+
+  it("returns no false success after an unconfirmed write and reconciles through GET", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const owner = "unconfirmed-write-owner";
+    let current = storedProfile(owner);
+    const update = vi.fn(async () => {
+      current = {
+        ...current,
+        firstName: "Grace",
+        updatedAt: new Date("2026-07-22T12:01:00.000Z"),
+      };
+      throw new ProfileRepositoryUnavailableError();
+    });
+    const repository: ProfileRepository = {
+      create: vi.fn(async () => undefined),
+      get: vi.fn(async () => current),
+      update,
+      delete: vi.fn(async () => false),
+    };
+    const app = createApp({
+      accessVerifier: async () => ({ sub: owner }),
+      profileRepositoryFactory: () => repository,
+      now: () => new Date("2026-07-22T12:01:00.000Z"),
+    });
+
+    const failed = await request(
+      app,
+      CURRENT_PROFILE_PATH,
+      jsonApiRequest(
+        "PATCH",
+        updateDocument(owner, {
+          firstName: "Grace",
+        }),
+      ),
+    );
+    expect(failed.status).toBe(503);
+    expect(failed.headers.get("Retry-After")).toBeNull();
+    await expect(failed.json()).resolves.toMatchObject({
+      errors: [{ status: "503", code: "dependency_unavailable", detail: "A required dependency is unavailable" }],
+    });
+    expect(update).toHaveBeenCalledTimes(1);
+
+    const reconciled = await request(app, CURRENT_PROFILE_PATH, { headers: authenticatedHeaders() });
+    expect(reconciled.status).toBe(200);
+    await expect(reconciled.json()).resolves.toMatchObject({
+      data: {
+        id: owner,
+        attributes: { firstName: "Grace", updatedAt: "2026-07-22T12:01:00.000Z" },
+      },
+    });
   });
 
   it("enforces method, negotiation, origin, and content policy before authentication", async () => {
@@ -704,14 +756,14 @@ describe("JSON:API profile resources", () => {
       headers: { Accept: JSON_API_MEDIA_TYPE },
     });
     expect(collectionMethod.status).toBe(405);
-    expect(collectionMethod.headers.get("Allow")).toBe("POST");
+    expect(collectionMethod.headers.get("Allow")).toBe("POST, GET, HEAD, PATCH, DELETE");
 
     const resourceMethod = await request(app, CURRENT_PROFILE_PATH, {
       method: "OPTIONS",
       headers: { Accept: JSON_API_MEDIA_TYPE },
     });
     expect(resourceMethod.status).toBe(405);
-    expect(resourceMethod.headers.get("Allow")).toBe("GET, HEAD, PATCH, DELETE");
+    expect(resourceMethod.headers.get("Allow")).toBe("POST, GET, HEAD, PATCH, DELETE");
 
     const unacceptable = await request(app, PROFILES_PATH, {
       method: "POST",
@@ -727,6 +779,7 @@ describe("JSON:API profile resources", () => {
       headers: { Accept: JSON_API_MEDIA_TYPE, Origin: "https://attacker.invalid" },
     });
     expect(crossOrigin.status).toBe(403);
+    expect(crossOrigin.headers.get("Vary")).toBe("Accept, Origin");
     await expect(crossOrigin.json()).resolves.toMatchObject({
       errors: [{ source: { header: "Origin" } }],
     });
@@ -748,6 +801,7 @@ describe("JSON:API profile resources", () => {
       method: "POST",
       headers: {
         Accept: JSON_API_MEDIA_TYPE,
+        "Content-Length": "64",
         "Content-Type": JSON_API_MEDIA_TYPE,
       },
       body: JSON.stringify({ data: { value: "larger than thirty-two bytes" } }),
@@ -841,7 +895,7 @@ describe("JSON:API profile resources", () => {
       PROFILES_PATH,
       "POST",
       createDocument({ ...validCreateAttributes, first_name: "legacy" }),
-      "/data/attributes/first_name",
+      "/data/attributes",
     ],
     [
       "patch explicit null",
@@ -855,7 +909,7 @@ describe("JSON:API profile resources", () => {
       CURRENT_PROFILE_PATH,
       "PATCH",
       updateDocument("strict-shape-subject", { termsAccepted: true }),
-      "/data/attributes/termsAccepted",
+      "/data/attributes",
     ],
     [
       "patch caller timestamp",
@@ -864,7 +918,7 @@ describe("JSON:API profile resources", () => {
       updateDocument("strict-shape-subject", {
         updatedAt: "2026-07-22T12:00:00.000Z",
       }),
-      "/data/attributes/updatedAt",
+      "/data/attributes",
     ],
   ])(
     "rejects strict camelCase resource attributes without coercion: %s",
@@ -903,9 +957,6 @@ describe("JSON:API profile resources", () => {
 
   it("caps adversarial validation output without echoing submitted values or touching storage", async () => {
     const privateValue = "private-validation-value-marker";
-    const unknownAttributes = Object.fromEntries(
-      Array.from({ length: 100 }, (_, index) => [`unknown${String(index).padStart(3, "0")}`, privateValue]),
-    );
     const profileRepository: ProfileRepository = {
       create: vi.fn(async () => undefined),
       get: vi.fn(async () => undefined),
@@ -920,9 +971,14 @@ describe("JSON:API profile resources", () => {
     const response = await request(
       app,
       PROFILES_PATH,
-      jsonApiRequest("POST", createDocument({ ...validCreateAttributes, ...unknownAttributes }), {
-        "Cf-Access-Jwt-Assertion": "test",
-      }),
+      jsonApiRequest(
+        "POST",
+        {
+          ...createDocument(validCreateAttributes),
+          jsonapi: { version: "1.1", profile: Array.from({ length: 40 }, () => privateValue) },
+        },
+        { "Cf-Access-Jwt-Assertion": "test" },
+      ),
     );
     const document = (await response.json()) as {
       errors: Array<{ status: string; code: string; detail: string }>;
@@ -991,7 +1047,7 @@ describe("JSON:API profile resources", () => {
         },
       },
       409,
-      "resource_type_mismatch",
+      "profile_resource_mismatch",
     ],
     [
       "wrong update type",
@@ -1005,7 +1061,7 @@ describe("JSON:API profile resources", () => {
         },
       },
       409,
-      "resource_type_mismatch",
+      "profile_resource_mismatch",
     ],
     [
       "wrong update ID",
@@ -1013,7 +1069,7 @@ describe("JSON:API profile resources", () => {
       "PATCH",
       updateDocument("another-subject", { firstName: "Grace" }),
       409,
-      "resource_identity_mismatch",
+      "profile_resource_mismatch",
     ],
     [
       "oversized wrong update ID",
@@ -1021,7 +1077,7 @@ describe("JSON:API profile resources", () => {
       "PATCH",
       updateDocument("x".repeat(129), { firstName: "Grace" }),
       409,
-      "resource_identity_mismatch",
+      "profile_resource_mismatch",
     ],
   ])("implements JSON:API identity conflict semantics: %s", async (_name, path, method, document, status, code) => {
     const profileRepository: ProfileRepository = {
@@ -1072,7 +1128,7 @@ describe("JSON:API profile resources", () => {
   });
 
   it.each([
-    [{ email: "ADA@EXAMPLE.COM" }, "ADA@EXAMPLE.COM"],
+    [{ contactEmail: "ADA@EXAMPLE.COM" }, "ADA@example.com"],
     [{ phoneNumber: " +358401234567 " }, "+358401234567"],
   ])("rejects output that would require request normalization", async (override, marker) => {
     const corruptRepository: ProfileRepository = {

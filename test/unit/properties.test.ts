@@ -3,12 +3,12 @@ import { describe, expect, it } from "vitest";
 
 import { parseRuntimeConfig } from "../../src/core/config.ts";
 import { accepts } from "../../src/core/content-negotiation.ts";
-import { requireSameOriginForUnsafeProfile } from "../../src/core/origin.ts";
+import { requireTrustedOriginForUnsafeProfile } from "../../src/core/origin.ts";
 import { requestId } from "../../src/core/request-context.ts";
 import type { RuntimeBindings } from "../../src/core/types.ts";
 import { ProfileCreateSchema } from "../../src/models/profile.ts";
 import { decodeCursor, encodeCursor, InvalidCursorError } from "../../src/pagination/cursor.ts";
-import { buildPaginationLinks } from "../../src/pagination/link.ts";
+import { buildItemTarget } from "../../src/pagination/link.ts";
 
 const TEST_BINDINGS = {
   DB: {} as D1Database,
@@ -19,37 +19,31 @@ const TEST_BINDINGS = {
 const safeCharacters = [..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-"];
 const alphanumericCharacters = [..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"];
 
-describe("bounded contract properties", () => {
-  it("round-trips bounded Unicode cursor values through canonical Base64URL", () => {
-    const cursorType = fc
-      .array(fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz"), { minLength: 1, maxLength: 12 })
-      .map((characters) => characters.join(""));
-    const cursorValue = fc
-      .array(fc.constantFrom("a", "Z", "0", ":", " ", "é", "漢", "🙂"), {
-        minLength: 1,
-        maxLength: 24,
-      })
-      .map((characters) => characters.join(""));
-
+describe("bounded portable contract properties", () => {
+  it("round-trips canonical cursor state through unpadded Base64URL", () => {
     fc.assert(
-      fc.property(cursorType, cursorValue, (type, value) => {
-        const encoded = encodeCursor(type, value);
-        expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/);
-        expect(decodeCursor(encoded)).toEqual({ cursorType: type, value });
-      }),
+      fc.property(
+        fc.stringMatching(/^[a-z]{1,20}$/u),
+        fc.stringMatching(/^[A-Za-z0-9:-]{1,40}$/u),
+        (operation, anchor) => {
+          const state = { version: 1, operation, direction: "next", limit: 20, anchor };
+          const encoded = encodeCursor(state);
+          expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/u);
+          expect(decodeCursor(encoded)).toEqual(state);
+        },
+      ),
       { numRuns: 150 },
     );
   });
 
-  it("rejects any generated cursor containing a non-Base64URL alphabet character", () => {
+  it("rejects a generated cursor after any non-Base64URL insertion", () => {
     fc.assert(
       fc.property(
-        fc.stringMatching(/^[a-z]{1,12}$/u),
         fc.stringMatching(/^[A-Za-z0-9:-]{1,40}$/u),
-        fc.constantFrom("!", " ", "+", "/", "%"),
+        fc.constantFrom("!", " ", "+", "/", "%", "="),
         fc.nat(),
-        (type, value, invalidCharacter, requestedIndex) => {
-          const encoded = encodeCursor(type, value);
+        (anchor, invalidCharacter, requestedIndex) => {
+          const encoded = encodeCursor({ version: 1, operation: "listItems", anchor });
           const index = requestedIndex % (encoded.length + 1);
           const malformed = `${encoded.slice(0, index)}${invalidCharacter}${encoded.slice(index)}`;
           expect(() => decodeCursor(malformed)).toThrow(InvalidCursorError);
@@ -59,42 +53,27 @@ describe("bounded contract properties", () => {
     );
   });
 
-  it("keeps generated pagination links ordered, relative, and duplicate-free", () => {
+  it("keeps generated item links relative and duplicate-free", () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 1, max: 100 }),
         fc.constantFrom("electronics", "tools", "accessories", "robotics", "power", "components"),
-        fc.integer({ min: 1, max: 30 }),
-        fc.integer({ min: 1, max: 30 }),
-        (limit, category, nextItem, previousItem) => {
-          const next = encodeCursor("item", `item-${String(nextItem).padStart(3, "0")}`);
-          const previous = encodeCursor("item", `item-${String(previousItem).padStart(3, "0")}`);
-          const links = buildPaginationLinks(
-            "/v1/items",
-            { filterCategory: category, pageLimit: String(limit) },
-            null,
-            next,
-            previous,
-          );
-          for (const [target, cursor] of [
-            [links.next, next],
-            [links.prev, previous],
-          ] as const) {
-            if (target === undefined) throw new Error("Generated pagination link is missing");
-            const url = new URL(target, "https://worker.example");
-            expect(url.origin).toBe("https://worker.example");
-            expect(url.pathname).toBe("/v1/items");
-            expect(url.searchParams.getAll("filter[category]")).toEqual([category]);
-            expect(url.searchParams.getAll("page[limit]")).toEqual([String(limit)]);
-            expect(url.searchParams.getAll("page[cursor]")).toEqual([cursor]);
-          }
+        fc.stringMatching(/^[A-Za-z0-9_-]{1,80}$/u),
+        (limit, category, cursor) => {
+          const target = buildItemTarget("/v1/items", { limit, category, cursor });
+          const url = new URL(target, "https://worker.example");
+          expect(url.origin).toBe("https://worker.example");
+          expect(url.pathname).toBe("/v1/items");
+          expect(url.searchParams.getAll("filter[category]")).toEqual([category]);
+          expect(url.searchParams.getAll("page[limit]")).toEqual([String(limit)]);
+          expect(url.searchParams.getAll("page[cursor]")).toEqual([cursor]);
         },
       ),
       { numRuns: 150 },
     );
   });
 
-  it("preserves every bounded safe request ID and replaces arbitrary unsafe values", () => {
+  it("preserves bounded request IDs and replaces arbitrary unsafe values", () => {
     const safeId = fc
       .tuple(
         fc.constantFrom(...alphanumericCharacters),
@@ -107,12 +86,11 @@ describe("bounded contract properties", () => {
       }),
       { numRuns: 150 },
     );
-
     fc.assert(
       fc.property(
         fc.string({ maxLength: 180 }).filter((candidate) => !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(candidate)),
         (candidate) => {
-          expect(requestId(candidate)).toMatch(/^[0-9a-f]{32}$/);
+          expect(requestId(candidate)).toMatch(/^[0-9a-f]{32}$/u);
         },
       ),
       { numRuns: 150 },
@@ -130,36 +108,31 @@ describe("bounded contract properties", () => {
     expect(accepts("application/json;q=0", "application/json")).toBe(false);
   });
 
-  it("uses lexical exact-origin equality for generated HTTPS origins", () => {
-    const label = fc
-      .array(fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789"), {
-        minLength: 1,
-        maxLength: 24,
-      })
-      .map((characters) => characters.join(""));
-
+  it("uses exact trusted HTTPS-origin equality", () => {
     fc.assert(
-      fc.property(label, (hostLabel) => {
+      fc.property(fc.stringMatching(/^[a-z0-9]{1,24}$/u), (hostLabel) => {
         const origin = `https://${hostLabel}.example`;
         expect(() =>
-          requireSameOriginForUnsafeProfile(
-            new Request(`${origin}/v1/profiles`, { method: "POST", headers: { Origin: origin } }),
+          requireTrustedOriginForUnsafeProfile(
+            new Request(`${origin}/v1/profile`, { method: "POST", headers: { Origin: origin } }),
+            origin,
           ),
         ).not.toThrow();
         expect(() =>
-          requireSameOriginForUnsafeProfile(
-            new Request(`${origin}/v1/profiles`, {
+          requireTrustedOriginForUnsafeProfile(
+            new Request(`${origin}/v1/profile`, {
               method: "POST",
               headers: { Origin: `https://${hostLabel}.invalid` },
             }),
+            origin,
           ),
-        ).toThrow("origin_not_allowed");
+        ).toThrow("forbidden");
       }),
       { numRuns: 100 },
     );
   });
 
-  it("rejects arbitrary unsupported runtime modes instead of defaulting", () => {
+  it("rejects unsupported runtime modes instead of defaulting", () => {
     fc.assert(
       fc.property(
         fc.string({ maxLength: 32 }).filter((value) => !["none", "workers-binding"].includes(value)),
@@ -173,7 +146,7 @@ describe("bounded contract properties", () => {
     );
   });
 
-  it("accepts only ASCII E.164 digits and counts profile names by code point", () => {
+  it("accepts only ASCII E.164 digits and counts names by Unicode scalar", () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 1, max: 9 }),
@@ -183,7 +156,7 @@ describe("bounded contract properties", () => {
           const base = {
             firstName: "🙂".repeat(100),
             lastName: "Lovelace",
-            email: "ada@example.com",
+            contactEmail: "Ada@example.com",
             phoneNumber: `+${digits}`,
             termsAccepted: true,
           };
@@ -203,7 +176,7 @@ describe("bounded contract properties", () => {
 
   it.each([
     ["simple@example.com", true, "simple@example.com"],
-    [" USER+tag@EXAMPLE.COM ", true, "user+tag@example.com"],
+    [" User+tag@EXAMPLE.COM ", true, "User+tag@example.com"],
     ["a@b.co", true, "a@b.co"],
     ["plainaddress", false, undefined],
     ["user@example", false, undefined],
@@ -213,15 +186,15 @@ describe("bounded contract properties", () => {
     ["user@[192.0.2.1]", false, undefined],
     ["δοκιμή@example.com", false, undefined],
     ["user..dots@example.com", false, undefined],
-  ])("freezes the pinned Zod email corpus for %s", (email, accepted, normalized) => {
+  ])("pins portable contact-email handling for %s", (contactEmail, accepted, normalized) => {
     const result = ProfileCreateSchema.safeParse({
       firstName: "Ada",
       lastName: "Lovelace",
-      email,
+      contactEmail,
       phoneNumber: "+12025550123",
       termsAccepted: true,
     });
     expect(result.success).toBe(accepted);
-    if (result.success) expect(result.data.email).toBe(normalized);
+    if (result.success) expect(result.data.contactEmail).toBe(normalized);
   });
 });

@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, customFetch, errors, type JWTPayload, type JWTVerifyGetKey, jwtVerify } from "jose";
 
+import { isWellFormedUnicode, scalarLength } from "../models/portable.ts";
 import {
   AccessConfigurationError,
   AccessJwksUnavailableError,
@@ -145,8 +146,9 @@ function validateVerifiedClaims(payload: AccessJwtPayload, now: Date): VerifiedA
     iat > now.getTime() / 1_000 + ACCESS_CLOCK_TOLERANCE_SECONDS ||
     payload.type !== "app" ||
     typeof sub !== "string" ||
-    sub.trim().length === 0 ||
-    sub.length > MAX_ACCESS_SUBJECT_LENGTH
+    scalarLength(sub) === 0 ||
+    scalarLength(sub) > MAX_ACCESS_SUBJECT_LENGTH ||
+    !isWellFormedUnicode(sub)
   ) {
     throw new InvalidAccessTokenError();
   }
@@ -171,7 +173,7 @@ export function createAccessVerifier(
       : createRemoteKeyResolver(config, dependencies.fetch));
 
   return async (assertion) => {
-    if (typeof assertion !== "string" || assertion.length === 0) {
+    if (typeof assertion !== "string" || assertion.length === 0 || assertion.includes(",")) {
       throw new InvalidAccessTokenError();
     }
 

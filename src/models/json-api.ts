@@ -29,7 +29,7 @@ const MEDIA_TYPE_PATTERN = new RegExp(
 );
 const LANGUAGE_TAG_SYNTAX = /^[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*$/u;
 
-const JsonApiMemberNameSchema = z
+export const JsonApiMemberNameSchema = z
   .string()
   .regex(JSON_API_MEMBER_NAME, { error: "Invalid JSON:API member name" })
   .openapi({ description: "ASCII lower camel case JSON:API member name", pattern: JSON_API_MEMBER_NAME.source });
@@ -73,7 +73,7 @@ const JsonApiLanguageTagSchema = z
 const JsonApiRequestLinkReference: z.ZodType = z.lazy(() => JsonApiRequestLinkSchema);
 
 const JsonApiRequestLinkObjectSchema = z
-  .strictObject({
+  .looseObject({
     href: JsonApiLinkSchema,
     rel: JsonApiLinkRelationSchema.optional(),
     describedby: JsonApiRequestLinkReference.optional(),
@@ -101,9 +101,48 @@ export const JsonApiRequestLinksSchema = z
   .openapi("JsonApiRequestLinks", jsonApiRequestLinksOpenApi);
 
 export const JsonApiRequestObjectSchema = z
-  .strictObject({
+  .looseObject({
     version: z.string().min(1).optional(),
     profile: z.array(JsonApiProfileUriSchema).optional(),
     meta: JsonApiMetaSchema.optional(),
   })
   .openapi("JsonApiRequestObject");
+
+const JsonApiResourceIdentifierSchema = z
+  .looseObject({
+    type: z.string().min(1),
+    id: z.string().optional(),
+    lid: z.string().optional(),
+    meta: JsonApiMetaSchema.optional(),
+  })
+  .refine((value) => value.id !== undefined || value.lid !== undefined, {
+    error: "A resource identifier requires id or lid",
+  });
+
+export const JsonApiRelationshipSchema = z
+  .looseObject({
+    links: JsonApiRequestLinksSchema.optional(),
+    data: z.union([JsonApiResourceIdentifierSchema, z.array(JsonApiResourceIdentifierSchema), z.null()]).optional(),
+    meta: JsonApiMetaSchema.optional(),
+  })
+  .refine((value) => value.links !== undefined || value.data !== undefined || value.meta !== undefined, {
+    error: "A relationship requires links, data, or meta",
+  });
+
+export const JsonApiRelationshipsSchema = z.record(JsonApiMemberNameSchema, JsonApiRelationshipSchema);
+
+export const JsonApiIncludedSchema = z.array(
+  z
+    .looseObject({
+      type: z.string().min(1),
+      id: z.string().optional(),
+      lid: z.string().optional(),
+      attributes: z.record(JsonApiMemberNameSchema, z.unknown()).optional(),
+      relationships: JsonApiRelationshipsSchema.optional(),
+      links: JsonApiRequestLinksSchema.optional(),
+      meta: JsonApiMetaSchema.optional(),
+    })
+    .refine((value) => value.id !== undefined || value.lid !== undefined, {
+      error: "An included resource requires id or lid",
+    }),
+);

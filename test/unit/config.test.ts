@@ -21,7 +21,7 @@ const expectConfigurationFailure = (operation: () => unknown): void => {
     expect(error).toMatchObject({
       status: 500,
       code: "internal_error",
-      detail: "Internal Server Error",
+      detail: "Internal server error",
       operatorCode: "runtime_configuration_invalid",
     });
     return;
@@ -35,6 +35,7 @@ describe("runtime configuration", () => {
       environment: "test",
       maximumRequestBytes: 1_000_000,
       rateLimitMode: "none",
+      publicOrigin: "https://hono-playground.dev",
     });
   });
 
@@ -44,11 +45,13 @@ describe("runtime configuration", () => {
         ...TEST_BINDINGS,
         ENVIRONMENT: "staging",
         RATE_LIMIT_MODE: "workers-binding",
+        PUBLIC_ORIGIN: "https://staging.hono-playground.dev",
       }),
     ).toEqual({
       environment: "staging",
       maximumRequestBytes: 1_000_000,
       rateLimitMode: "workers-binding",
+      publicOrigin: "https://staging.hono-playground.dev",
     });
   });
 

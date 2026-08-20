@@ -1,16 +1,17 @@
 import { z } from "@hono/zod-openapi";
 import { JsonApiLinkSchema, JsonApiObjectSchema } from "./json-api.ts";
+import { BoundedNameSchema, OpaqueIdSchema, SafeIntegerSchema, TimestampSchema } from "./portable.ts";
 
 export const ITEM_CATEGORIES = ["electronics", "tools", "accessories", "robotics", "power", "components"] as const;
 
 export const ItemCategorySchema = z.enum(ITEM_CATEGORIES);
 
 const itemFields = {
-  id: z.string().openapi({
+  id: OpaqueIdSchema.openapi({
     description: "Unique item identifier",
     example: "item-001",
   }),
-  name: z.string().openapi({
+  name: BoundedNameSchema.openapi({
     description: "Item name",
     example: "Alpha Widget",
   }),
@@ -18,15 +19,17 @@ const itemFields = {
     description: "Item category",
     example: "electronics",
   }),
-  priceCents: z.int().min(0).openapi({
-    description: "Item price in US cents",
-    example: 2999,
-  }),
+  price: z
+    .strictObject({
+      amountMinor: SafeIntegerSchema,
+      currency: z.literal("USD"),
+    })
+    .openapi("Money", { example: { amountMinor: 2999, currency: "USD" } }),
   inStock: z.boolean().openapi({
     description: "Availability status",
     example: true,
   }),
-  description: z.string().openapi({
+  description: z.string().min(1).max(500).openapi({
     description: "Detailed description of the item",
     example: "A versatile electronic widget for everyday use",
   }),
@@ -41,9 +44,9 @@ export const ItemAttributesSchema = z
   .strictObject({
     name: itemFields.name,
     category: itemFields.category,
-    priceCents: itemFields.priceCents,
+    price: itemFields.price,
     inStock: itemFields.inStock,
-    createdAt: z.iso.datetime({ precision: 3 }).openapi({
+    createdAt: TimestampSchema.openapi({
       description: "Creation timestamp",
       example: "2024-01-15T10:30:00.000Z",
     }),
@@ -56,7 +59,6 @@ export const ItemResourceSchema = z
     type: z.literal("items"),
     id: ItemSchema.shape.id,
     attributes: ItemAttributesSchema,
-    links: z.strictObject({ self: JsonApiLinkSchema }),
   })
   .openapi("ItemResource");
 
@@ -78,11 +80,11 @@ export const ItemCollectionDocumentSchema = z
       next: JsonApiLinkSchema.optional(),
       prev: JsonApiLinkSchema.optional(),
     }),
-    data: z.array(ItemResourceSchema).openapi({
+    data: z.array(ItemResourceSchema).max(100).openapi({
       description: "Items in the current page",
     }),
     meta: z.strictObject({
-      total: z.int().min(0).openapi({
+      total: SafeIntegerSchema.openapi({
         description: "Total number of items matching the filter",
         example: 30,
       }),

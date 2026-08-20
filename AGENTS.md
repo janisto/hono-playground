@@ -407,12 +407,12 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   does not honor `subdomain.previewsEnabled`; keep `url: false` so both remain
   disabled.
 - On an Alchemy-managed custom domain, keep the Cloudflare Access application
-  scoped to the exact hostname and Path `v1/profiles`; that path covers the
-  collection root and descendants. Do not leave Path empty, because that would
+  scoped to the exact hostname and Path `v1/profile`; that path covers the
+  singleton root and descendants. Do not leave Path empty, because that would
   protect `/health`, item routes, OpenAPI, documentation, and every future
   route on the hostname. Keep the Worker authentication and profile-limit
-  middleware on the verified Hono `/v1/profiles/*` scope, which covers the
-  collection root and descendants; do not also register the root and double-run
+  middleware on the verified Hono `/v1/profile/*` scope, which covers the
+  singleton root and descendants; do not also register the root and double-run
   those controls. Before exposing a protected route family outside that
   namespace, add a reviewed Access destination or application and matching
   Worker middleware. Prove allowed and denied requests and read back both

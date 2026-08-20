@@ -1,44 +1,34 @@
-export interface PaginationLinkQuery {
-  readonly filterCategory?: string;
-  readonly pageLimit: string;
-}
+export type PaginationLinks = Readonly<{ self: string; next?: string; prev?: string }>;
 
-export interface PaginationLinks {
-  readonly self: string;
-  readonly next?: string;
-  readonly prev?: string;
-}
-
-function assertRelativePath(basePath: string): void {
+const assertRelativePath = (basePath: string): void => {
   if (!basePath.startsWith("/") || basePath.startsWith("//") || basePath.includes("?") || basePath.includes("#")) {
     throw new TypeError("pagination base path must be a relative absolute-path reference");
   }
-}
+};
 
-export function buildPaginationTarget(basePath: string, query: PaginationLinkQuery, cursor: string | null): string {
-  assertRelativePath(basePath);
-  const search = new URLSearchParams();
-  if (query.filterCategory !== undefined) {
-    search.set("filter[category]", query.filterCategory);
-  }
-  search.set("page[limit]", query.pageLimit);
-  if (cursor) search.set("page[cursor]", cursor);
-  return `${basePath}?${search.toString()}`;
-}
-
-export function buildPaginationLinks(
+export const buildItemTarget = (
   basePath: string,
-  query: PaginationLinkQuery,
-  currentCursor: string | null,
-  nextCursor: string | null,
-  prevCursor: string | null,
-): PaginationLinks {
-  const self = buildPaginationTarget(basePath, query, currentCursor);
-  const next = nextCursor === null ? undefined : buildPaginationTarget(basePath, query, nextCursor);
-  const prev = prevCursor === null ? undefined : buildPaginationTarget(basePath, query, prevCursor);
-  return {
-    self,
-    ...(next === undefined ? {} : { next }),
-    ...(prev === undefined ? {} : { prev }),
-  };
-}
+  options: Readonly<{ limit?: number; cursor?: string; category?: string }>,
+): string => {
+  assertRelativePath(basePath);
+  const query = new URLSearchParams();
+  if (options.category !== undefined) query.set("filter[category]", options.category);
+  if (options.limit !== undefined) query.set("page[limit]", String(options.limit));
+  if (options.cursor !== undefined) query.set("page[cursor]", options.cursor);
+  const encoded = query.toString();
+  return encoded.length === 0 ? basePath : `${basePath}?${encoded}`;
+};
+
+export const buildGitHubTarget = (basePath: string, limit: number, cursor: string): string => {
+  assertRelativePath(basePath);
+  const query = new URLSearchParams({ limit: String(limit), cursor });
+  return `${basePath}?${query.toString()}`;
+};
+
+export const serializeLinkHeader = (links: Readonly<{ next?: string; prev?: string }>): string | undefined => {
+  const values = [
+    ...(links.next === undefined ? [] : [`<${links.next}>; rel="next"`]),
+    ...(links.prev === undefined ? [] : [`<${links.prev}>; rel="prev"`]),
+  ];
+  return values.length === 0 ? undefined : values.join(", ");
+};

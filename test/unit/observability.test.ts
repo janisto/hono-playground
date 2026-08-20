@@ -9,6 +9,7 @@ const ORIGIN = "https://worker.example";
 const RATE_LIMIT_KEY = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
 const AUDIT_KEY = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const SUBJECT = "profile-owner-marker";
+const ACCESS_ASSERTION = { "Cf-Access-Jwt-Assertion": "signed" } as const;
 
 const TEST_BINDINGS = {
   DB: {} as D1Database,
@@ -22,7 +23,7 @@ const STORED_PROFILE = {
   id: SUBJECT,
   firstName: "PrivateFirstNameMarker",
   lastName: "PrivateLastNameMarker",
-  email: "private-email-marker@example.com",
+  contactEmail: "private-email-marker@example.com",
   phoneNumber: "+358401111111",
   marketingOptIn: false,
   termsAccepted: true as const,
@@ -115,9 +116,10 @@ describe("structured application events", () => {
       now: () => new Date("2026-07-22T12:00:00.000Z"),
     });
     const response = await application.request(
-      new Request(`${ORIGIN}/v1/profiles`, {
+      new Request(`${ORIGIN}/v1/profile`, {
         method: "POST",
         headers: {
+          ...ACCESS_ASSERTION,
           Accept: "application/vnd.api+json",
           "Content-Type": "application/vnd.api+json",
           "X-Request-ID": "audit-event-id",
@@ -128,7 +130,7 @@ describe("structured application events", () => {
             attributes: {
               firstName: STORED_PROFILE.firstName,
               lastName: STORED_PROFILE.lastName,
-              email: STORED_PROFILE.email,
+              contactEmail: STORED_PROFILE.contactEmail,
               phoneNumber: STORED_PROFILE.phoneNumber,
               termsAccepted: true,
             },
@@ -154,7 +156,7 @@ describe("structured application events", () => {
       owner: expect.stringMatching(/^[0-9a-f]{32}$/),
     });
     expect(access).toMatchObject({
-      route_template: "/v1/profiles",
+      route_template: "/v1/profile",
       operation_id: "createProfile",
       outcome: "ok",
       status: 201,
@@ -165,7 +167,7 @@ describe("structured application events", () => {
       SUBJECT,
       STORED_PROFILE.firstName,
       STORED_PROFILE.lastName,
-      STORED_PROFILE.email,
+      STORED_PROFILE.contactEmail,
       STORED_PROFILE.phoneNumber,
     ]) {
       expect(serializedEvents).not.toContain(privateValue);
@@ -184,9 +186,10 @@ describe("structured application events", () => {
       now: () => new Date("2026-07-22T12:00:00.000Z"),
     });
     const response = await application.request(
-      new Request(`${ORIGIN}/v1/profiles`, {
+      new Request(`${ORIGIN}/v1/profile`, {
         method: "POST",
         headers: {
+          ...ACCESS_ASSERTION,
           Accept: "application/vnd.api+json",
           "Content-Type": "application/vnd.api+json",
         },
@@ -196,7 +199,7 @@ describe("structured application events", () => {
             attributes: {
               firstName: "Ada",
               lastName: "Lovelace",
-              email: "ada@example.com",
+              contactEmail: "ada@example.com",
               phoneNumber: "+12025550123",
               termsAccepted: true,
             },
@@ -216,9 +219,10 @@ describe("structured application events", () => {
   it.each([
     [
       "update",
-      new Request(`${ORIGIN}/v1/profiles/current`, {
+      new Request(`${ORIGIN}/v1/profile`, {
         method: "PATCH",
         headers: {
+          ...ACCESS_ASSERTION,
           Accept: "application/vnd.api+json",
           "Content-Type": "application/vnd.api+json",
           "X-Request-ID": "update-audit-event-id",
@@ -236,9 +240,10 @@ describe("structured application events", () => {
     ],
     [
       "delete",
-      new Request(`${ORIGIN}/v1/profiles/current`, {
+      new Request(`${ORIGIN}/v1/profile`, {
         method: "DELETE",
         headers: {
+          ...ACCESS_ASSERTION,
           Accept: "application/vnd.api+json",
           "X-Request-ID": "delete-audit-event-id",
         },
@@ -278,7 +283,7 @@ describe("structured application events", () => {
         SUBJECT,
         STORED_PROFILE.firstName,
         STORED_PROFILE.lastName,
-        STORED_PROFILE.email,
+        STORED_PROFILE.contactEmail,
         STORED_PROFILE.phoneNumber,
       ]) {
         expect(serializedEvents).not.toContain(privateValue);
@@ -302,9 +307,10 @@ describe("structured application events", () => {
       });
       const request =
         action === "update"
-          ? new Request(`${ORIGIN}/v1/profiles/current`, {
+          ? new Request(`${ORIGIN}/v1/profile`, {
               method: "PATCH",
               headers: {
+                ...ACCESS_ASSERTION,
                 Accept: "application/vnd.api+json",
                 "Content-Type": "application/vnd.api+json",
               },
@@ -316,9 +322,9 @@ describe("structured application events", () => {
                 },
               }),
             })
-          : new Request(`${ORIGIN}/v1/profiles/current`, {
+          : new Request(`${ORIGIN}/v1/profile`, {
               method: "DELETE",
-              headers: { Accept: "application/vnd.api+json" },
+              headers: { ...ACCESS_ASSERTION, Accept: "application/vnd.api+json" },
             });
 
       const response = await application.request(request, undefined, TEST_BINDINGS);
@@ -341,8 +347,8 @@ describe("structured application events", () => {
       }),
     });
     const response = await application.request(
-      new Request(`${ORIGIN}/v1/profiles/current`, {
-        headers: { Accept: "application/vnd.api+json", "X-Request-ID": "d1-event-id" },
+      new Request(`${ORIGIN}/v1/profile`, {
+        headers: { ...ACCESS_ASSERTION, Accept: "application/vnd.api+json", "X-Request-ID": "d1-event-id" },
       }),
       undefined,
       TEST_BINDINGS,
@@ -406,7 +412,7 @@ describe("structured application events", () => {
       TEST_BINDINGS,
     );
     const misconfigured = await createApp().request(
-      new Request(`${ORIGIN}/health`, {
+      new Request(`${ORIGIN}/v1/hello`, {
         headers: { "X-Request-ID": "config-error-id" },
       }),
       undefined,
@@ -441,9 +447,10 @@ describe("structured application events", () => {
       now: () => new Date("2026-07-22T12:00:00.000Z"),
     });
     const response = await application.request(
-      new Request(`${ORIGIN}/v1/profiles`, {
+      new Request(`${ORIGIN}/v1/profile`, {
         method: "POST",
         headers: {
+          ...ACCESS_ASSERTION,
           Accept: "application/vnd.api+json",
           "Content-Type": "application/vnd.api+json",
         },
@@ -453,7 +460,7 @@ describe("structured application events", () => {
             attributes: {
               firstName: "Ada",
               lastName: "Lovelace",
-              email: "ada@example.com",
+              contactEmail: "ada@example.com",
               phoneNumber: "+12025550123",
               termsAccepted: true,
             },
@@ -478,9 +485,10 @@ describe("structured application events", () => {
       now: () => new Date("2026-07-22T12:00:00.000Z"),
     });
     const response = await application.request(
-      new Request(`${ORIGIN}/v1/profiles`, {
+      new Request(`${ORIGIN}/v1/profile`, {
         method: "POST",
         headers: {
+          ...ACCESS_ASSERTION,
           Accept: "application/vnd.api+json",
           "Content-Type": "application/vnd.api+json",
         },
@@ -490,7 +498,7 @@ describe("structured application events", () => {
             attributes: {
               firstName: "Ada",
               lastName: "Lovelace",
-              email: "ada@example.com",
+              contactEmail: "ada@example.com",
               phoneNumber: "+12025550123",
               termsAccepted: true,
             },
@@ -518,9 +526,10 @@ describe("structured application events", () => {
       profileRepositoryFactory: () => ({ ...repository, update }),
     });
     const response = await application.request(
-      new Request(`${ORIGIN}/v1/profiles/current`, {
+      new Request(`${ORIGIN}/v1/profile`, {
         method: "PATCH",
         headers: {
+          ...ACCESS_ASSERTION,
           Accept: "application/vnd.api+json",
           "Content-Type": "application/vnd.api+json",
         },
@@ -542,7 +551,7 @@ describe("structured application events", () => {
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({
-      errors: [{ code: "resource_identity_mismatch" }],
+      errors: [{ code: "profile_resource_mismatch" }],
     });
     expect(update).not.toHaveBeenCalled();
   });
@@ -562,8 +571,9 @@ describe("structured application events", () => {
       bindingsWithoutDatabase,
     );
     const profileResponse = await application.request(
-      new Request(`${ORIGIN}/v1/profiles/current`, {
+      new Request(`${ORIGIN}/v1/profile`, {
         headers: {
+          ...ACCESS_ASSERTION,
           Accept: "application/vnd.api+json",
           "X-Request-ID": "missing-database-id",
         },
