@@ -14,7 +14,7 @@ Hosted documentation:
   secrets, state, and deployment.
 - Drizzle ORM and Drizzle Kit `1.0.0-rc.4` own database access and migration
   generation.
-- Effect `4.0.0-beta.102` is limited to the Alchemy program.
+- Effect `4.0.0-beta.107` is limited to the Alchemy program.
 - Cloudflare D1 persists profiles; Cloudflare Access authenticates profile
   owners.
 
@@ -50,7 +50,7 @@ for the required privacy validation.
 | `GET` | `/v1/github/owners/{owner}/repos` | cursor-paginated repository projections |
 | `GET` | `/v1/github/repos/{owner}/{repo}` | GitHub repository projection |
 | `GET` | `/v1/github/repos/{owner}/{repo}/activity` | cursor-paginated activity projections |
-| `GET` | `/v1/github/repos/{owner}/{repo}/languages` | GitHub language-byte map |
+| `GET` | `/v1/github/repos/{owner}/{repo}/languages` | sorted GitHub language-byte projections |
 | `GET` | `/v1/github/repos/{owner}/{repo}/tags` | cursor-paginated tag projections |
 | `GET` | `/openapi.json` | OpenAPI `3.1.0` |
 | `GET` | `/api-docs` | Swagger UI |
@@ -144,6 +144,11 @@ serves the Worker at `http://127.0.0.1:8787`. Passing every selector prevents a
 shell or environment-file default from redirecting development to staging or
 production. The personal stage has isolated state and physical resource names,
 so it does not overlap teammates, staging, or production.
+
+Profile writes still trust the canonical HTTPS public origin. A browser page
+served from the loopback development URL therefore cannot send an unsafe
+profile mutation with its loopback `Origin`; use the deterministic test suite
+or a non-browser client that omits `Origin` for local request verification.
 
 Alchemy stores named profiles outside this repository. Re-run
 `pnpm exec alchemy login` with the matching `--profile` and `--env-file`

@@ -107,8 +107,10 @@ const parseMediaRange = (raw: string): MediaRange | null => {
 const matchingRanges = (headerValue: string, representation: string): MediaRange[] => {
   const [candidateType, candidateSubtype] = representation.toLowerCase().split("/");
   if (candidateType === undefined || candidateSubtype === undefined) return [];
+  const quotedParts = splitQuoted(headerValue, ",");
+  const parts = quotedParts.length === 0 ? headerValue.split(",") : quotedParts;
 
-  return splitQuoted(headerValue, ",")
+  return parts
     .map((part) => parseMediaRange(part.trim()))
     .filter((range): range is MediaRange => range !== null)
     .filter(
@@ -151,7 +153,7 @@ export const selectJsonContentType = (
   headerValue: string | null,
   representation = "application/json",
 ): string | null => {
-  if (headerValue === null || headerValue.trim() === "") return representation;
+  if (headerValue === null) return representation;
   const baseQuality = jsonCandidateQuality(headerValue, representation, false);
   const charsetQuality = jsonCandidateQuality(headerValue, representation, true);
   const baseAccepted = baseQuality !== null && baseQuality > 0;
@@ -168,8 +170,10 @@ export const selectProblemContentType = (headerValue: string | null): string =>
 export const accepts = (headerValue: string | null, representation: string): boolean => {
   const plainJson = representation === "application/json" || representation === "application/problem+json";
   if (plainJson) return selectJsonContentType(headerValue, representation) !== null;
-  if (headerValue === null || headerValue.trim() === "") return true;
-  return acceptsBySpecificity(matchingRanges(headerValue, representation));
+  if (headerValue === null) return true;
+  return acceptsBySpecificity(
+    matchingRanges(headerValue, representation).filter((range) => range.representationParameters.size === 0),
+  );
 };
 
 const supportedJsonApiRange = (range: MediaRange): boolean => {
@@ -185,14 +189,8 @@ const supportedJsonApiRange = (range: MediaRange): boolean => {
 };
 
 export const acceptsJsonApi = (headerValue: string | null): boolean => {
-  if (headerValue === null || headerValue.trim() === "") return true;
+  if (headerValue === null) return true;
   const ranges = matchingRanges(headerValue, JSON_API_MEDIA_TYPE);
-  const explicitJsonApiRanges = ranges.filter(
-    (range) => range.type === "application" && range.subtype === "vnd.api+json",
-  );
-  if (explicitJsonApiRanges.length > 0 && explicitJsonApiRanges.every((range) => !supportedJsonApiRange(range))) {
-    return false;
-  }
   return acceptsBySpecificity(ranges.filter(supportedJsonApiRange));
 };
 

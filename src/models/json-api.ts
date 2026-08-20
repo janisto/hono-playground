@@ -21,6 +21,8 @@ const JsonApiProfileUriSchema = z
 
 const REGISTERED_LINK_RELATION = /^[a-z][a-z0-9.-]*$/u;
 const JSON_API_MEMBER_NAME = /^[a-z][A-Za-z0-9]*$/u;
+const JSON_API_RESOURCE_TYPE =
+  /^[A-Za-z0-9\u0080-\u{10FFFF}](?:[A-Za-z0-9 _\-\u0080-\u{10FFFF}]*[A-Za-z0-9\u0080-\u{10FFFF}])?$/u;
 const HTTP_TOKEN_PATTERN = "[!#$%&'*+.^_`|~0-9A-Za-z-]+";
 const HTTP_QUOTED_STRING_PATTERN = String.raw`"(?:[\t !#-\[\]-~\u0080-\u00ff]|\\[\t !-~\u0080-\u00ff])*"`;
 const MEDIA_TYPE_PATTERN = new RegExp(
@@ -33,6 +35,14 @@ export const JsonApiMemberNameSchema = z
   .string()
   .regex(JSON_API_MEMBER_NAME, { error: "Invalid JSON:API member name" })
   .openapi({ description: "ASCII lower camel case JSON:API member name", pattern: JSON_API_MEMBER_NAME.source });
+
+export const JsonApiResourceTypeSchema = z
+  .string()
+  .regex(JSON_API_RESOURCE_TYPE, { error: "Invalid JSON:API resource type" })
+  .openapi("JsonApiResourceType", {
+    description: "JSON:API resource type member name",
+    pattern: JSON_API_RESOURCE_TYPE.source,
+  });
 
 const jsonApiMetaOpenApi = {
   description: "Metadata keyed by ASCII lower camel case member names",
@@ -110,7 +120,7 @@ export const JsonApiRequestObjectSchema = z
 
 const JsonApiResourceIdentifierSchema = z
   .looseObject({
-    type: z.string().min(1),
+    type: JsonApiResourceTypeSchema,
     id: z.string().optional(),
     lid: z.string().optional(),
     meta: JsonApiMetaSchema.optional(),
@@ -134,7 +144,7 @@ export const JsonApiRelationshipsSchema = z.record(JsonApiMemberNameSchema, Json
 export const JsonApiIncludedSchema = z.array(
   z
     .looseObject({
-      type: z.string().min(1),
+      type: JsonApiResourceTypeSchema,
       id: z.string().optional(),
       lid: z.string().optional(),
       attributes: z.record(JsonApiMemberNameSchema, z.unknown()).optional(),

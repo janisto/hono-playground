@@ -57,6 +57,7 @@ import {
   JSON_API_OBJECT,
   JsonApiIncludedSchema,
   JsonApiRelationshipsSchema,
+  JsonApiResourceTypeSchema,
 } from "./models/json-api.ts";
 import { type Profile, ProfileDocumentSchema, type ProfileResource } from "./models/profile.ts";
 import { InvalidCursorError } from "./pagination/cursor.ts";
@@ -182,21 +183,21 @@ const parsedBody = (c: Context<AppEnvironment>): unknown => {
 const profileProtocolRules = (document: unknown, method: "POST" | "PATCH", subject?: string): void => {
   if (!isObject(document)) return;
   if (JsonApiIncludedSchema.safeParse(document["included"]).success) {
-    throw new AppError({ code: "relationships_unsupported" });
+    throw new AppError({ code: "relationships_unsupported", source: { pointer: "/included" } });
   }
   const data = document["data"];
   if (!isObject(data)) return;
   if (JsonApiRelationshipsSchema.safeParse(data["relationships"]).success) {
-    throw new AppError({ code: "relationships_unsupported" });
+    throw new AppError({ code: "relationships_unsupported", source: { pointer: "/data/relationships" } });
   }
   if (method === "POST" && Object.hasOwn(data, "id")) {
-    throw new AppError({ code: "client_generated_id_unsupported" });
+    throw new AppError({ code: "client_generated_id_unsupported", source: { pointer: "/data/id" } });
   }
-  if (typeof data["type"] === "string" && data["type"] !== "profiles") {
-    throw new AppError({ code: "profile_resource_mismatch" });
+  if (JsonApiResourceTypeSchema.safeParse(data["type"]).success && data["type"] !== "profiles") {
+    throw new AppError({ code: "profile_resource_mismatch", source: { pointer: "/data/type" } });
   }
   if (method === "PATCH" && typeof data["id"] === "string" && subject !== undefined && data["id"] !== subject) {
-    throw new AppError({ code: "profile_resource_mismatch" });
+    throw new AppError({ code: "profile_resource_mismatch", source: { pointer: "/data/id" } });
   }
 };
 
@@ -445,7 +446,8 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     c.set("outcome", "not_found");
     const error = new AppError({ code: "not_found" });
     const pathname = new URL(c.req.url).pathname;
-    return pathname === "/v1/profile" || pathname.startsWith("/v1/profile/")
+    const metadata = resolveRoute(pathname, c.req.method).metadata;
+    return isJsonApiRoute(metadata)
       ? jsonApiErrorResponse(error, c.req.method)
       : problemResponse(error, c.req.method, selectProblemContentType(c.req.header("Accept") ?? null));
   });
@@ -477,7 +479,7 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     }
     const pathname = new URL(c.req.url).pathname;
     const metadata = resolveRoute(pathname, c.req.method).metadata;
-    return isJsonApiRoute(metadata) || pathname === "/v1/profile" || pathname.startsWith("/v1/profile/")
+    return isJsonApiRoute(metadata)
       ? jsonApiErrorResponse(normalized, c.req.method)
       : problemResponse(normalized, c.req.method, selectProblemContentType(c.req.header("Accept") ?? null));
   });

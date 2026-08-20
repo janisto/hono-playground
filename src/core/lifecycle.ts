@@ -24,14 +24,15 @@ const DOCS_CSP = [
 ].join("; ");
 
 const appendVary = (headers: Headers, fieldName: string): void => {
-  const fields = new Set(
-    (headers.get("Vary") ?? "")
-      .split(",")
-      .map((field) => field.trim())
-      .filter(Boolean),
-  );
-  fields.add(fieldName);
-  headers.set("Vary", [...fields].join(", "));
+  const fields: string[] = [];
+  for (const field of (headers.get("Vary") ?? "").split(",")) {
+    const trimmed = field.trim();
+    if (trimmed && !fields.some((existing) => existing.toLowerCase() === trimmed.toLowerCase())) {
+      fields.push(trimmed);
+    }
+  }
+  if (!fields.some((field) => field.toLowerCase() === fieldName.toLowerCase())) fields.push(fieldName);
+  headers.set("Vary", fields.join(", "));
 };
 
 const applyFinalHeaders = (

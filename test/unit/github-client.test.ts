@@ -112,6 +112,24 @@ describe("GitHubClient request and projection", () => {
     ]);
   });
 
+  it("resolves the default global fetch at request time so the outbound guard cannot be bypassed", async () => {
+    const previousFetch = globalThis.fetch;
+    const constructionFetch = injectedFetch(async () => jsonResponse({ ...OWNER, id: 999 }));
+    const requestFetch = injectedFetch(async () => jsonResponse(OWNER));
+    try {
+      globalThis.fetch = constructionFetch;
+      const client = new GitHubClient();
+      globalThis.fetch = requestFetch;
+
+      await expect(client.getOwner("octocat")).resolves.toMatchObject({ id: 1 });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+
+    expect(constructionFetch).not.toHaveBeenCalled();
+    expect(requestFetch).toHaveBeenCalledOnce();
+  });
+
   it("projects only public owner members and canonicalizes accepted provider timestamps", async () => {
     const fetch = injectedFetch(async () =>
       jsonResponse({
@@ -202,11 +220,11 @@ describe("GitHubClient request and projection", () => {
       nextCursor: "next-1",
       prevCursor: null,
     });
-    await expect(client.listRepositoryLanguages("octocat", "repo")).resolves.toEqual({
-      TypeScript: 10,
-      "\u{10000}": 5,
-      "\uE000": 5,
-    });
+    await expect(client.listRepositoryLanguages("octocat", "repo")).resolves.toEqual([
+      { name: "TypeScript", bytes: 10 },
+      { name: "\uE000", bytes: 5 },
+      { name: "\u{10000}", bytes: 5 },
+    ]);
     await expect(client.listRepositoryTags("octocat", "repo", 20, 1)).resolves.toEqual({
       items: [TAG],
       nextPage: null,
@@ -678,6 +696,27 @@ describe("GitHubClient redirects, failures, and cancellation", () => {
     expect(deadlineSignal).toHaveBeenCalledExactlyOnceWith(10_000);
     const signals = vi.mocked(fetch).mock.calls.map((call) => call[1]?.signal);
     expect(new Set(signals)).toHaveLength(1);
+  });
+
+  it("keeps public projection inside the overall deadline", async () => {
+    let elapsed = 0;
+    const originalToSorted = Array.prototype.toSorted;
+    const projectionSort = vi.spyOn(Array.prototype, "toSorted").mockImplementation(function (
+      this: unknown[],
+      compareFn,
+    ) {
+      const sorted = Reflect.apply(originalToSorted, this, [compareFn]);
+      if (this.includes("z") && this.includes("A")) elapsed = GITHUB_TRANSPORT_LIMITS.deadlineMilliseconds;
+      return sorted;
+    });
+    const client = new GitHubClient({
+      fetch: sequenceFetch(jsonResponse(DETAIL)),
+      deadlineNow: () => elapsed,
+      deadlineSignal: () => new AbortController().signal,
+    });
+
+    await expectCode(client.getRepository("octocat", "repo"), "github_timeout");
+    expect(projectionSort).toHaveBeenCalled();
   });
 
   it("interrupts a pending response-body read when the overall deadline expires", async () => {

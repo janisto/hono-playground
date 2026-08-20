@@ -1,9 +1,11 @@
+import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../src/app.ts";
 import { InvalidAccessTokenError } from "../../src/auth/types.ts";
+import { lifecycle } from "../../src/core/lifecycle.ts";
 import { resolveRoute } from "../../src/core/routes.ts";
-import type { RuntimeBindings } from "../../src/core/types.ts";
+import type { AppEnvironment, RuntimeBindings } from "../../src/core/types.ts";
 import { JSON_API_MEDIA_TYPE } from "../../src/models/json-api.ts";
 
 const ORIGIN = "https://api.example.test";
@@ -197,12 +199,21 @@ describe("request IDs and common response policy", () => {
     expect(response.status, await response.clone().text()).toBe(200);
     expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=300");
   });
+
+  it("merges Vary field names case-insensitively without duplicating an existing token", async () => {
+    const varyApp = new Hono<AppEnvironment>();
+    varyApp.use("*", lifecycle());
+    varyApp.get("/", (c) => c.body("ok", { headers: { Vary: "accept, ACCEPT, X-Test, x-test" } }));
+
+    const response = await varyApp.request(`${ORIGIN}/`, {}, TEST_BINDINGS);
+
+    expect(response.headers.get("Vary")).toBe("accept, X-Test");
+  });
 });
 
 describe("representation negotiation", () => {
   it.each([
     undefined,
-    "",
     "application/json",
     "APPLICATION/JSON",
     "application/json;charset=utf-8",
@@ -241,6 +252,8 @@ describe("representation negotiation", () => {
   });
 
   it.each([
+    "",
+    "   ",
     "text/plain",
     "application/cbor",
     "application/json;q=0",
@@ -264,15 +277,27 @@ describe("representation negotiation", () => {
     expectCommonHeaders(response);
   });
 
+  it.each(['application/json, text/plain;note="unterminated', 'text/plain;note="unterminated, application/json'])(
+    "ignores one malformed range when an acceptable operational range remains: %s",
+    async (accept) => {
+      const response = await request("/health", { headers: { Accept: accept } });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toBe("application/json");
+    },
+  );
+
   it.each([
     undefined,
-    "",
     JSON_API_MEDIA_TYPE,
     `${JSON_API_MEDIA_TYPE};profile="https://example.test/profile"`,
     `${JSON_API_MEDIA_TYPE};profile="https://example.test/profile urn:example:profile"`,
     `${JSON_API_MEDIA_TYPE};profile="https://one.test/profile https://two.test/profile"`,
     "application/*",
     "*/*",
+    `${JSON_API_MEDIA_TYPE};q=1;foo=bar, */*`,
+    `${JSON_API_MEDIA_TYPE};charset=utf-8, */*;q=1`,
+    `${JSON_API_MEDIA_TYPE};ext="https://example.test/ext", */*;q=1`,
   ])("accepts a supported JSON:API range: %s", async (accept) => {
     const response = await request("/v1/items", accept === undefined ? {} : { headers: { Accept: accept } });
 
@@ -281,6 +306,8 @@ describe("representation negotiation", () => {
   });
 
   it.each([
+    "",
+    "   ",
     "application/json",
     `${JSON_API_MEDIA_TYPE};charset=utf-8`,
     `${JSON_API_MEDIA_TYPE};ext="https://example.test/ext"`,
@@ -293,9 +320,6 @@ describe("representation negotiation", () => {
     `${JSON_API_MEDIA_TYPE};q="0.5"`,
     `${JSON_API_MEDIA_TYPE};q=0, */*;q=1`,
     `${JSON_API_MEDIA_TYPE};q=1;charset=utf-8`,
-    `${JSON_API_MEDIA_TYPE};q=1;foo=bar, */*`,
-    `${JSON_API_MEDIA_TYPE};charset=utf-8, */*;q=1`,
-    `${JSON_API_MEDIA_TYPE};ext="https://example.test/ext", */*;q=1`,
     `${JSON_API_MEDIA_TYPE};profile = "https://example.test/profile"`,
     `${JSON_API_MEDIA_TYPE};q =1`,
   ])("returns a JSON:API 406 for an unsupported JSON:API range: %s", async (accept) => {
@@ -317,6 +341,15 @@ describe("representation negotiation", () => {
     const response = await request("/v1/items", { headers });
 
     expect(response.status).toBe(406);
+  });
+
+  it.each([
+    ["text/html;level=1", 406],
+    ["text/html;level=1, */*;q=0.5", 200],
+  ])("matches documentation Accept parameters only when supported: %s", async (accept, status) => {
+    const response = await request("/api-docs", { headers: { Accept: accept } });
+
+    expect(response.status).toBe(status);
   });
 });
 
@@ -439,11 +472,11 @@ describe("known-resource method policy and strict paths", () => {
     const response = await protectedApp.request(new Request(`${ORIGIN}/v1/profile/`), undefined, TEST_BINDINGS);
 
     expect(response.headers.get("Location")).toBeNull();
-    await expectJsonApiError(response, {
+    await expectProblem(response, {
+      title: "Forbidden",
       status: 403,
       code: "forbidden",
       detail: "Access is forbidden",
-      source: { header: "Cf-Access-Jwt-Assertion" },
     });
   });
 

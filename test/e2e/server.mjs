@@ -43,6 +43,7 @@ const worker = new Miniflare(
     },
     cf: false,
     compatibilityDate: COMPATIBILITY_DATE,
+    compatibilityFlags: ["enable_request_signal", "request_signal_passthrough"],
     host: "127.0.0.1",
     log: new Log(LogLevel.ERROR),
     modules: true,

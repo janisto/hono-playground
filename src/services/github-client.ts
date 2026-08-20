@@ -3,6 +3,7 @@ import { AppError } from "../core/errors.ts";
 import { assertStrictJsonText } from "../core/strict-json.ts";
 import type {
   GitHubActivity,
+  GitHubLanguage,
   GitHubOwner,
   GitHubRepository,
   GitHubRepositorySummary,
@@ -53,6 +54,7 @@ export type ActivityPage = Readonly<{
 
 type LinkRelation = "next" | "prev";
 type RelevantLink = Readonly<{ target: string; relations: LinkRelation[] }>;
+type GitHubJsonResult<T> = Readonly<{ data: T; headers: Headers; assertActive: () => void }>;
 
 const awaitWithSignal = async <T>(operation: Promise<T>, signal: AbortSignal): Promise<T> => {
   if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
@@ -268,7 +270,7 @@ export class GitHubClient {
     if (!Number.isSafeInteger(timeout) || timeout <= 0) throw new TypeError("invalid GitHub deadline");
     this.#baseOrigin = base.origin;
     this.#baseUrl = base.origin;
-    this.#fetch = options.fetch ?? globalThis.fetch;
+    this.#fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
     this.#timeoutMilliseconds = timeout;
     this.#now = options.now ?? Date.now;
     this.#deadlineNow = options.deadlineNow ?? performance.now.bind(performance);
@@ -277,8 +279,8 @@ export class GitHubClient {
 
   async getOwner(owner: string, callerSignal?: AbortSignal): Promise<GitHubOwner> {
     const url = new URL(`/users/${encodeURIComponent(owner)}`, this.#baseUrl);
-    const raw = (await this.#getJson(url, RawGitHubOwnerSchema, callerSignal)).data;
-    return this.#owner(raw);
+    const result = await this.#getJson(url, RawGitHubOwnerSchema, callerSignal);
+    return this.#project(result, () => this.#owner(result.data));
   }
 
   async listOwnerRepositories(
@@ -294,23 +296,25 @@ export class GitHubClient {
     url.searchParams.set("per_page", String(limit));
     if (page !== 1) url.searchParams.set("page", String(page));
     const result = await this.#getJson(url, RawGitHubRepositoryPageSchema, callerSignal);
-    if (result.data.length > limit) throw this.#upstream();
-    const links = this.#numberedLinks(result.headers, {
-      currentPage: page,
-      expectedPath: url.pathname,
-      fixed: { type: "owner", sort: "full_name", direction: "asc" },
-      limit,
-      suffix: "/repos",
+    return this.#project(result, () => {
+      if (result.data.length > limit) throw this.#upstream();
+      const links = this.#numberedLinks(result.headers, {
+        currentPage: page,
+        expectedPath: url.pathname,
+        fixed: { type: "owner", sort: "full_name", direction: "asc" },
+        limit,
+        suffix: "/repos",
+      });
+      if (result.data.length === 0 && links.nextPage !== null) throw this.#upstream();
+      return { items: result.data.map((value) => this.#repositorySummary(value)), ...links };
     });
-    if (result.data.length === 0 && links.nextPage !== null) throw this.#upstream();
-    return { items: result.data.map((value) => this.#repositorySummary(value)), ...links };
   }
 
   async getRepository(owner: string, repo: string, callerSignal?: AbortSignal): Promise<GitHubRepository> {
     this.#guardRepository(repo);
     const url = new URL(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, this.#baseUrl);
-    const raw = (await this.#getJson(url, RawGitHubRepositorySchema, callerSignal)).data;
-    return this.#repository(raw);
+    const result = await this.#getJson(url, RawGitHubRepositorySchema, callerSignal);
+    return this.#project(result, () => this.#repository(result.data));
   }
 
   async listRepositoryActivity(
@@ -326,20 +330,23 @@ export class GitHubClient {
     url.searchParams.set("per_page", String(limit));
     if (cursor !== undefined) url.searchParams.set(cursor.direction, cursor.value);
     const result = await this.#getJson(url, RawGitHubActivityPageSchema, callerSignal);
-    if (result.data.length > limit) throw this.#upstream();
-    const links = this.#activityLinks(result.headers, url.pathname, limit, cursor);
-    if (result.data.length === 0 && links.nextCursor !== null) throw this.#upstream();
-    return { activities: result.data.map((value) => this.#activity(value)), ...links };
+    return this.#project(result, () => {
+      if (result.data.length > limit) throw this.#upstream();
+      const links = this.#activityLinks(result.headers, url.pathname, limit, cursor);
+      if (result.data.length === 0 && links.nextCursor !== null) throw this.#upstream();
+      return { activities: result.data.map((value) => this.#activity(value)), ...links };
+    });
   }
 
-  async listRepositoryLanguages(
-    owner: string,
-    repo: string,
-    callerSignal?: AbortSignal,
-  ): Promise<Record<string, number>> {
+  async listRepositoryLanguages(owner: string, repo: string, callerSignal?: AbortSignal): Promise<GitHubLanguage[]> {
     this.#guardRepository(repo);
     const url = new URL(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/languages`, this.#baseUrl);
-    return (await this.#getJson(url, RawGitHubLanguagesSchema, callerSignal)).data;
+    const result = await this.#getJson(url, RawGitHubLanguagesSchema, callerSignal);
+    return this.#project(result, () =>
+      Object.entries(result.data)
+        .map(([name, bytes]) => ({ name, bytes }))
+        .toSorted((left, right) => right.bytes - left.bytes || scalarCompare(left.name, right.name)),
+    );
   }
 
   async listRepositoryTags(
@@ -354,26 +361,28 @@ export class GitHubClient {
     url.searchParams.set("per_page", String(limit));
     if (page !== 1) url.searchParams.set("page", String(page));
     const result = await this.#getJson(url, RawGitHubTagPageSchema, callerSignal);
-    if (result.data.length > limit) throw this.#upstream();
-    const links = this.#numberedLinks(result.headers, {
-      currentPage: page,
-      expectedPath: url.pathname,
-      fixed: {},
-      limit,
-      suffix: "/tags",
+    return this.#project(result, () => {
+      if (result.data.length > limit) throw this.#upstream();
+      const links = this.#numberedLinks(result.headers, {
+        currentPage: page,
+        expectedPath: url.pathname,
+        fixed: {},
+        limit,
+        suffix: "/tags",
+      });
+      if (result.data.length === 0 && links.nextPage !== null) throw this.#upstream();
+      return {
+        items: result.data.map((value) => ({ name: value.name, commit: { sha: value.commit.sha } })),
+        ...links,
+      };
     });
-    if (result.data.length === 0 && links.nextPage !== null) throw this.#upstream();
-    return {
-      items: result.data.map((value) => ({ name: value.name, commit: { sha: value.commit.sha } })),
-      ...links,
-    };
   }
 
   async #getJson<Output>(
     initialUrl: URL,
     schema: z.ZodType<Output>,
     callerSignal?: AbortSignal,
-  ): Promise<{ data: Output; headers: Headers }> {
+  ): Promise<GitHubJsonResult<Output>> {
     const startedAt = this.#deadlineNow();
     if (!Number.isFinite(startedAt)) throw new TypeError("invalid GitHub deadline clock");
     const expiresAt = startedAt + this.#timeoutMilliseconds;
@@ -406,12 +415,32 @@ export class GitHubClient {
       assertStrictJsonText(text);
       value = JSON.parse(text);
     } catch {
+      this.#throwIfAborted(callerSignal, deadline, expiresAt);
       throw this.#upstream();
     }
     const parsed = schema.safeParse(value);
-    if (!parsed.success) throw this.#upstream();
+    if (!parsed.success) {
+      this.#throwIfAborted(callerSignal, deadline, expiresAt);
+      throw this.#upstream();
+    }
     this.#throwIfAborted(callerSignal, deadline, expiresAt);
-    return { data: parsed.data, headers: response.headers };
+    return {
+      data: parsed.data,
+      headers: response.headers,
+      assertActive: () => this.#throwIfAborted(callerSignal, deadline, expiresAt),
+    };
+  }
+
+  #project<T>(result: GitHubJsonResult<unknown>, projection: () => T): T {
+    let projected: T;
+    try {
+      projected = projection();
+    } catch (error) {
+      result.assertActive();
+      throw error;
+    }
+    result.assertActive();
+    return projected;
   }
 
   async #requestWithRedirects(

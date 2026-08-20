@@ -9,7 +9,7 @@ import type {
 } from "../models/github.ts";
 import { SAFE_INTEGER_MAXIMUM } from "../models/portable.ts";
 import { decodeCursor, encodeCursor, InvalidCursorError, MAX_CURSOR_LENGTH } from "../pagination/cursor.ts";
-import { type ActivityCursor, GitHubClient, scalarCompare } from "./github-client.ts";
+import { type ActivityCursor, GitHubClient } from "./github-client.ts";
 
 const OWNER_REPOSITORIES = "listGitHubOwnerRepositories";
 const REPOSITORY_ACTIVITY = "listGitHubRepositoryActivity";
@@ -101,11 +101,8 @@ export class GitHubService {
     };
   }
 
-  async listRepositoryLanguages(owner: string, repo: string, signal?: AbortSignal): Promise<GitHubLanguage[]> {
-    const values = await this.#client.listRepositoryLanguages(owner, repo, signal);
-    return Object.entries(values)
-      .map(([name, bytes]) => ({ name, bytes }))
-      .toSorted((left, right) => right.bytes - left.bytes || scalarCompare(left.name, right.name));
+  listRepositoryLanguages(owner: string, repo: string, signal?: AbortSignal): Promise<GitHubLanguage[]> {
+    return this.#client.listRepositoryLanguages(owner, repo, signal);
   }
 
   async listRepositoryTags(

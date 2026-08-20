@@ -58,6 +58,7 @@ export const paginate = <T>(options: PaginateOptions<T>): PaginationResult<T> =>
     throw new TypeError("pagination limit must be an integer from 1 through 100");
   }
   let start = 0;
+  let end = Math.min(items.length, limit);
   if (cursor !== undefined) {
     const state = decodeCursor(cursor);
     if (!isItemCursor(state) || state.limit !== limit || state.category !== (category ?? null)) {
@@ -68,14 +69,20 @@ export const paginate = <T>(options: PaginateOptions<T>): PaginationResult<T> =>
     if ((state.direction === "next" && anchor === items.length - 1) || (state.direction === "prev" && anchor === 0)) {
       throw new InvalidCursorError();
     }
-    start = state.direction === "next" ? anchor + 1 : Math.max(0, anchor - limit);
+    if (state.direction === "next") {
+      start = anchor + 1;
+      end = Math.min(items.length, start + limit);
+    } else {
+      end = anchor;
+      start = Math.max(0, end - limit);
+    }
   }
 
-  const page = items.slice(start, start + limit);
+  const page = items.slice(start, end);
   const first = page[0];
   const last = page.at(-1);
   const next =
-    last !== undefined && start + page.length < items.length
+    last !== undefined && end < items.length
       ? buildItemTarget(basePath, {
           limit,
           ...(category === undefined ? {} : { category }),

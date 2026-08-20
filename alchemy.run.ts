@@ -182,7 +182,7 @@ const workerProps = Effect.gen(function* () {
       RATE_LIMIT_KEY_HMAC_KEY: rateLimitHmacKey,
       AUDIT_SUBJECT_HMAC_KEY: auditSubjectHmacKey,
     },
-  };
+  } satisfies Cloudflare.WorkerProps;
 });
 
 export const Worker = Cloudflare.Worker("Worker", workerProps);

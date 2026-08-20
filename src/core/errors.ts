@@ -204,8 +204,35 @@ const hasOwnPath = (value: unknown, path: readonly PropertyKey[]): boolean => {
   return true;
 };
 
+const KNOWN_JSON_API_LINK_MEMBERS = new Set(["self", "related", "describedby"]);
+const PROFILE_ATTRIBUTE_MEMBERS = new Set([
+  "firstName",
+  "lastName",
+  "contactEmail",
+  "phoneNumber",
+  "marketingOptIn",
+  "termsAccepted",
+]);
+
+const knownBodyPath = (path: readonly PropertyKey[]): PropertyKey[] => {
+  const known: PropertyKey[] = [];
+  for (const segment of path) {
+    const container = known.at(-1);
+    if (container === "links" && !KNOWN_JSON_API_LINK_MEMBERS.has(String(segment))) break;
+    if (container === "meta" || container === "relationships") break;
+    if (
+      container === "attributes" &&
+      !(known.length === 2 && known[0] === "data" && PROFILE_ATTRIBUTE_MEMBERS.has(String(segment)))
+    ) {
+      break;
+    }
+    known.push(segment);
+  }
+  return known;
+};
+
 const bodySource = (path: readonly PropertyKey[], input?: unknown): ValidationErrorDetail["source"] => {
-  const existing = [...path];
+  const existing = knownBodyPath(path);
   while (existing.length > 0 && input !== undefined && !hasOwnPath(input, existing)) existing.pop();
   if (existing.length === 0) return undefined;
   const pointer = `/${existing.map(encodePointerSegment).join("/")}`;

@@ -178,6 +178,23 @@ describe("portable health and hello operations", () => {
     });
   });
 
+  it.each(["application/json; charset =utf-8", "application/json; charset= utf-8"])(
+    "rejects malformed plain JSON parameter whitespace at the real hello boundary: %s",
+    async (contentType) => {
+      const response = await request("/v1/hello", {
+        method: "POST",
+        headers: { "Content-Type": contentType },
+        body: JSON.stringify({ name: "Ada" }),
+      });
+
+      expect(response.status).toBe(415);
+      await expect(response.json()).resolves.toMatchObject({
+        status: 415,
+        code: "unsupported_media_type",
+      });
+    },
+  );
+
   it("ignores representation fields on the body-free GET", async () => {
     const response = await request("/v1/hello", {
       method: "GET",
@@ -240,6 +257,26 @@ describe("items JSON:API and cursor navigation", () => {
     expect(secondBack.data.map((item) => item.id)).toEqual(forward[1]?.data.map((item) => item.id));
     expect(firstBack.data.map((item) => item.id)).toEqual(forward[0]?.data.map((item) => item.id));
     expect(firstBack.links.prev).toBeUndefined();
+  });
+
+  it("honors a canonical partial backward cursor without overlapping the following page", async () => {
+    const cursor = encodeCursor({
+      version: 1,
+      operation: "listItems",
+      direction: "prev",
+      limit: 20,
+      category: null,
+      anchor: "item-006",
+    });
+    const backward = await itemCollection(
+      await request(`/v1/items?page%5Blimit%5D=20&page%5Bcursor%5D=${encodeURIComponent(cursor)}`),
+    );
+    const forward = await itemCollection(await request(backward.links.next ?? ""));
+
+    expect(backward.data.map((item) => item.id)).toEqual(["item-001", "item-002", "item-003", "item-004", "item-005"]);
+    expect(backward.links.prev).toBeUndefined();
+    expect(forward.data[0]?.id).toBe("item-006");
+    expect(new Set([...backward.data, ...forward.data].map((item) => item.id)).size).toBe(25);
   });
 
   it.each([
@@ -684,6 +721,14 @@ describe("generated OpenAPI 3.1 semantic contract", () => {
     expect(schemas["ProfileCreateAttributes"]).toMatchObject({ additionalProperties: false });
     expect(schemas["ProfileUpdateAttributes"]).toMatchObject({ additionalProperties: false, minProperties: 1 });
     expect(schemas["JsonApiRequestObject"]).not.toMatchObject({ additionalProperties: false });
+
+    for (const name of ["ProfileCreateDocument", "ProfileUpdateDocument"]) {
+      const documentProperties = object(object(schemas[name], `${name} schema`)["properties"], `${name} properties`);
+      const data = object(documentProperties["data"], `${name}.data`);
+      const dataProperties = object(data["properties"], `${name}.data properties`);
+      const resourceType = object(dataProperties["type"], `${name}.data.type`);
+      expect(resourceType["const"] ?? (resourceType["enum"] as unknown[] | undefined)?.[0]).toBe("profiles");
+    }
 
     for (const name of ["ProfileCreateAttributes", "ProfileUpdateAttributes"]) {
       const properties = object(object(schemas[name], `${name} schema`)["properties"], `${name} properties`);

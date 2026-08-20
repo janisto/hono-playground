@@ -290,9 +290,9 @@ fixed deployment input unless the user explicitly changes it; do not substitute
 
 ## JSON:API 1.1 contract
 
-- Every application resource endpoint under `/v1` follows JSON:API 1.1. Health,
-  OpenAPI, and documentation endpoints are operational or descriptive
-  surfaces and are the only format exceptions.
+- Item and profile endpoints use JSON:API 1.1. Health, hello, and GitHub use
+  plain JSON successes and Problem Details failures; OpenAPI and documentation
+  remain descriptive surfaces.
 - JSON:API request and response payloads use
   `application/vnd.api+json`. Implement the specification's `415` and `406`
   media-type negotiation rules; do not silently accept `application/json` for
@@ -315,10 +315,11 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   schema-specific depth limiter unless the validation order changes.
 - Implementation-defined JSON members use ASCII lower camel case, following
   the JSON:API recommendation. Standard members retain their specified names.
-- Collection URLs use the plural resource type. Individual mutation uses
-  `PATCH`, not `PUT`. Creation uses `POST` on a collection URL and returns
-  `201` plus the created resource and a matching `Location`/resource
-  `links.self`. Successful deletion returns an empty `204`.
+- Item collection URLs use the plural resource type. Profile is a singleton at
+  `/v1/profile`; its mutation uses `PATCH`, not `PUT`, and its creation uses
+  `POST` on the singleton URL. Creation returns `201` plus the created resource
+  and a matching `Location`/resource `links.self`. Successful deletion returns
+  an empty `204`.
 - Pagination and filtering use the reserved parameter families, for example
   `page[limit]`, `page[cursor]`, and `filter[category]`. Collection pagination
   links live in the document's top-level `links` object. Reject unknown or
@@ -334,7 +335,7 @@ fixed deployment input unless the user explicitly changes it; do not substitute
 - Resource `type` or update `id` conflicts return `409`. An unsupported
   client-generated create ID returns `403`, as required by JSON:API.
 - OpenAPI operation IDs use lower-camel verb-noun names such as `listItems` and
-  `updateCurrentProfile`. Component schema names are PascalCase.
+  `updateProfile`. Component schema names are PascalCase.
 - `/openapi.json` is the single OpenAPI 3.1 contract and is generated from the
   same registered Hono route schemas used for runtime validation.
   `/api-docs` is only a renderer for that document. Do not add a duplicate

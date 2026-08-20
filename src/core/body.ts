@@ -52,8 +52,13 @@ const isSupportedJsonContentType = (value: string): boolean => {
   if (parts.length !== 1) return false;
   const parameter = parts[0]?.trim() ?? "";
   const equals = parameter.indexOf("=");
-  if (equals <= 0 || parameter.slice(0, equals).trim().toLowerCase() !== "charset") return false;
-  return decodeParameter(parameter.slice(equals + 1).trim())?.toLowerCase() === "utf-8";
+  if (equals <= 0) return false;
+  const name = parameter.slice(0, equals);
+  const parameterValue = parameter.slice(equals + 1);
+  if (name !== name.trim() || parameterValue !== parameterValue.trim() || name.toLowerCase() !== "charset") {
+    return false;
+  }
+  return decodeParameter(parameterValue)?.toLowerCase() === "utf-8";
 };
 
 export type BodyHeaderCheck = Readonly<{ contentTypePresent: boolean }>;

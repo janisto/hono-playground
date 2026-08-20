@@ -128,7 +128,7 @@ export const ProfileCreateDocumentSchema = z
     meta: JsonApiMetaSchema.optional(),
     included: JsonApiIncludedSchema.optional(),
     data: z.looseObject({
-      type: z.string().min(1),
+      type: z.literal("profiles"),
       id: z.string().optional(),
       lid: z.string().optional(),
       attributes: ProfileCreateSchema,
@@ -148,7 +148,7 @@ export const ProfileUpdateDocumentSchema = z
     meta: JsonApiMetaSchema.optional(),
     included: JsonApiIncludedSchema.optional(),
     data: z.looseObject({
-      type: z.string().min(1),
+      type: z.literal("profiles"),
       id: z.string(),
       lid: z.string().optional(),
       attributes: ProfileUpdateSchema,

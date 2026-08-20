@@ -108,9 +108,10 @@ afterEach(async () => {
 });
 
 describe("JSON:API profile resources", () => {
-  it("fails closed before routing an unregistered profile descendant", async () => {
-    const verify = vi.fn(async () => {
-      throw new InvalidAccessTokenError();
+  it("protects an unregistered profile descendant but renders its failures as Problem Details", async () => {
+    const verify = vi.fn(async (assertion: string | null | undefined) => {
+      if (assertion !== "signed-test-assertion") throw new InvalidAccessTokenError();
+      return { sub: "descendant-owner" };
     });
     const profileRepositoryFactory = vi.fn();
     const app = createApp({
@@ -118,22 +119,29 @@ describe("JSON:API profile resources", () => {
       profileRepositoryFactory,
     });
 
-    const response = await request(app, "/v1/profile/export", {
+    const denied = await request(app, "/v1/profile/export", {
       headers: { Accept: JSON_API_MEDIA_TYPE },
     });
-
-    expect(response.status).toBe(403);
-    expect(response.headers.get("Content-Type")).toBe(JSON_API_MEDIA_TYPE);
-    expect(await response.json()).toMatchObject({
-      errors: [
-        {
-          status: "403",
-          code: "forbidden",
-          source: { header: "Cf-Access-Jwt-Assertion" },
-        },
-      ],
+    const unmatched = await request(app, "/v1/profile/export", {
+      headers: {
+        Accept: "application/problem+json",
+        "Cf-Access-Jwt-Assertion": "signed-test-assertion",
+      },
     });
-    expect(verify).not.toHaveBeenCalled();
+
+    expect(denied.status).toBe(403);
+    expect(denied.headers.get("Content-Type")).toBe("application/problem+json");
+    await expect(denied.json()).resolves.toMatchObject({
+      status: 403,
+      code: "forbidden",
+    });
+    expect(unmatched.status).toBe(404);
+    expect(unmatched.headers.get("Content-Type")).toBe("application/problem+json");
+    await expect(unmatched.json()).resolves.toMatchObject({
+      status: 404,
+      code: "not_found",
+    });
+    expect(verify).toHaveBeenCalledExactlyOnceWith("signed-test-assertion");
     expect(profileRepositoryFactory).not.toHaveBeenCalled();
   });
 
@@ -348,7 +356,7 @@ describe("JSON:API profile resources", () => {
         ...createDocument(validCreateAttributes),
         links: { "bad/key": null },
       },
-      "/links/bad~1key",
+      "/links",
     ],
     [
       "POST top-level meta member name",
@@ -357,7 +365,7 @@ describe("JSON:API profile resources", () => {
         ...createDocument(validCreateAttributes),
         meta: { "bad/key": true },
       },
-      "/meta/bad~1key",
+      "/meta",
     ],
     [
       "PATCH jsonapi version",
@@ -442,7 +450,8 @@ describe("JSON:API profile resources", () => {
       const response = await request(app, path, jsonApiRequest(name.startsWith("POST") ? "POST" : "PATCH", document));
 
       expect(response.status).toBe(422);
-      await expect(response.json()).resolves.toMatchObject({
+      const errorDocument = await response.json();
+      expect(errorDocument).toMatchObject({
         errors: [
           {
             status: "422",
@@ -451,6 +460,7 @@ describe("JSON:API profile resources", () => {
           },
         ],
       });
+      expect(JSON.stringify(errorDocument)).not.toContain("bad/key");
       expect(create).not.toHaveBeenCalled();
       expect(update).not.toHaveBeenCalled();
     },
@@ -1028,6 +1038,174 @@ describe("JSON:API profile resources", () => {
   });
 
   it.each([
+    ["missing create type", PROFILES_PATH, "POST", { data: { attributes: validCreateAttributes } }, "/data"],
+    ["empty create type", PROFILES_PATH, "POST", createDocument(validCreateAttributes, { type: "" }), "/data/type"],
+    [
+      "malformed create type",
+      PROFILES_PATH,
+      "POST",
+      createDocument(validCreateAttributes, { type: "bad+type" }),
+      "/data/type",
+    ],
+    [
+      "missing update type",
+      CURRENT_PROFILE_PATH,
+      "PATCH",
+      { data: { id: "strict-shape-subject", attributes: { firstName: "Grace" } } },
+      "/data",
+    ],
+    [
+      "non-string update type",
+      CURRENT_PROFILE_PATH,
+      "PATCH",
+      updateDocument("strict-shape-subject", { firstName: "Grace" }, { type: 1 }),
+      "/data/type",
+    ],
+    [
+      "malformed update type",
+      CURRENT_PROFILE_PATH,
+      "PATCH",
+      updateDocument("strict-shape-subject", { firstName: "Grace" }, { type: "bad+type" }),
+      "/data/type",
+    ],
+  ] as const)(
+    "classifies an invalid JSON:API resource type as validation: %s",
+    async (_name, path, method, document, pointer) => {
+      const profileRepository: ProfileRepository = {
+        create: vi.fn(async () => undefined),
+        get: vi.fn(async () => undefined),
+        update: vi.fn(async () => undefined),
+        delete: vi.fn(async () => false),
+      };
+      const app = createApp({
+        accessVerifier: async () => ({ sub: "strict-shape-subject" }),
+        profileRepositoryFactory: () => profileRepository,
+      });
+
+      const response = await request(
+        app,
+        path,
+        jsonApiRequest(method, document, { "Cf-Access-Jwt-Assertion": "test" }),
+      );
+
+      expect(response.status).toBe(422);
+      await expect(response.json()).resolves.toMatchObject({
+        errors: [{ status: "422", code: "validation_failed", source: { pointer } }],
+      });
+      expect(profileRepository.create).not.toHaveBeenCalled();
+      expect(profileRepository.get).not.toHaveBeenCalled();
+      expect(profileRepository.update).not.toHaveBeenCalled();
+      expect(profileRepository.delete).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [
+      "top-level included resources",
+      PROFILES_PATH,
+      "POST",
+      { ...createDocument(validCreateAttributes), included: [{ type: "people", id: "person-1" }] },
+      "/included",
+    ],
+    [
+      "resource relationships",
+      CURRENT_PROFILE_PATH,
+      "PATCH",
+      updateDocument(
+        "strict-shape-subject",
+        { firstName: "Grace" },
+        {
+          relationships: { owner: { data: { type: "people", id: "person-1" } } },
+        },
+      ),
+      "/data/relationships",
+    ],
+  ] as const)(
+    "rejects structurally valid unsupported %s without persistence",
+    async (_name, path, method, document, pointer) => {
+      const profileRepository: ProfileRepository = {
+        create: vi.fn(async () => undefined),
+        get: vi.fn(async () => undefined),
+        update: vi.fn(async () => undefined),
+        delete: vi.fn(async () => false),
+      };
+      const app = createApp({
+        accessVerifier: async () => ({ sub: "strict-shape-subject" }),
+        profileRepositoryFactory: () => profileRepository,
+      });
+
+      const response = await request(
+        app,
+        path,
+        jsonApiRequest(method, document, { "Cf-Access-Jwt-Assertion": "test" }),
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        errors: [{ status: "403", code: "relationships_unsupported", source: { pointer } }],
+      });
+      expect(profileRepository.create).not.toHaveBeenCalled();
+      expect(profileRepository.get).not.toHaveBeenCalled();
+      expect(profileRepository.update).not.toHaveBeenCalled();
+      expect(profileRepository.delete).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [
+      "included resource type",
+      PROFILES_PATH,
+      "POST",
+      { ...createDocument(validCreateAttributes), included: [{ type: "bad+type", id: "person-1" }] },
+      "/included/0/type",
+    ],
+    [
+      "relationship resource type",
+      CURRENT_PROFILE_PATH,
+      "PATCH",
+      updateDocument(
+        "strict-shape-subject",
+        { firstName: "Grace" },
+        {
+          relationships: { privateRelationshipName: { data: { type: "bad+type", id: "person-1" } } },
+        },
+      ),
+      "/data/relationships",
+    ],
+  ] as const)(
+    "validates a malformed recognized %s before persistence",
+    async (_name, path, method, document, pointer) => {
+      const profileRepository: ProfileRepository = {
+        create: vi.fn(async () => undefined),
+        get: vi.fn(async () => undefined),
+        update: vi.fn(async () => undefined),
+        delete: vi.fn(async () => false),
+      };
+      const app = createApp({
+        accessVerifier: async () => ({ sub: "strict-shape-subject" }),
+        profileRepositoryFactory: () => profileRepository,
+      });
+
+      const response = await request(
+        app,
+        path,
+        jsonApiRequest(method, document, { "Cf-Access-Jwt-Assertion": "test" }),
+      );
+      const errorDocument = await response.json();
+
+      expect(response.status).toBe(422);
+      expect(errorDocument).toMatchObject({
+        errors: [{ status: "422", code: "validation_failed", source: { pointer } }],
+      });
+      expect(JSON.stringify(errorDocument)).not.toContain("privateRelationshipName");
+      expect(profileRepository.create).not.toHaveBeenCalled();
+      expect(profileRepository.get).not.toHaveBeenCalled();
+      expect(profileRepository.update).not.toHaveBeenCalled();
+      expect(profileRepository.delete).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
     [
       "client-generated create ID",
       PROFILES_PATH,
@@ -1035,6 +1213,7 @@ describe("JSON:API profile resources", () => {
       createDocument(validCreateAttributes, { id: crypto.randomUUID() }),
       403,
       "client_generated_id_unsupported",
+      "/data/id",
     ],
     [
       "wrong create type",
@@ -1048,6 +1227,7 @@ describe("JSON:API profile resources", () => {
       },
       409,
       "profile_resource_mismatch",
+      "/data/type",
     ],
     [
       "wrong update type",
@@ -1062,6 +1242,7 @@ describe("JSON:API profile resources", () => {
       },
       409,
       "profile_resource_mismatch",
+      "/data/type",
     ],
     [
       "wrong update ID",
@@ -1070,6 +1251,7 @@ describe("JSON:API profile resources", () => {
       updateDocument("another-subject", { firstName: "Grace" }),
       409,
       "profile_resource_mismatch",
+      "/data/id",
     ],
     [
       "oversized wrong update ID",
@@ -1078,35 +1260,39 @@ describe("JSON:API profile resources", () => {
       updateDocument("x".repeat(129), { firstName: "Grace" }),
       409,
       "profile_resource_mismatch",
+      "/data/id",
     ],
-  ])("implements JSON:API identity conflict semantics: %s", async (_name, path, method, document, status, code) => {
-    const profileRepository: ProfileRepository = {
-      create: vi.fn(async () => undefined),
-      get: vi.fn(async () => undefined),
-      update: vi.fn(async () => undefined),
-      delete: vi.fn(async () => false),
-    };
-    const app = createApp({
-      accessVerifier: async () => ({ sub: "strict-shape-subject" }),
-      profileRepositoryFactory: () => profileRepository,
-    });
-    const response = await request(
-      app,
-      path,
-      jsonApiRequest(method, document, {
-        "Cf-Access-Jwt-Assertion": "test",
-      }),
-    );
+  ])(
+    "implements JSON:API identity conflict semantics: %s",
+    async (_name, path, method, document, status, code, pointer) => {
+      const profileRepository: ProfileRepository = {
+        create: vi.fn(async () => undefined),
+        get: vi.fn(async () => undefined),
+        update: vi.fn(async () => undefined),
+        delete: vi.fn(async () => false),
+      };
+      const app = createApp({
+        accessVerifier: async () => ({ sub: "strict-shape-subject" }),
+        profileRepositoryFactory: () => profileRepository,
+      });
+      const response = await request(
+        app,
+        path,
+        jsonApiRequest(method, document, {
+          "Cf-Access-Jwt-Assertion": "test",
+        }),
+      );
 
-    expect(response.status).toBe(status);
-    await expect(response.json()).resolves.toMatchObject({
-      errors: [{ status: String(status), code }],
-    });
-    expect(profileRepository.create).not.toHaveBeenCalled();
-    expect(profileRepository.get).not.toHaveBeenCalled();
-    expect(profileRepository.update).not.toHaveBeenCalled();
-    expect(profileRepository.delete).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(status);
+      await expect(response.json()).resolves.toMatchObject({
+        errors: [{ status: String(status), code, source: { pointer } }],
+      });
+      expect(profileRepository.create).not.toHaveBeenCalled();
+      expect(profileRepository.get).not.toHaveBeenCalled();
+      expect(profileRepository.update).not.toHaveBeenCalled();
+      expect(profileRepository.delete).not.toHaveBeenCalled();
+    },
+  );
 
   it("turns corrupt repository output into a generic JSON:API 500", async () => {
     const corruptRepository: ProfileRepository = {

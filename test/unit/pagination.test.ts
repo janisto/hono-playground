@@ -121,6 +121,28 @@ describe("item pagination", () => {
     expect(backToFirst.items.map((item) => item.id)).toEqual(first.items.map((item) => item.id));
   });
 
+  it("constructs a partial backward window from any canonical valid cursor state", () => {
+    const backward = paginateItems({
+      limit: 20,
+      cursor: encodeCursor({
+        version: 1,
+        operation: "listItems",
+        direction: "prev",
+        limit: 20,
+        category: null,
+        anchor: "item-006",
+      }),
+    });
+
+    expect(backward.items.map((item) => item.id)).toEqual(["item-001", "item-002", "item-003", "item-004", "item-005"]);
+    expect(backward.links.prev).toBeUndefined();
+    const forward = paginateItems({ limit: 20, cursor: cursorFrom(backward.links.next ?? "") });
+    expect(forward.items.map((item) => item.id)).toEqual(
+      Array.from({ length: 20 }, (_, index) => `item-${String(index + 6).padStart(3, "0")}`),
+    );
+    expect(new Set([...backward.items, ...forward.items].map((item) => item.id)).size).toBe(25);
+  });
+
   it.each([
     {
       version: 1,
