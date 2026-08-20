@@ -9,7 +9,7 @@ Hosted documentation:
 
 ## Stack
 
-- Hono `4.12.32` routes requests and generates OpenAPI 3.1.
+- Hono `4.13.3` routes requests and generates OpenAPI 3.1.
 - Alchemy `2.0.0-beta.65` owns Worker development, infrastructure, bindings,
   secrets, state, and deployment.
 - Drizzle ORM and Drizzle Kit `1.0.0-rc.4` own database access and migration

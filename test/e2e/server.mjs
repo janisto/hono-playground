@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Log, LogLevel, Miniflare } from "miniflare";
+import { convertV4MiniflareOptions, Log, LogLevel, Miniflare } from "miniflare";
 import { build } from "vite";
 
 import { COMPATIBILITY_DATE } from "../../infra/config.ts";
@@ -35,19 +35,21 @@ if (entry?.type !== "chunk") {
   throw new Error("Vite did not produce a Worker entry chunk");
 }
 
-const worker = new Miniflare({
-  bindings: {
-    ENVIRONMENT: "test",
-    RATE_LIMIT_MODE: "none",
-  },
-  cf: false,
-  compatibilityDate: COMPATIBILITY_DATE,
-  host: "127.0.0.1",
-  log: new Log(LogLevel.ERROR),
-  modules: true,
-  port: 8788,
-  script: entry.code,
-});
+const worker = new Miniflare(
+  convertV4MiniflareOptions({
+    bindings: {
+      ENVIRONMENT: "test",
+      RATE_LIMIT_MODE: "none",
+    },
+    cf: false,
+    compatibilityDate: COMPATIBILITY_DATE,
+    host: "127.0.0.1",
+    log: new Log(LogLevel.ERROR),
+    modules: true,
+    port: 8788,
+    script: entry.code,
+  }),
+);
 
 const url = await worker.ready;
 console.log(`E2E Worker ready at ${url.origin}`);
