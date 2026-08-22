@@ -9,6 +9,7 @@ import type { ProfileRepository } from "../../src/repositories/profile-repositor
 const ORIGIN = "https://worker.example";
 const RATE_KEY = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
 const SUBJECT = "rate-limit-profile-owner";
+const ACCESS_HEADERS = { "Cf-Access-Jwt-Assertion": "signed" } as const;
 
 const limiter = (implementation: (input: { key: string }) => Promise<{ success: boolean }>) =>
   ({ limit: vi.fn(implementation) }) as unknown as RateLimit;
@@ -16,6 +17,7 @@ const limiter = (implementation: (input: { key: string }) => Promise<{ success: 
 const bindings = (overrides: Partial<RuntimeBindings> = {}): RuntimeBindings => ({
   DB: {} as D1Database,
   ENVIRONMENT: "test",
+  PUBLIC_ORIGIN: ORIGIN,
   RATE_LIMIT_MODE: "workers-binding",
   RATE_LIMIT_KEY_HMAC_KEY: RATE_KEY,
   ...overrides,
@@ -25,7 +27,7 @@ const storedProfile = {
   id: SUBJECT,
   firstName: "Ada",
   lastName: "Lovelace",
-  email: "ada@example.com",
+  contactEmail: "ada@example.com",
   phoneNumber: "+358401234567",
   marketingOptIn: false,
   termsAccepted: true as const,
@@ -90,7 +92,7 @@ describe("public limiter contract", () => {
   it("uses a full HMAC key and preserves an allowed response", async () => {
     const publicLimiter = limiter(() => Promise.resolve({ success: true }));
     const response = await createApp().request(
-      new Request(`${ORIGIN}/health`, { headers: { "CF-Connecting-IP": "192.0.2.1" } }),
+      new Request(`${ORIGIN}/v1/hello`, { headers: { "CF-Connecting-IP": "192.0.2.1" } }),
       undefined,
       bindings({ PUBLIC_RATE_LIMITER: publicLimiter }),
     );
@@ -108,7 +110,7 @@ describe("public limiter contract", () => {
     const runtimeBindings = bindings({ PUBLIC_RATE_LIMITER: publicLimiter });
     const headers = { "CF-Connecting-IP": "192.0.2.1" };
 
-    const health = await createApp().request(new Request(`${ORIGIN}/health`, { headers }), undefined, runtimeBindings);
+    const hello = await createApp().request(new Request(`${ORIGIN}/v1/hello`, { headers }), undefined, runtimeBindings);
     const items = await createApp().request(
       new Request(`${ORIGIN}/v1/items`, {
         headers: { ...headers, Accept: JSON_API_MEDIA_TYPE },
@@ -117,7 +119,7 @@ describe("public limiter contract", () => {
       runtimeBindings,
     );
 
-    expect(health.status).toBe(200);
+    expect(hello.status).toBe(200);
     expect(items.status).toBe(200);
     const keys = vi.mocked(publicLimiter.limit).mock.calls.map(([input]) => input.key);
     expect(keys).toHaveLength(2);
@@ -128,7 +130,7 @@ describe("public limiter contract", () => {
   it("returns the literal 429 contract with Retry-After", async () => {
     const publicLimiter = limiter(() => Promise.resolve({ success: false }));
     const response = await createApp().request(
-      new Request(`${ORIGIN}/health`, { headers: { "CF-Connecting-IP": "192.0.2.1" } }),
+      new Request(`${ORIGIN}/v1/hello`, { headers: { "CF-Connecting-IP": "192.0.2.1" } }),
       undefined,
       bindings({ PUBLIC_RATE_LIMITER: publicLimiter }),
     );
@@ -144,10 +146,10 @@ describe("public limiter contract", () => {
     });
   });
 
-  it("fails open only for a binding exception and emits a safe operator code", async () => {
+  it("fails closed for a binding exception and emits only a safe operator code", async () => {
     const publicLimiter = limiter(() => Promise.reject(new Error("private binding message")));
     const response = await createApp().request(
-      new Request(`${ORIGIN}/health`, {
+      new Request(`${ORIGIN}/v1/hello`, {
         headers: {
           "CF-Connecting-IP": "192.0.2.1",
           "X-Request-ID": "public-limiter-failure-id",
@@ -157,7 +159,15 @@ describe("public limiter contract", () => {
       bindings({ PUBLIC_RATE_LIMITER: publicLimiter }),
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
+    expect(response.headers.has("Retry-After")).toBe(false);
+    expect(await response.json()).toEqual({
+      type: "about:blank",
+      title: "Service Unavailable",
+      status: 503,
+      detail: "A required dependency is unavailable",
+      code: "dependency_unavailable",
+    });
     expect(errorLog).toHaveBeenCalledWith({
       schema_version: 1,
       event: "operator.error",
@@ -180,7 +190,7 @@ describe("public limiter contract", () => {
       const headers = new Headers({ "X-Request-ID": requestIds[index] ?? "unexpected-id" });
       if (header !== undefined) headers.set("CF-Connecting-IP", header);
       const response = await createApp().request(
-        new Request(`${ORIGIN}/health`, { headers }),
+        new Request(`${ORIGIN}/v1/hello`, { headers }),
         undefined,
         productionBindings,
       );
@@ -208,7 +218,7 @@ describe("public limiter contract", () => {
     const missingKeyBindings = bindings({ PUBLIC_RATE_LIMITER: publicLimiter });
     delete missingKeyBindings.RATE_LIMIT_KEY_HMAC_KEY;
     const response = await createApp().request(
-      new Request(`${ORIGIN}/health`, { headers: { "CF-Connecting-IP": "192.0.2.1" } }),
+      new Request(`${ORIGIN}/v1/hello`, { headers: { "CF-Connecting-IP": "192.0.2.1" } }),
       undefined,
       missingKeyBindings,
     );
@@ -217,12 +227,12 @@ describe("public limiter contract", () => {
     expect(publicLimiter.limit).not.toHaveBeenCalled();
   });
 
-  it("treats malformed binding output as a safe fail-open dependency error", async () => {
+  it("treats malformed binding output as a safe fail-closed dependency error", async () => {
     const malformedLimiter = {
       limit: vi.fn(() => Promise.resolve({ success: "not-a-boolean" })),
     } as unknown as RateLimit;
     const response = await createApp().request(
-      new Request(`${ORIGIN}/health`, {
+      new Request(`${ORIGIN}/v1/hello`, {
         headers: {
           "CF-Connecting-IP": "192.0.2.1",
           "X-Request-ID": "malformed-limiter-id",
@@ -232,7 +242,8 @@ describe("public limiter contract", () => {
       bindings({ PUBLIC_RATE_LIMITER: malformedLimiter }),
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
+    expect(response.headers.has("Retry-After")).toBe(false);
     expect(errorLog).toHaveBeenCalledWith({
       schema_version: 1,
       event: "operator.error",
@@ -243,17 +254,20 @@ describe("public limiter contract", () => {
     expect(JSON.stringify(errorLog.mock.calls)).not.toContain("invalid result");
   });
 
-  it.each(["/api-docs", "/openapi.json"])("limits the documentation routes: %s", async (path) => {
-    const publicLimiter = limiter(() => Promise.resolve({ success: false }));
-    const response = await createApp().request(
-      new Request(`${ORIGIN}${path}`, { headers: { "CF-Connecting-IP": "192.0.2.1" } }),
-      undefined,
-      bindings({ PUBLIC_RATE_LIMITER: publicLimiter }),
-    );
+  it.each(["/health", "/api-docs", "/openapi.json"])(
+    "does not limit operational or documentation routes: %s",
+    async (path) => {
+      const publicLimiter = limiter(() => Promise.resolve({ success: false }));
+      const response = await createApp().request(
+        new Request(`${ORIGIN}${path}`, { headers: { "CF-Connecting-IP": "192.0.2.1" } }),
+        undefined,
+        bindings({ PUBLIC_RATE_LIMITER: publicLimiter }),
+      );
 
-    expect(response.status).toBe(429);
-    expect(publicLimiter.limit).toHaveBeenCalledOnce();
-  });
+      expect(response.status).toBe(200);
+      expect(publicLimiter.limit).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("profile limiter contract", () => {
@@ -265,8 +279,8 @@ describe("profile limiter contract", () => {
       profileRepositoryFactory: () => profileRepository,
     });
     const response = await application.request(
-      new Request(`${ORIGIN}/v1/profiles/current`, {
-        headers: { Accept: JSON_API_MEDIA_TYPE },
+      new Request(`${ORIGIN}/v1/profile`, {
+        headers: { ...ACCESS_HEADERS, Accept: JSON_API_MEDIA_TYPE },
       }),
       undefined,
       bindings({ PROFILE_READ_RATE_LIMITER: readLimiter }),
@@ -289,9 +303,10 @@ describe("profile limiter contract", () => {
       profileRepositoryFactory: () => profileRepository,
     });
     const response = await application.request(
-      new Request(`${ORIGIN}/v1/profiles`, {
+      new Request(`${ORIGIN}/v1/profile`, {
         method: "POST",
         headers: {
+          ...ACCESS_HEADERS,
           Accept: JSON_API_MEDIA_TYPE,
           "Content-Type": JSON_API_MEDIA_TYPE,
         },
@@ -303,10 +318,10 @@ describe("profile limiter contract", () => {
 
     await expectJsonApiError(response, {
       status: 503,
-      code: "rate_limiter_unavailable",
-      detail: "Rate limiter unavailable",
+      code: "dependency_unavailable",
+      detail: "A required dependency is unavailable",
     });
-    expect(response.headers.get("Retry-After")).toBe("30");
+    expect(response.headers.has("Retry-After")).toBe(false);
     expect(profileRepository.create).not.toHaveBeenCalled();
   });
 
@@ -318,8 +333,8 @@ describe("profile limiter contract", () => {
       profileRepositoryFactory: () => profileRepository,
     });
     const response = await application.request(
-      new Request(`${ORIGIN}/v1/profiles/current`, {
-        headers: { Accept: JSON_API_MEDIA_TYPE },
+      new Request(`${ORIGIN}/v1/profile`, {
+        headers: { ...ACCESS_HEADERS, Accept: JSON_API_MEDIA_TYPE },
       }),
       undefined,
       bindings({ PROFILE_READ_RATE_LIMITER: readLimiter }),
@@ -327,10 +342,10 @@ describe("profile limiter contract", () => {
 
     await expectJsonApiError(response, {
       status: 503,
-      code: "rate_limiter_unavailable",
-      detail: "Rate limiter unavailable",
+      code: "dependency_unavailable",
+      detail: "A required dependency is unavailable",
     });
-    expect(response.headers.get("Retry-After")).toBe("30");
+    expect(response.headers.has("Retry-After")).toBe(false);
     expect(profileRepository.get).not.toHaveBeenCalled();
   });
 
@@ -344,8 +359,8 @@ describe("profile limiter contract", () => {
       profileRepositoryFactory: () => profileRepository,
     });
     const response = await application.request(
-      new Request(`${ORIGIN}/v1/profiles/current`, {
-        headers: { Accept: JSON_API_MEDIA_TYPE },
+      new Request(`${ORIGIN}/v1/profile`, {
+        headers: { ...ACCESS_HEADERS, Accept: JSON_API_MEDIA_TYPE },
       }),
       undefined,
       bindings({ PROFILE_READ_RATE_LIMITER: malformedLimiter }),
@@ -353,10 +368,10 @@ describe("profile limiter contract", () => {
 
     await expectJsonApiError(response, {
       status: 503,
-      code: "rate_limiter_unavailable",
-      detail: "Rate limiter unavailable",
+      code: "dependency_unavailable",
+      detail: "A required dependency is unavailable",
     });
-    expect(response.headers.get("Retry-After")).toBe("30");
+    expect(response.headers.has("Retry-After")).toBe(false);
     expect(profileRepository.get).not.toHaveBeenCalled();
   });
 
@@ -368,9 +383,10 @@ describe("profile limiter contract", () => {
       profileRepositoryFactory: () => profileRepository,
     });
     const response = await application.request(
-      new Request(`${ORIGIN}/v1/profiles`, {
+      new Request(`${ORIGIN}/v1/profile`, {
         method: "POST",
         headers: {
+          ...ACCESS_HEADERS,
           Accept: JSON_API_MEDIA_TYPE,
           "Content-Type": JSON_API_MEDIA_TYPE,
         },
@@ -400,8 +416,8 @@ describe("profile limiter contract", () => {
     });
 
     const read = await application.request(
-      new Request(`${ORIGIN}/v1/profiles/current`, {
-        headers: { Accept: JSON_API_MEDIA_TYPE },
+      new Request(`${ORIGIN}/v1/profile`, {
+        headers: { ...ACCESS_HEADERS, Accept: JSON_API_MEDIA_TYPE },
       }),
       undefined,
       bindings({
@@ -410,9 +426,10 @@ describe("profile limiter contract", () => {
       }),
     );
     const write = await application.request(
-      new Request(`${ORIGIN}/v1/profiles`, {
+      new Request(`${ORIGIN}/v1/profile`, {
         method: "POST",
         headers: {
+          ...ACCESS_HEADERS,
           Accept: JSON_API_MEDIA_TYPE,
           "Content-Type": JSON_API_MEDIA_TYPE,
         },
@@ -422,7 +439,7 @@ describe("profile limiter contract", () => {
             attributes: {
               firstName: "Ada",
               lastName: "Lovelace",
-              email: "ada@example.com",
+              contactEmail: "ada@example.com",
               phoneNumber: "+358401234567",
               termsAccepted: true,
             },

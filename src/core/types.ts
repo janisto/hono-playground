@@ -1,4 +1,6 @@
 import type { WorkerEnv } from "../../alchemy.run.ts";
+import type { BodyHeaderCheck } from "./body.ts";
+import type { ParsedQuery } from "./query.ts";
 
 export type EnvironmentName = "development" | "staging" | "test" | "production";
 export type RateLimitMode = "none" | "workers-binding";
@@ -12,13 +14,16 @@ export type RuntimeBindings = {
 export type RouteMetadata = {
   template: string;
   operationId: string;
-  kind: "public" | "resource" | "profile-read" | "profile-write" | "docs" | "unmatched";
+  kind: "plain-public" | "json-api-public" | "profile-read" | "profile-write" | "docs" | "unmatched";
+  queryNames: ReadonlySet<string>;
+  bodyProfile?: "json" | "json-api";
 };
 
 export interface RuntimeConfig {
   environment: EnvironmentName;
   maximumRequestBytes: number;
   rateLimitMode: RateLimitMode;
+  publicOrigin: string;
 }
 
 export type AppVariables = {
@@ -26,7 +31,10 @@ export type AppVariables = {
   routeMetadata: RouteMetadata;
   runtimeConfig: RuntimeConfig;
   identitySubject: string | undefined;
-  jsonApiBodyText: string | undefined;
+  bodyText: string | undefined;
+  bodyHeaders: BodyHeaderCheck | undefined;
+  parsedQuery: ParsedQuery;
+  variesByOrigin: boolean;
   outcome: string;
 };
 

@@ -1,138 +1,121 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
   APPLICATION_ERROR_CATALOG,
   AppError,
   jsonApiErrorResponse,
   problemResponse,
-  validationError,
+  validationErrorsFromZod,
+  zodValidationError,
 } from "../../src/core/errors.ts";
 import { MAX_VALIDATION_ERRORS } from "../../src/models/error.ts";
 
-describe("application error catalog", () => {
-  it("freezes status, title, and safe-detail contracts", () => {
-    expect(APPLICATION_ERROR_CATALOG.invalid_query_parameter).toMatchObject({
-      status: 400,
-      title: "Bad Request",
-      safeDetails: ["Invalid query parameter"],
+describe("portable error boundary", () => {
+  it("pins every public status, code, title, and default detail", () => {
+    expect(APPLICATION_ERROR_CATALOG).toMatchObject({
+      invalid_request: { status: 400, title: "Bad Request", detail: "Request is malformed" },
+      forbidden: { status: 403, title: "Forbidden", detail: "Access is forbidden" },
+      profile_resource_mismatch: {
+        status: 409,
+        title: "Conflict",
+        detail: "Profile resource does not match this endpoint",
+      },
+      validation_failed: {
+        status: 422,
+        title: "Unprocessable Content",
+        detail: "Request validation failed",
+      },
+      github_upstream: {
+        status: 502,
+        title: "Bad Gateway",
+        detail: "GitHub upstream response is invalid or unavailable",
+      },
+      github_timeout: { status: 504, title: "Gateway Timeout", detail: "GitHub request timed out" },
     });
-    expect(APPLICATION_ERROR_CATALOG.client_generated_id_unsupported.status).toBe(403);
-    expect(APPLICATION_ERROR_CATALOG.method_not_allowed.status).toBe(405);
-    expect(APPLICATION_ERROR_CATALOG.resource_type_mismatch.status).toBe(409);
-    expect(APPLICATION_ERROR_CATALOG.resource_identity_mismatch.status).toBe(409);
-    expect(APPLICATION_ERROR_CATALOG.validation_failed).toMatchObject({
-      status: 422,
-      title: "Unprocessable Content",
-      safeDetails: ["Request document validation failed"],
-    });
-    expect(Object.isFrozen(APPLICATION_ERROR_CATALOG)).toBe(true);
-    for (const [code, entry] of Object.entries(APPLICATION_ERROR_CATALOG)) {
+    for (const code of Object.keys(APPLICATION_ERROR_CATALOG)) {
       expect(code).toMatch(/^[a-z][a-z0-9_]*$/u);
-      expect(Object.isFrozen(entry)).toBe(true);
-      expect(Object.isFrozen(entry.safeDetails)).toBe(true);
     }
   });
 
-  it("rejects arbitrary status/detail/issues and missing dynamic headers", () => {
-    expect(() => new AppError({ status: 500, code: "not_found", detail: "private marker" })).toThrow(
-      "must match the application error catalog",
+  it("rejects contradictory metadata and invalid dynamic-header states", () => {
+    expect(() => new AppError({ status: 500, code: "not_found" })).toThrow("must match");
+    expect(() => new AppError({ code: "not_found", detail: "private marker" })).toThrow("must match");
+    expect(() => new AppError({ code: "validation_failed" })).toThrow("requires normalized issues");
+    expect(() => new AppError({ code: "not_found", errors: [{ detail: "private" }] })).toThrow(
+      "only validation_failed",
     );
-    expect(() => new AppError({ status: 404, code: "not_found", detail: "private marker" })).toThrow(
-      "must match the application error catalog",
-    );
+    expect(() => new AppError({ code: "method_not_allowed" })).toThrow("requires Allow");
+    expect(() => new AppError({ code: "rate_limited" })).toThrow("require a canonical Retry-After");
     expect(
       () =>
         new AppError({
-          status: 404,
-          code: "not_found",
-          detail: "Not Found",
-          errors: [{ detail: "private" }],
-        }),
-    ).toThrow("must not include normalized issues");
-    expect(
-      () =>
-        new AppError({
-          status: 422,
           code: "validation_failed",
-          detail: "Request document validation failed",
+          errors: Array.from({ length: MAX_VALIDATION_ERRORS + 1 }, () => ({ detail: "Invalid value" })),
         }),
-    ).toThrow("at least one normalized issue");
-    expect(
-      () =>
-        new AppError({
-          status: 422,
-          code: "validation_failed",
-          detail: "Request document validation failed",
-          errors: Array.from({ length: MAX_VALIDATION_ERRORS + 1 }, () => ({
-            detail: "Invalid value",
-          })),
-        }),
-    ).toThrow(`must not exceed ${MAX_VALIDATION_ERRORS} issues`);
-    expect(
-      () =>
-        new AppError({
-          status: 422,
-          code: "validation_failed",
-          detail: "Request document validation failed",
-          errors: [{ detail: "Invalid value" }],
-          source: { header: "Content-Type" },
-        }),
-    ).toThrow("sources on their normalized issues");
-    expect(
-      () =>
-        new AppError({
-          status: 405,
-          code: "method_not_allowed",
-          detail: "Method Not Allowed",
-        }),
-    ).toThrow("non-empty Allow");
-    expect(
-      () =>
-        new AppError({
-          status: 405,
-          code: "method_not_allowed",
-          detail: "Method Not Allowed",
-          headers: { Allow: " " },
-        }),
-    ).toThrow("non-empty Allow");
+    ).toThrow("between 1 and 32");
   });
 
-  it("composes fixed retry headers centrally", () => {
-    const limited = new AppError({
-      status: 429,
-      code: "rate_limited",
-      detail: "Rate limit exceeded",
+  it("normalizes validation issues without attacker-controlled unknown member names", () => {
+    const schema = z.strictObject({
+      data: z.strictObject({
+        attributes: z.strictObject({ firstName: z.string().min(1) }),
+      }),
     });
-    const unavailable = new AppError({
-      status: 503,
-      code: "database_unavailable",
-      detail: "Database temporarily unavailable",
-      headers: { "Retry-After": "1" },
-    });
-
-    expect(limited.headers.get("Retry-After")).toBe("60");
-    expect(unavailable.headers.get("Retry-After")).toBe("1");
+    const input = { data: { attributes: { firstName: "", attackerSecret: "private-marker" } } };
+    const parsed = schema.safeParse(input);
+    if (parsed.success) throw new Error("expected validation failure");
+    const issues = validationErrorsFromZod(parsed.error, "body", input);
+    expect(issues).toEqual([
+      {
+        detail: "Too small: expected string to have >=1 characters",
+        source: { pointer: "/data/attributes/firstName" },
+      },
+      { detail: "Unexpected member", source: { pointer: "/data/attributes" } },
+    ]);
+    expect(JSON.stringify(issues)).not.toContain("attackerSecret");
+    expect(JSON.stringify(issues)).not.toContain("private-marker");
   });
 
-  it("serializes operational errors as RFC 9457 and resource errors as JSON:API", async () => {
-    const operational = problemResponse(new AppError({ status: 404, code: "not_found", detail: "Not Found" }));
+  it("keeps an exact 256-scalar source and omits the next larger pointer", () => {
+    const atLimit = "a".repeat(255);
+    const overLimit = "b".repeat(256);
+    for (const [key, expected] of [
+      [atLimit, { pointer: `/${atLimit}` }],
+      [overLimit, undefined],
+    ] as const) {
+      const schema = z.strictObject({ [key]: z.string().min(1) });
+      const input = { [key]: "" };
+      const parsed = schema.safeParse(input);
+      if (parsed.success) throw new Error("expected validation failure");
+
+      expect(validationErrorsFromZod(parsed.error, "body", input)[0]?.source).toEqual(expected);
+    }
+  });
+
+  it("caps independent issues at 31 plus the source-free truncation marker", () => {
+    const shape = Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`field${index}`, z.string()]));
+    const parsed = z.strictObject(shape).safeParse({});
+    if (parsed.success) throw new Error("expected validation failure");
+    const issues = validationErrorsFromZod(parsed.error, "body", {});
+    expect(issues).toHaveLength(MAX_VALIDATION_ERRORS);
+    expect(issues.at(-1)).toEqual({ detail: "Additional validation errors omitted" });
+  });
+
+  it("serializes plain and JSON:API errors with their exact profiles", async () => {
+    const operational = problemResponse(new AppError({ code: "not_found" }));
     expect(operational.headers.get("Content-Type")).toBe("application/problem+json");
     await expect(operational.json()).resolves.toEqual({
       type: "about:blank",
       title: "Not Found",
       status: 404,
-      detail: "Not Found",
+      detail: "Resource not found",
       code: "not_found",
     });
 
-    const resource = jsonApiErrorResponse(
-      validationError([
-        {
-          detail: "Invalid value",
-          source: { pointer: "/data/attributes/firstName" },
-        },
-      ]),
-    );
+    const parsed = z.strictObject({ firstName: z.string().min(1) }).safeParse({ firstName: "" });
+    if (parsed.success) throw new Error("expected validation failure");
+    const resource = jsonApiErrorResponse(zodValidationError(parsed.error, "body", { firstName: "" }));
     expect(resource.headers.get("Content-Type")).toBe("application/vnd.api+json");
     await expect(resource.json()).resolves.toEqual({
       jsonapi: { version: "1.1" },
@@ -141,22 +124,10 @@ describe("application error catalog", () => {
           status: "422",
           code: "validation_failed",
           title: "Unprocessable Content",
-          detail: "Invalid value",
-          source: { pointer: "/data/attributes/firstName" },
+          detail: "Too small: expected string to have >=1 characters",
+          source: { pointer: "/firstName" },
         },
       ],
-    });
-
-    const headerError = jsonApiErrorResponse(
-      new AppError({
-        status: 406,
-        code: "not_acceptable",
-        detail: "Supported response format: application/vnd.api+json",
-        source: { header: "Accept" },
-      }),
-    );
-    await expect(headerError.json()).resolves.toMatchObject({
-      errors: [{ source: { header: "Accept" } }],
     });
   });
 });

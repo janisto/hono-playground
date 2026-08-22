@@ -1,12 +1,15 @@
+import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../src/app.ts";
 import { InvalidAccessTokenError } from "../../src/auth/types.ts";
+import { lifecycle } from "../../src/core/lifecycle.ts";
 import { resolveRoute } from "../../src/core/routes.ts";
-import type { RuntimeBindings } from "../../src/core/types.ts";
+import type { AppEnvironment, RuntimeBindings } from "../../src/core/types.ts";
 import { JSON_API_MEDIA_TYPE } from "../../src/models/json-api.ts";
 
 const ORIGIN = "https://api.example.test";
+const ACCESS_ASSERTION = { "Cf-Access-Jwt-Assertion": "signed" } as const;
 const CORS_HEADERS = [
   "Access-Control-Allow-Credentials",
   "Access-Control-Allow-Headers",
@@ -143,14 +146,18 @@ describe("request IDs and common response policy", () => {
   );
 
   it("preserves a validated request ID on body-limit and configuration failures", async () => {
-    const smallApp = createApp({ maximumRequestBytes: 16 });
+    const smallApp = createApp({
+      maximumRequestBytes: 16,
+      accessVerifier: () => Promise.resolve({ sub: "subject-1" }),
+    });
     const requestId = "bounded-request-id";
     const oversized = await smallApp.request(
-      new Request(`${ORIGIN}/v1/profiles`, {
+      new Request(`${ORIGIN}/v1/profile`, {
         method: "POST",
         headers: {
           Accept: JSON_API_MEDIA_TYPE,
           "Content-Type": JSON_API_MEDIA_TYPE,
+          ...ACCESS_ASSERTION,
           "X-Request-ID": requestId,
         },
         body: JSON.stringify({
@@ -161,7 +168,7 @@ describe("request IDs and common response policy", () => {
       TEST_BINDINGS,
     );
     const misconfigured = await request(
-      "/health",
+      "/v1/hello",
       { headers: { "X-Request-ID": requestId } },
       { ...TEST_BINDINGS, ENVIRONMENT: "invalid" },
     );
@@ -192,14 +199,24 @@ describe("request IDs and common response policy", () => {
     expect(response.status, await response.clone().text()).toBe(200);
     expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=300");
   });
+
+  it("merges Vary field names case-insensitively without duplicating an existing token", async () => {
+    const varyApp = new Hono<AppEnvironment>();
+    varyApp.use("*", lifecycle());
+    varyApp.get("/", (c) => c.body("ok", { headers: { Vary: "accept, ACCEPT, X-Test, x-test" } }));
+
+    const response = await varyApp.request(`${ORIGIN}/`, {}, TEST_BINDINGS);
+
+    expect(response.headers.get("Vary")).toBe("accept, X-Test");
+  });
 });
 
 describe("representation negotiation", () => {
   it.each([
     undefined,
-    "",
     "application/json",
     "APPLICATION/JSON",
+    "application/json;charset=utf-8",
     "application/*",
     "*/*",
     "text/plain;q=1, application/json;q=0.25",
@@ -211,12 +228,37 @@ describe("representation negotiation", () => {
   });
 
   it.each([
+    ["application/json;charset=utf-8", "application/json; charset=utf-8"],
+    ["application/json;charset=utf-8;q=0, application/json;q=1", "application/json"],
+    ["application/json;q=0, application/json;charset=utf-8;q=1", "application/json; charset=utf-8"],
+  ])("emits the exact selected JSON form for %s", async (accept, expected) => {
+    const response = await request("/health", { headers: { Accept: accept } });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe(expected);
+  });
+
+  it.each([
+    ["application/problem+json;charset=utf-8;q=0, application/problem+json;q=1", "application/problem+json"],
+    [
+      "application/problem+json;q=0, application/problem+json;charset=utf-8;q=1",
+      "application/problem+json; charset=utf-8",
+    ],
+  ])("emits the exact selected Problem Details JSON form for %s", async (accept, expected) => {
+    const response = await request("/missing", { headers: { Accept: accept } });
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Content-Type")).toBe(expected);
+  });
+
+  it.each([
+    "",
+    "   ",
     "text/plain",
     "application/cbor",
     "application/json;q=0",
     "application/json;q=0, */*;q=1",
     "application/*;q=0, */*;q=1",
-    "application/json;charset=utf-8",
     "application/json;q=.5",
     "application/json;q=0.1234",
     "application/json;q=9e-1",
@@ -229,20 +271,32 @@ describe("representation negotiation", () => {
       title: "Not Acceptable",
       status: 406,
       code: "not_acceptable",
-      detail: "Supported response format: application/json",
+      detail: "No acceptable response representation is available",
     });
     expect(response.headers.get("Vary")).toBe("Accept");
     expectCommonHeaders(response);
   });
 
+  it("ignores a malformed trailing range when an acceptable operational range remains", async () => {
+    const response = await request("/health", {
+      headers: { Accept: 'application/json, text/plain;note="unterminated' },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("application/json");
+  });
+
   it.each([
     undefined,
-    "",
     JSON_API_MEDIA_TYPE,
     `${JSON_API_MEDIA_TYPE};profile="https://example.test/profile"`,
     `${JSON_API_MEDIA_TYPE};profile="https://example.test/profile urn:example:profile"`,
+    `${JSON_API_MEDIA_TYPE};profile="https://one.test/profile https://two.test/profile"`,
     "application/*",
     "*/*",
+    `${JSON_API_MEDIA_TYPE};q=1;foo=bar, */*`,
+    `${JSON_API_MEDIA_TYPE};charset=utf-8, */*;q=1`,
+    `${JSON_API_MEDIA_TYPE};ext="https://example.test/ext", */*;q=1`,
   ])("accepts a supported JSON:API range: %s", async (accept) => {
     const response = await request("/v1/items", accept === undefined ? {} : { headers: { Accept: accept } });
 
@@ -251,6 +305,8 @@ describe("representation negotiation", () => {
   });
 
   it.each([
+    "",
+    "   ",
     "application/json",
     `${JSON_API_MEDIA_TYPE};charset=utf-8`,
     `${JSON_API_MEDIA_TYPE};ext="https://example.test/ext"`,
@@ -262,19 +318,18 @@ describe("representation negotiation", () => {
     `${JSON_API_MEDIA_TYPE};q=0`,
     `${JSON_API_MEDIA_TYPE};q="0.5"`,
     `${JSON_API_MEDIA_TYPE};q=0, */*;q=1`,
+    `${JSON_API_MEDIA_TYPE};q=1;foo=bar`,
     `${JSON_API_MEDIA_TYPE};q=1;charset=utf-8`,
-    `${JSON_API_MEDIA_TYPE};q=1;foo=bar, */*`,
-    `${JSON_API_MEDIA_TYPE};charset=utf-8, */*;q=1`,
-    `${JSON_API_MEDIA_TYPE};ext="https://example.test/ext", */*;q=1`,
     `${JSON_API_MEDIA_TYPE};profile = "https://example.test/profile"`,
     `${JSON_API_MEDIA_TYPE};q =1`,
+    `text/plain;note="x,${JSON_API_MEDIA_TYPE}`,
   ])("returns a JSON:API 406 for an unsupported JSON:API range: %s", async (accept) => {
     const response = await request("/v1/items", { headers: { Accept: accept } });
 
     await expectJsonApiError(response, {
       status: 406,
       code: "not_acceptable",
-      detail: `Supported response format: ${JSON_API_MEDIA_TYPE}`,
+      detail: "No acceptable response representation is available",
       source: { header: "Accept" },
     });
     expect(response.headers.get("Vary")).toBe("Accept");
@@ -288,23 +343,38 @@ describe("representation negotiation", () => {
 
     expect(response.status).toBe(406);
   });
+
+  it.each([
+    ["text/html;level=1", 406],
+    ["text/html;level=1, */*;q=0.5", 200],
+  ])("matches documentation Accept parameters only when supported: %s", async (accept, status) => {
+    const response = await request("/api-docs", { headers: { Accept: accept } });
+
+    expect(response.status).toBe(status);
+  });
 });
 
 describe("known-resource method policy and strict paths", () => {
   it.each([
     ["GET", "/health", "getHealth"],
     ["HEAD", "/health", "getHealth"],
+    ["GET", "/v1/hello", "getHello"],
+    ["POST", "/v1/hello", "createHello"],
     ["GET", "/v1/items", "listItems"],
     ["HEAD", "/v1/items", "listItems"],
-    ["GET", "/v1/items/item-001", "getItem"],
-    ["HEAD", "/v1/items/item-001", "getItem"],
-    ["POST", "/v1/profiles", "createProfile"],
-    ["GET", "/v1/profiles/current", "getCurrentProfile"],
-    ["HEAD", "/v1/profiles/current", "getCurrentProfile"],
-    ["PATCH", "/v1/profiles/current", "updateCurrentProfile"],
-    ["DELETE", "/v1/profiles/current", "deleteCurrentProfile"],
-    ["GET", "/openapi.json", "getOpenApi"],
-    ["HEAD", "/openapi.json", "getOpenApi"],
+    ["POST", "/v1/profile", "createProfile"],
+    ["GET", "/v1/profile", "getProfile"],
+    ["HEAD", "/v1/profile", "getProfile"],
+    ["PATCH", "/v1/profile", "updateProfile"],
+    ["DELETE", "/v1/profile", "deleteProfile"],
+    ["GET", "/v1/github/owners/octocat", "getGitHubOwner"],
+    ["GET", "/v1/github/owners/octocat/repos", "listGitHubOwnerRepositories"],
+    ["GET", "/v1/github/repos/octocat/hello-world", "getGitHubRepository"],
+    ["GET", "/v1/github/repos/octocat/hello-world/activity", "listGitHubRepositoryActivity"],
+    ["GET", "/v1/github/repos/octocat/hello-world/languages", "listGitHubRepositoryLanguages"],
+    ["GET", "/v1/github/repos/octocat/hello-world/tags", "listGitHubRepositoryTags"],
+    ["GET", "/openapi.json", "getOpenApiDocument"],
+    ["HEAD", "/openapi.json", "getOpenApiDocument"],
     ["GET", "/api-docs", "getApiDocs"],
     ["HEAD", "/api-docs", "getApiDocs"],
   ])("maps %s %s to the fixed operation label %s", (method, path, operationId) => {
@@ -314,9 +384,8 @@ describe("known-resource method policy and strict paths", () => {
   it.each([
     ["POST", "/health", "GET, HEAD", "problem"],
     ["POST", "/v1/items", "GET, HEAD", "jsonapi"],
-    ["PUT", "/v1/items/item-001", "GET, HEAD", "jsonapi"],
-    ["OPTIONS", "/v1/profiles", "POST", "jsonapi"],
-    ["OPTIONS", "/v1/profiles/current", "GET, HEAD, PATCH, DELETE", "jsonapi"],
+    ["OPTIONS", "/v1/profile", "POST, GET, HEAD, PATCH, DELETE", "jsonapi"],
+    ["POST", "/v1/github/owners/octocat", "GET, HEAD", "problem"],
     ["POST", "/openapi.json", "GET, HEAD", "problem"],
     ["OPTIONS", "/api-docs", "GET, HEAD", "problem"],
   ])("returns a complete 405 Allow for %s %s", async (method, path, allow, format) => {
@@ -326,14 +395,14 @@ describe("known-resource method policy and strict paths", () => {
       await expectJsonApiError(response, {
         status: 405,
         code: "method_not_allowed",
-        detail: "Method Not Allowed",
+        detail: "Method not allowed",
       });
     } else {
       await expectProblem(response, {
         title: "Method Not Allowed",
         status: 405,
         code: "method_not_allowed",
-        detail: "Method Not Allowed",
+        detail: "Method not allowed",
       });
     }
     expect(response.headers.get("Allow")).toBe(allow);
@@ -342,8 +411,8 @@ describe("known-resource method policy and strict paths", () => {
 
   it.each([
     ["/health", "application/json", false],
+    ["/v1/hello", "application/json", false],
     ["/v1/items", JSON_API_MEDIA_TYPE, false],
-    ["/v1/items/item-001", JSON_API_MEDIA_TYPE, false],
     ["/openapi.json", "application/json", false],
     ["/api-docs", "text/html", true],
   ] as const)("uses Hono's GET-derived HEAD behavior for %s", async (path, contentType, docs) => {
@@ -359,19 +428,19 @@ describe("known-resource method policy and strict paths", () => {
   });
 
   it("applies the method guard before negotiation, authentication, and body processing", async () => {
-    const response = await request("/v1/profiles/current", {
-      method: "POST",
+    const response = await request("/v1/profile", {
+      method: "PUT",
       headers: { Accept: "text/plain", "Content-Type": "text/plain" },
       body: "not-json",
     });
 
     expect(response.status).toBe(405);
-    expect(response.headers.get("Allow")).toBe("GET, HEAD, PATCH, DELETE");
+    expect(response.headers.get("Allow")).toBe("POST, GET, HEAD, PATCH, DELETE");
   });
 
   it.each([
     ["/health/", "problem"],
-    ["/v1/items/", "jsonapi"],
+    ["/v1/items/", "problem"],
     ["/openapi.json/", "problem"],
     ["/api-docs/", "problem"],
   ])("does not redirect a trailing-slash path: %s", async (path, format) => {
@@ -383,14 +452,14 @@ describe("known-resource method policy and strict paths", () => {
       await expectJsonApiError(response, {
         status: 404,
         code: "not_found",
-        detail: "Not Found",
+        detail: "Resource not found",
       });
     } else {
       await expectProblem(response, {
         title: "Not Found",
         status: 404,
         code: "not_found",
-        detail: "Not Found",
+        detail: "Resource not found",
       });
     }
   });
@@ -401,25 +470,21 @@ describe("known-resource method policy and strict paths", () => {
         throw new InvalidAccessTokenError();
       },
     });
-    const response = await protectedApp.request(
-      new Request(`${ORIGIN}/v1/profiles/current/`),
-      undefined,
-      TEST_BINDINGS,
-    );
+    const response = await protectedApp.request(new Request(`${ORIGIN}/v1/profile/`), undefined, TEST_BINDINGS);
 
     expect(response.headers.get("Location")).toBeNull();
-    await expectJsonApiError(response, {
+    await expectProblem(response, {
+      title: "Forbidden",
       status: 403,
-      code: "access_assertion_invalid",
-      detail: "Access assertion is missing or invalid",
-      source: { header: "Cf-Access-Jwt-Assertion" },
+      code: "forbidden",
+      detail: "Access is forbidden",
     });
   });
 
   it.each([
     ["/health%2F", "problem"],
     ["/v1%2Fitems", "problem"],
-    ["/v1/items%2Fitem-001", "jsonapi"],
+    ["/v1/items%2Fitem-001", "problem"],
   ])("rejects percent-encoded route variants before dispatch: %s", async (path, format) => {
     const response = await request(path);
 
@@ -428,14 +493,14 @@ describe("known-resource method policy and strict paths", () => {
       await expectJsonApiError(response, {
         status: 404,
         code: "not_found",
-        detail: "Not Found",
+        detail: "Resource not found",
       });
     } else {
       await expectProblem(response, {
         title: "Not Found",
         status: 404,
         code: "not_found",
-        detail: "Not Found",
+        detail: "Resource not found",
       });
     }
   });
@@ -464,11 +529,12 @@ describe("JSON:API body preconditions and ordering", () => {
     );
     return Promise.resolve(
       application.request(
-        new Request(`${ORIGIN}/v1/profiles`, {
+        new Request(`${ORIGIN}/v1/profile`, {
           method: "POST",
           headers: {
             Accept: JSON_API_MEDIA_TYPE,
             "Content-Type": JSON_API_MEDIA_TYPE,
+            ...ACCESS_ASSERTION,
             ...headers,
           },
           body,
@@ -485,7 +551,7 @@ describe("JSON:API body preconditions and ordering", () => {
     await expectJsonApiError(response, {
       status: 406,
       code: "not_acceptable",
-      detail: `Supported response format: ${JSON_API_MEDIA_TYPE}`,
+      detail: "No acceptable response representation is available",
       source: { header: "Accept" },
     });
   });
@@ -496,7 +562,7 @@ describe("JSON:API body preconditions and ordering", () => {
     await expectJsonApiError(response, {
       status: 415,
       code: "unsupported_media_type",
-      detail: `Content-Type must be ${JSON_API_MEDIA_TYPE} without unsupported extensions`,
+      detail: "Request representation is not supported",
       source: { header: "Content-Type" },
     });
   });
@@ -522,10 +588,7 @@ describe("JSON:API body preconditions and ordering", () => {
     await expectJsonApiError(response, {
       status: 415,
       code: "unsupported_media_type",
-      detail:
-        contentEncoding === undefined
-          ? `Content-Type must be ${JSON_API_MEDIA_TYPE} without unsupported extensions`
-          : "Only identity-encoded JSON:API documents are supported",
+      detail: "Request representation is not supported",
       source: {
         header: contentEncoding === undefined ? "Content-Type" : "Content-Encoding",
       },
@@ -537,19 +600,19 @@ describe("JSON:API body preconditions and ordering", () => {
 
     await expectJsonApiError(response, {
       status: 400,
-      code: "invalid_json",
-      detail: "Invalid JSON document",
+      code: "invalid_request",
+      detail: "Request is malformed",
     });
   });
 
   it.each([
     [
       "a repeated literal member",
-      '{"data":{"type":"profiles","attributes":{"firstName":"Ada","firstName":"Grace","lastName":"Lovelace","email":"ada@example.com","phoneNumber":"+12025550123","termsAccepted":true}}}',
+      '{"data":{"type":"profiles","attributes":{"firstName":"Ada","firstName":"Grace","lastName":"Lovelace","contactEmail":"ada@example.com","phoneNumber":"+12025550123","termsAccepted":true}}}',
     ],
     [
       "an escape-equivalent member",
-      String.raw`{"data":{"type":"profiles","attributes":{"firstName":"Ada","lastName":"Lovelace","email":"ada@example.com","phoneNumber":"+12025550123","termsAccepted":false,"\u0074ermsAccepted":true}}}`,
+      String.raw`{"data":{"type":"profiles","attributes":{"firstName":"Ada","lastName":"Lovelace","contactEmail":"ada@example.com","phoneNumber":"+12025550123","termsAccepted":false,"\u0074ermsAccepted":true}}}`,
     ],
     ["an unpaired surrogate", String.raw`{"data":{"type":"profiles","attributes":{"firstName":"\uD800"}}}`],
   ])("rejects ambiguous JSON containing %s", async (_case, body) => {
@@ -557,8 +620,8 @@ describe("JSON:API body preconditions and ordering", () => {
 
     await expectJsonApiError(response, {
       status: 400,
-      code: "invalid_json",
-      detail: "Invalid JSON document",
+      code: "invalid_request",
+      detail: "Request is malformed",
     });
   });
 
@@ -575,8 +638,8 @@ describe("JSON:API body preconditions and ordering", () => {
 
     await expectJsonApiError(response, {
       status: 400,
-      code: "invalid_json",
-      detail: "Invalid JSON document",
+      code: "invalid_request",
+      detail: "Request is malformed",
     });
   });
 
@@ -594,7 +657,7 @@ describe("JSON:API body preconditions and ordering", () => {
     await expectJsonApiError(response, {
       status: 413,
       code: "payload_too_large",
-      detail: "Request body too large",
+      detail: "Request body is too large",
     });
   });
 
@@ -606,6 +669,89 @@ describe("JSON:API body preconditions and ordering", () => {
       code: "validation_failed",
       detail: "Invalid value type",
     });
+  });
+
+  const sizedInvalidDocument = (size: number): string => {
+    const prefix = '{"padding":"';
+    const suffix = '"}';
+    const body = `${prefix}${"x".repeat(size - prefix.length - suffix.length)}${suffix}`;
+    expect(new TextEncoder().encode(body)).toHaveLength(size);
+    return body;
+  };
+
+  it.each([
+    [999_999, 422],
+    [1_000_000, 422],
+    [1_000_001, 413],
+  ])("enforces the native declared body boundary at %i bytes", async (size, expectedStatus) => {
+    const accessVerifier = vi.fn(async () => ({ sub: "subject-1" }));
+    const profileRepositoryFactory = vi.fn();
+    const application = createApp({ accessVerifier, profileRepositoryFactory });
+    const requestId = `declared-${size}`;
+    const response = await application.request(
+      new Request(`${ORIGIN}/v1/profile`, {
+        method: "POST",
+        headers: {
+          Accept: JSON_API_MEDIA_TYPE,
+          "Cf-Access-Jwt-Assertion": "signed",
+          "Content-Length": String(size),
+          "Content-Type": JSON_API_MEDIA_TYPE,
+          "X-Request-ID": requestId,
+        },
+        body: sizedInvalidDocument(size),
+      }),
+      undefined,
+      TEST_BINDINGS,
+    );
+
+    expect(response.status).toBe(expectedStatus);
+    expect(response.headers.get("X-Request-ID")).toBe(requestId);
+    expect(accessVerifier).toHaveBeenCalledTimes(expectedStatus === 413 ? 0 : 1);
+    expect(profileRepositoryFactory).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [999_999, 422],
+    [1_000_000, 422],
+    [1_000_001, 413],
+  ])("enforces the native streamed body boundary at %i bytes", async (size, expectedStatus) => {
+    const accessVerifier = vi.fn(async () => ({ sub: "subject-1" }));
+    const profileRepositoryFactory = vi.fn();
+    const application = createApp({ accessVerifier, profileRepositoryFactory });
+    const bytes = new TextEncoder().encode(sizedInvalidDocument(size));
+    const chunks: Uint8Array[] = [];
+    for (let offset = 0; offset < bytes.length; offset += 500_000) {
+      chunks.push(bytes.subarray(offset, Math.min(offset + 500_000, bytes.length)));
+    }
+    const cancel = vi.fn();
+    const pull = vi.fn((controller: ReadableStreamDefaultController<Uint8Array>) => {
+      const chunk = chunks.shift();
+      if (chunk === undefined) controller.close();
+      else controller.enqueue(chunk);
+    });
+    const body = new ReadableStream<Uint8Array>({ pull, cancel }, { highWaterMark: 0 });
+    const requestId = `streamed-${size}`;
+    const response = await application.request(
+      new Request(`${ORIGIN}/v1/profile`, {
+        method: "POST",
+        headers: {
+          Accept: JSON_API_MEDIA_TYPE,
+          "Cf-Access-Jwt-Assertion": "signed",
+          "Content-Type": JSON_API_MEDIA_TYPE,
+          "X-Request-ID": requestId,
+        },
+        body,
+      }),
+      undefined,
+      TEST_BINDINGS,
+    );
+
+    expect(response.status).toBe(expectedStatus);
+    expect(response.headers.get("X-Request-ID")).toBe(requestId);
+    expect(accessVerifier).toHaveBeenCalledTimes(1);
+    expect(profileRepositoryFactory).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledTimes(expectedStatus === 413 ? 1 : 0);
+    if (expectedStatus === 413) expect(pull).toHaveBeenCalledTimes(3);
   });
 
   it("identifies Content-Length when the declared body size exceeds the limit", async () => {
@@ -620,10 +766,40 @@ describe("JSON:API body preconditions and ordering", () => {
     await expectJsonApiError(response, {
       status: 413,
       code: "payload_too_large",
-      detail: "Request body too large",
+      detail: "Request body is too large",
       source: { header: "Content-Length" },
     });
   });
+
+  it.each(["-1", "1.0", "1, 2", "9007199254740992"])(
+    "rejects an invalid declared Content-Length before authentication: %s",
+    async (contentLength) => {
+      const accessVerifier = vi.fn(async () => ({ sub: "subject-1" }));
+      const application = createApp({ accessVerifier });
+      const response = await application.request(
+        new Request(`${ORIGIN}/v1/profile`, {
+          method: "POST",
+          headers: {
+            Accept: JSON_API_MEDIA_TYPE,
+            "Cf-Access-Jwt-Assertion": "signed",
+            "Content-Length": contentLength,
+            "Content-Type": JSON_API_MEDIA_TYPE,
+          },
+          body: "{}",
+        }),
+        undefined,
+        TEST_BINDINGS,
+      );
+
+      await expectJsonApiError(response, {
+        status: 400,
+        code: "invalid_request",
+        detail: "Request is malformed",
+        source: { header: "Content-Length" },
+      });
+      expect(accessVerifier).not.toHaveBeenCalled();
+    },
+  );
 
   it("accepts a profile media-type parameter and explicit identity encoding", async () => {
     const response = await profileRequest(

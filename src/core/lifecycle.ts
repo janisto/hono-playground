@@ -24,17 +24,24 @@ const DOCS_CSP = [
 ].join("; ");
 
 const appendVary = (headers: Headers, fieldName: string): void => {
-  const fields = new Set(
-    (headers.get("Vary") ?? "")
-      .split(",")
-      .map((field) => field.trim())
-      .filter(Boolean),
-  );
-  fields.add(fieldName);
-  headers.set("Vary", [...fields].join(", "));
+  const fields: string[] = [];
+  for (const field of (headers.get("Vary") ?? "").split(",")) {
+    const trimmed = field.trim();
+    if (trimmed && !fields.some((existing) => existing.toLowerCase() === trimmed.toLowerCase())) {
+      fields.push(trimmed);
+    }
+  }
+  if (!fields.some((field) => field.toLowerCase() === fieldName.toLowerCase())) fields.push(fieldName);
+  headers.set("Vary", fields.join(", "));
 };
 
-const applyFinalHeaders = (response: Response, bindings: RuntimeBindings, pathname: string, id: string): void => {
+const applyFinalHeaders = (
+  response: Response,
+  bindings: RuntimeBindings,
+  pathname: string,
+  id: string,
+  variesByOrigin: boolean,
+): void => {
   const headers = response.headers;
   headers.set("X-Request-ID", id);
   headers.set("Cache-Control", "no-store");
@@ -57,10 +64,8 @@ const applyFinalHeaders = (response: Response, bindings: RuntimeBindings, pathna
     headers.delete(name);
   }
 
-  const contentType = headers.get("Content-Type")?.toLowerCase() ?? "";
-  if (contentType.includes("json") || pathname === apiDocumentationRoute.path) {
-    appendVary(headers, "Accept");
-  }
+  appendVary(headers, "Accept");
+  if (variesByOrigin) appendVary(headers, "Origin");
 };
 
 const safeEnvironment = (bindings: RuntimeBindings): string => {
@@ -86,12 +91,15 @@ export const lifecycle = (options: LifecycleOptions = {}): MiddlewareHandler<App
     c.set("requestId", id);
     c.set("routeMetadata", metadata);
     c.set("identitySubject", undefined);
-    c.set("jsonApiBodyText", undefined);
+    c.set("bodyText", undefined);
+    c.set("bodyHeaders", undefined);
+    c.set("parsedQuery", new Map());
+    c.set("variesByOrigin", false);
     c.set("outcome", "ok");
 
     await next();
 
-    applyFinalHeaders(c.res, c.env, new URL(c.req.url).pathname, id);
+    applyFinalHeaders(c.res, c.env, new URL(c.req.url).pathname, id, c.get("variesByOrigin"));
     const version = c.env.CF_VERSION_METADATA;
     const status = c.res.status;
     const cfRay = safeCfRay(c.req.header("CF-Ray"));
@@ -117,7 +125,24 @@ export const lifecycle = (options: LifecycleOptions = {}): MiddlewareHandler<App
 
 export const runtimeConfiguration = (maximumRequestBytes?: number): MiddlewareHandler<AppEnvironment> => {
   return async (c, next) => {
-    c.set("runtimeConfig", parseRuntimeConfig(c.env, maximumRequestBytes));
+    const metadata = c.get("routeMetadata");
+    if (metadata.template === "/health" || metadata.kind === "docs") {
+      const environment = c.env.ENVIRONMENT;
+      c.set("runtimeConfig", {
+        environment:
+          environment === "development" ||
+          environment === "staging" ||
+          environment === "test" ||
+          environment === "production"
+            ? environment
+            : "test",
+        maximumRequestBytes: 1_000_000,
+        rateLimitMode: "none",
+        publicOrigin: "https://hono-playground.dev",
+      });
+    } else {
+      c.set("runtimeConfig", parseRuntimeConfig(c.env, maximumRequestBytes));
+    }
     await next();
   };
 };

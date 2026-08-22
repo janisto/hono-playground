@@ -9,12 +9,12 @@ Hosted documentation:
 
 ## Stack
 
-- Hono `4.12.32` routes requests and generates OpenAPI 3.1.
+- Hono `4.13.3` routes requests and generates OpenAPI 3.1.
 - Alchemy `2.0.0-beta.65` owns Worker development, infrastructure, bindings,
   secrets, state, and deployment.
 - Drizzle ORM and Drizzle Kit `1.0.0-rc.4` own database access and migration
   generation.
-- Effect `4.0.0-beta.102` is limited to the Alchemy program.
+- Effect `4.0.0-beta.107` is limited to the Alchemy program.
 - Cloudflare D1 persists profiles; Cloudflare Access authenticates profile
   owners.
 
@@ -39,28 +39,43 @@ for the required privacy validation.
 | Method | Path | Response |
 | --- | --- | --- |
 | `GET` | `/health` | operational JSON |
+| `GET` | `/v1/hello` | default greeting JSON |
+| `POST` | `/v1/hello` | greeting JSON for a validated name |
 | `GET` | `/v1/items` | cursor-paginated JSON:API collection |
-| `GET` | `/v1/items/{itemId}` | JSON:API resource |
-| `POST` | `/v1/profiles` | create the Access identity's profile |
-| `GET` | `/v1/profiles/current` | read the current profile |
-| `PATCH` | `/v1/profiles/current` | update the current profile |
-| `DELETE` | `/v1/profiles/current` | empty `204` |
+| `POST` | `/v1/profile` | create the Access identity's profile |
+| `GET` | `/v1/profile` | read the current profile |
+| `PATCH` | `/v1/profile` | update the current profile |
+| `DELETE` | `/v1/profile` | empty `204` |
+| `GET` | `/v1/github/owners/{owner}` | GitHub owner projection |
+| `GET` | `/v1/github/owners/{owner}/repos` | cursor-paginated repository projections |
+| `GET` | `/v1/github/repos/{owner}/{repo}` | GitHub repository projection |
+| `GET` | `/v1/github/repos/{owner}/{repo}/activity` | cursor-paginated activity projections |
+| `GET` | `/v1/github/repos/{owner}/{repo}/languages` | sorted GitHub language-byte projections |
+| `GET` | `/v1/github/repos/{owner}/{repo}/tags` | cursor-paginated tag projections |
 | `GET` | `/openapi.json` | OpenAPI `3.1.0` |
 | `GET` | `/api-docs` | Swagger UI |
 
 The Worker Custom Domain routes every path on its hostname to this application.
-Cloudflare Access is deliberately scoped to `/v1/profiles` and its descendants,
-so health, item, OpenAPI, and documentation routes remain public. A future
-protected route family outside that namespace requires its own reviewed Access
-destination and matching Worker middleware before deployment. See the
+Cloudflare Access is deliberately scoped to `/v1/profile` and its descendants,
+so health, hello, item, GitHub, OpenAPI, and documentation routes remain public.
+A future protected route family outside that namespace requires its own
+reviewed Access destination and matching Worker middleware before deployment. See the
 [deployment runbook](docs/cloudflare-production.md#access) for the complete
 boundary.
 
-Resource requests and responses use `application/vnd.api+json`. Profile routes
-derive ownership from the verified Cloudflare Access `sub`; callers cannot
-choose an owner ID. Missing or invalid origin assertions return a JSON:API
-`403`. Unsupported query parameters return a JSON:API `400` on every resource
-route instead of being ignored.
+Item and profile requests and responses use `application/vnd.api+json`.
+Health, hello, and GitHub operations use plain JSON and RFC 9457 Problem
+Details. Profile routes derive ownership from the verified Cloudflare Access
+`sub`; callers cannot choose an owner ID. Missing or invalid origin assertions
+return a JSON:API `403`. Unsupported query parameters return `400` instead of
+being ignored.
+
+The GitHub family is an anonymous, read-only projection over GitHub's public
+REST API. The service uses a fixed HTTPS upstream origin and API version,
+forwards no caller credentials, follows only bounded same-origin HTTPS
+redirects, and enforces one overall deadline and an incremental response-size
+limit. Its pagination cursors and response links point back to this API rather
+than exposing provider URLs.
 
 Application and JSON:API fields use `camelCase`, such as `createdAt` and
 `marketingOptIn`. SQL identifiers use `snake_case`, such as `created_at` and
@@ -129,6 +144,11 @@ serves the Worker at `http://127.0.0.1:8787`. Passing every selector prevents a
 shell or environment-file default from redirecting development to staging or
 production. The personal stage has isolated state and physical resource names,
 so it does not overlap teammates, staging, or production.
+
+Profile writes still trust the canonical HTTPS public origin. A browser page
+served from the loopback development URL therefore cannot send an unsafe
+profile mutation with its loopback `Origin`; use the deterministic test suite
+or a non-browser client that omits `Origin` for local request verification.
 
 Alchemy stores named profiles outside this repository. Re-run
 `pnpm exec alchemy login` with the matching `--profile` and `--env-file`

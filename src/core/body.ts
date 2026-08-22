@@ -1,43 +1,113 @@
-import { JSON_API_MEDIA_TYPE } from "../models/json-api.ts";
 import { isSupportedJsonApiContentType } from "./content-negotiation.ts";
 import { AppError, invalidJsonError } from "./errors.ts";
 
-const unsupportedRepresentation = (detail: string, header: string): AppError =>
-  new AppError({
-    status: 415,
-    code: "unsupported_media_type",
-    detail,
-    source: { header },
-  });
+export type RequestMediaProfile = "json" | "json-api";
 
-export const precheckJsonApiBody = async (request: Request, maximumBytes: number): Promise<string> => {
-  const encoding = request.headers.get("Content-Encoding");
-  if (encoding !== null && encoding.trim().toLowerCase() !== "identity") {
-    throw unsupportedRepresentation("Only identity-encoded JSON:API documents are supported", "Content-Encoding");
-  }
+const unsupported = (header: string): AppError => new AppError({ code: "unsupported_media_type", source: { header } });
 
-  if (!isSupportedJsonApiContentType(request.headers.get("Content-Type"))) {
-    throw unsupportedRepresentation(
-      `Content-Type must be ${JSON_API_MEDIA_TYPE} without unsupported extensions`,
-      "Content-Type",
-    );
-  }
-
-  const declaredLength = request.headers.get("Content-Length");
-  if (declaredLength !== null && /^\d+$/u.test(declaredLength)) {
-    if (Number(declaredLength) > maximumBytes) {
-      throw new AppError({
-        status: 413,
-        code: "payload_too_large",
-        detail: "Request body too large",
-        source: { header: "Content-Length" },
-      });
+const splitMediaType = (value: string): string[] | null => {
+  const parts: string[] = [];
+  let start = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (escaped) escaped = false;
+    else if (quoted && character === "\\") escaped = true;
+    else if (character === '"') quoted = !quoted;
+    else if (!quoted && character === ",") return null;
+    else if (!quoted && character === ";") {
+      parts.push(value.slice(start, index));
+      start = index + 1;
     }
   }
+  if (quoted || escaped) return null;
+  parts.push(value.slice(start));
+  return parts;
+};
 
-  if (request.body === null) return "";
+const decodeParameter = (value: string): string | null => {
+  if (!value.startsWith('"')) return /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(value) ? value : null;
+  if (!value.endsWith('"') || value.length < 2) return null;
+  let decoded = "";
+  for (let index = 1; index < value.length - 1; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code === 0x5c) {
+      index += 1;
+      if (index >= value.length - 1) return null;
+      const escaped = value.charCodeAt(index);
+      if (escaped !== 0x09 && (escaped < 0x20 || escaped === 0x7f)) return null;
+    } else if (code !== 0x09 && (code < 0x20 || code === 0x22 || code === 0x7f)) {
+      return null;
+    }
+    decoded += value[index] ?? "";
+  }
+  return decoded;
+};
 
-  const reader = request.body.getReader();
+const isSupportedJsonContentType = (value: string): boolean => {
+  const parts = splitMediaType(value);
+  if (parts === null || parts.shift()?.trim().toLowerCase() !== "application/json") return false;
+  if (parts.length === 0) return true;
+  if (parts.length !== 1) return false;
+  const parameter = parts[0]?.trim() ?? "";
+  const equals = parameter.indexOf("=");
+  if (equals <= 0) return false;
+  const name = parameter.slice(0, equals);
+  const parameterValue = parameter.slice(equals + 1);
+  if (name !== name.trim() || parameterValue !== parameterValue.trim() || name.toLowerCase() !== "charset") {
+    return false;
+  }
+  return decodeParameter(parameterValue)?.toLowerCase() === "utf-8";
+};
+
+export type BodyHeaderCheck = Readonly<{ contentTypePresent: boolean }>;
+
+export const precheckDeclaredBodySize = (request: Request, maximumBytes: number): void => {
+  const declared = request.headers.get("Content-Length");
+  if (declared !== null) {
+    if (!/^[0-9]+$/u.test(declared)) {
+      throw new AppError({ code: "invalid_request", source: { header: "Content-Length" } });
+    }
+    const length = BigInt(declared);
+    if (length > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new AppError({ code: "invalid_request", source: { header: "Content-Length" } });
+    }
+    if (length > BigInt(maximumBytes)) {
+      throw new AppError({ code: "payload_too_large", source: { header: "Content-Length" } });
+    }
+  }
+};
+
+export const precheckBodyHeaders = (
+  request: Request,
+  maximumBytes: number,
+  profile: RequestMediaProfile,
+): BodyHeaderCheck => {
+  precheckDeclaredBodySize(request, maximumBytes);
+  const declared = request.headers.get("Content-Length");
+
+  const encoding = request.headers.get("Content-Encoding");
+  if (encoding !== null && encoding.trim().toLowerCase() !== "identity") throw unsupported("Content-Encoding");
+
+  const contentType = request.headers.get("Content-Type");
+  if (contentType !== null) {
+    const supported =
+      profile === "json" ? isSupportedJsonContentType(contentType) : isSupportedJsonApiContentType(contentType);
+    if (!supported) throw unsupported("Content-Type");
+  } else if (declared !== null && BigInt(declared) > 0n) {
+    throw unsupported("Content-Type");
+  }
+  return { contentTypePresent: contentType !== null };
+};
+
+export const readBoundedJsonBody = async (
+  request: Request,
+  maximumBytes: number,
+  headers: BodyHeaderCheck,
+): Promise<string> => {
+  const reader = request.body?.getReader();
+  if (reader === undefined) throw invalidJsonError();
   const chunks: Uint8Array[] = [];
   let size = 0;
   while (true) {
@@ -45,23 +115,24 @@ export const precheckJsonApiBody = async (request: Request, maximumBytes: number
     if (result.done) break;
     size += result.value.byteLength;
     if (size > maximumBytes) {
-      await reader.cancel();
-      throw new AppError({
-        status: 413,
-        code: "payload_too_large",
-        detail: "Request body too large",
-      });
+      try {
+        await reader.cancel();
+      } catch {
+        // The response is already determined by the byte limit; stream cleanup
+        // must not replace the portable 413 with a framework error.
+      }
+      throw new AppError({ code: "payload_too_large" });
     }
     chunks.push(result.value);
   }
-
+  if (size === 0) throw invalidJsonError();
+  if (!headers.contentTypePresent) throw unsupported("Content-Type");
   const bytes = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-
   try {
     return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch {

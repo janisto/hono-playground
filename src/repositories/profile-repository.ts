@@ -1,13 +1,10 @@
-import { and, eq, ne, or, type SQL } from "drizzle-orm";
+import { and, eq, ne, or, type SQL, sql } from "drizzle-orm";
 import { type DrizzleD1Database, drizzle } from "drizzle-orm/d1";
-
 import type { OperatorCode } from "../core/errors.ts";
 import { type NewProfileRow, type ProfileRow, profiles } from "../db/schema.ts";
 import { type Profile, type ProfileCreate, ProfileSchema, type ProfileUpdate } from "../models/profile.ts";
 
-const MAX_PATCH_RETRIES = 2;
-const PATCH_RETRY_BASE_DELAY_MS = 25;
-const PATCH_RETRY_MAX_DELAY_MS = 100;
+const MAX_TIMESTAMP_MILLISECONDS = 253_402_300_799_999;
 
 export const TRANSIENT_D1_ERROR_MESSAGES = [
   "Network connection lost.",
@@ -17,18 +14,13 @@ export const TRANSIENT_D1_ERROR_MESSAGES = [
   "Cannot resolve D1 DB due to transient issue on remote node.",
 ] as const;
 
-const transientD1ErrorMessages = new Set<string>(TRANSIENT_D1_ERROR_MESSAGES);
+const transientMessages = new Set<string>(TRANSIENT_D1_ERROR_MESSAGES);
 
 export interface ProfileRepository {
   create(id: string, input: ProfileCreate, timestamp: Date): Promise<Profile | undefined>;
   get(id: string): Promise<Profile | undefined>;
   update(id: string, input: ProfileUpdate, timestamp: Date): Promise<Profile | undefined>;
   delete(id: string): Promise<boolean>;
-}
-
-export interface DrizzleProfileRepositoryOptions {
-  readonly sleep?: (milliseconds: number) => Promise<void>;
-  readonly random?: () => number;
 }
 
 export class ProfileRepositoryError extends Error {
@@ -49,38 +41,43 @@ export class ProfileRepositoryUnavailableError extends ProfileRepositoryError {
   }
 }
 
-const errorMessages = (error: unknown): string[] => {
-  const messages: string[] = [];
+const messages = (error: unknown): string[] => {
+  const result: string[] = [];
   let current = error;
-
   for (let depth = 0; depth < 3; depth += 1) {
     if (typeof current === "string") {
-      messages.push(current);
+      result.push(current);
       break;
     }
     if (!(current instanceof Error)) break;
-    messages.push(current.message);
+    result.push(current.message);
     current = current.cause;
   }
-
-  return messages;
+  return result;
 };
 
-const removeD1ErrorPrefix = (message: string): string =>
-  message.startsWith("D1_ERROR: ") ? message.slice("D1_ERROR: ".length) : message;
-
 export const isRetryableD1Error = (error: unknown): boolean =>
-  errorMessages(error).some((message) => transientD1ErrorMessages.has(removeD1ErrorPrefix(message)));
+  messages(error).some((message) => transientMessages.has(message.replace(/^D1_ERROR: /u, "")));
 
 const repositoryError = (error: unknown): ProfileRepositoryError => {
   if (error instanceof ProfileRepositoryError) return error;
   return isRetryableD1Error(error) ? new ProfileRepositoryUnavailableError() : new ProfileRepositoryError();
 };
 
-const profileFromRow = (value: unknown): Profile => {
-  const profile = ProfileSchema.safeParse(value);
-  if (!profile.success) throw new ProfileRepositoryError();
-  return profile.data;
+const profileFromRow = (row: ProfileRow): Profile => {
+  const parsed = ProfileSchema.safeParse({
+    id: row.id,
+    firstName: row.firstName,
+    lastName: row.lastName,
+    contactEmail: row.email,
+    phoneNumber: row.phoneNumber,
+    marketingOptIn: row.marketingOptIn,
+    termsAccepted: row.termsAccepted,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  });
+  if (!parsed.success) throw new ProfileRepositoryError();
+  return parsed.data;
 };
 
 const oneProfile = (rows: readonly ProfileRow[]): Profile => {
@@ -89,18 +86,16 @@ const oneProfile = (rows: readonly ProfileRow[]): Profile => {
   return profileFromRow(row);
 };
 
-const defaultSleep = (milliseconds: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, milliseconds));
+const differs = (profile: Profile, input: ProfileUpdate): boolean =>
+  (Object.entries(input) as [keyof ProfileUpdate, ProfileUpdate[keyof ProfileUpdate]][]).some(
+    ([key, value]) => profile[key] !== value,
+  );
 
 export class DrizzleProfileRepository implements ProfileRepository {
   readonly #database: DrizzleD1Database;
-  readonly #sleep: (milliseconds: number) => Promise<void>;
-  readonly #random: () => number;
 
-  constructor(database: D1Database, options: DrizzleProfileRepositoryOptions = {}) {
+  constructor(database: D1Database) {
     this.#database = drizzle(database);
-    this.#sleep = options.sleep ?? defaultSleep;
-    this.#random = options.random ?? Math.random;
   }
 
   async create(id: string, input: ProfileCreate, timestamp: Date): Promise<Profile | undefined> {
@@ -108,22 +103,20 @@ export class DrizzleProfileRepository implements ProfileRepository {
       id,
       firstName: input.firstName,
       lastName: input.lastName,
-      email: input.email,
+      email: input.contactEmail,
       phoneNumber: input.phoneNumber,
       marketingOptIn: input.marketingOptIn,
       termsAccepted: input.termsAccepted,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
-
     try {
       const inserted = await this.#database
         .insert(profiles)
         .values(row)
         .onConflictDoNothing({ target: profiles.id })
         .returning();
-      if (inserted.length === 0) return undefined;
-      return oneProfile(inserted);
+      return inserted.length === 0 ? undefined : oneProfile(inserted);
     } catch (error) {
       throw repositoryError(error);
     }
@@ -132,65 +125,62 @@ export class DrizzleProfileRepository implements ProfileRepository {
   async get(id: string): Promise<Profile | undefined> {
     try {
       const selected = await this.#database.select().from(profiles).where(eq(profiles.id, id)).limit(2);
-      if (selected.length === 0) return undefined;
-      return oneProfile(selected);
+      return selected.length === 0 ? undefined : oneProfile(selected);
     } catch (error) {
       throw repositoryError(error);
     }
   }
 
   async update(id: string, input: ProfileUpdate, timestamp: Date): Promise<Profile | undefined> {
-    const changes: Partial<NewProfileRow> = { updatedAt: timestamp };
-    const changedPredicates: SQL[] = [];
+    const timestampMilliseconds = timestamp.getTime();
+    const changes: {
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      phoneNumber?: string;
+      marketingOptIn?: boolean;
+      updatedAt: SQL;
+    } = {
+      updatedAt: sql`CASE WHEN ${profiles.updatedAt} < ${timestampMilliseconds} THEN ${timestampMilliseconds} ELSE ${profiles.updatedAt} + 1 END`,
+    };
+    const changed: SQL[] = [];
     if (input.firstName !== undefined) {
       changes.firstName = input.firstName;
-      changedPredicates.push(ne(profiles.firstName, input.firstName));
+      changed.push(ne(profiles.firstName, input.firstName));
     }
     if (input.lastName !== undefined) {
       changes.lastName = input.lastName;
-      changedPredicates.push(ne(profiles.lastName, input.lastName));
+      changed.push(ne(profiles.lastName, input.lastName));
     }
-    if (input.email !== undefined) {
-      changes.email = input.email;
-      changedPredicates.push(ne(profiles.email, input.email));
+    if (input.contactEmail !== undefined) {
+      changes.email = input.contactEmail;
+      changed.push(ne(profiles.email, input.contactEmail));
     }
     if (input.phoneNumber !== undefined) {
       changes.phoneNumber = input.phoneNumber;
-      changedPredicates.push(ne(profiles.phoneNumber, input.phoneNumber));
+      changed.push(ne(profiles.phoneNumber, input.phoneNumber));
     }
     if (input.marketingOptIn !== undefined) {
       changes.marketingOptIn = input.marketingOptIn;
-      changedPredicates.push(ne(profiles.marketingOptIn, input.marketingOptIn));
+      changed.push(ne(profiles.marketingOptIn, input.marketingOptIn));
     }
+    if (changed.length === 0) throw new ProfileRepositoryError();
 
-    if (changedPredicates.length === 0) return this.get(id);
-
-    for (let attempt = 0; attempt <= MAX_PATCH_RETRIES; attempt += 1) {
-      try {
-        const updated = await this.#database
-          .update(profiles)
-          .set(changes)
-          .where(and(eq(profiles.id, id), or(...changedPredicates)))
-          .returning();
-        if (updated.length === 0) return this.get(id);
-        return oneProfile(updated);
-      } catch (error) {
-        if (error instanceof ProfileRepositoryError || !isRetryableD1Error(error)) {
-          throw repositoryError(error);
-        }
-        if (attempt === MAX_PATCH_RETRIES) {
-          throw new ProfileRepositoryUnavailableError();
-        }
-
-        try {
-          await this.#sleep(this.#retryDelay(attempt));
-        } catch {
-          throw new ProfileRepositoryError();
-        }
-      }
+    try {
+      const updated = await this.#database
+        .update(profiles)
+        .set(changes)
+        .where(and(eq(profiles.id, id), or(...changed), sql`${profiles.updatedAt} < ${MAX_TIMESTAMP_MILLISECONDS}`))
+        .returning();
+      if (updated.length > 0) return oneProfile(updated);
+      const current = await this.get(id);
+      if (current === undefined) return undefined;
+      if (!differs(current, input)) return current;
+      if (current.updatedAt.getTime() === MAX_TIMESTAMP_MILLISECONDS) throw new ProfileRepositoryError();
+      throw new ProfileRepositoryError();
+    } catch (error) {
+      throw repositoryError(error);
     }
-
-    throw new ProfileRepositoryError();
   }
 
   async delete(id: string): Promise<boolean> {
@@ -201,12 +191,5 @@ export class DrizzleProfileRepository implements ProfileRepository {
     } catch (error) {
       throw repositoryError(error);
     }
-  }
-
-  #retryDelay(attempt: number): number {
-    const baseDelay = Math.min(PATCH_RETRY_BASE_DELAY_MS * 2 ** attempt, PATCH_RETRY_MAX_DELAY_MS);
-    const randomValue = Math.max(0, Math.min(1, this.#random()));
-    const jitter = Math.floor(randomValue * baseDelay);
-    return Math.min(baseDelay + jitter, PATCH_RETRY_MAX_DELAY_MS);
   }
 }

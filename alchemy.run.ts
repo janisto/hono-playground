@@ -136,6 +136,7 @@ const workerProps = Effect.gen(function* () {
     ...(domain === undefined ? {} : { domain }),
     compatibility: {
       date: COMPATIBILITY_DATE,
+      flags: ["enable_request_signal", "request_signal_passthrough"],
     },
     observability: {
       enabled: true,
@@ -177,10 +178,11 @@ const workerProps = Effect.gen(function* () {
       RATE_LIMIT_MODE: "workers-binding",
       ACCESS_TEAM_DOMAIN: accessTeamDomain,
       ACCESS_AUD: accessAudience,
+      PUBLIC_ORIGIN: domain === undefined ? "https://hono-playground.dev" : `https://${domain}`,
       RATE_LIMIT_KEY_HMAC_KEY: rateLimitHmacKey,
       AUDIT_SUBJECT_HMAC_KEY: auditSubjectHmacKey,
     },
-  };
+  } satisfies Cloudflare.WorkerProps;
 });
 
 export const Worker = Cloudflare.Worker("Worker", workerProps);

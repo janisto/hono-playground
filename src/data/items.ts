@@ -273,8 +273,9 @@ const ITEM_FIXTURE = [
   },
 ] as const;
 
-const runtimeItems = ITEM_FIXTURE.map((item) => ({
+const runtimeItems = ITEM_FIXTURE.map(({ priceCents, ...item }) => ({
   ...item,
+  price: Object.freeze({ amountMinor: priceCents, currency: "USD" as const }),
   createdAt: new Date(item.createdAt),
 }));
 ItemSchema.array().parse(runtimeItems);

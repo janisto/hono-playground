@@ -16,7 +16,7 @@ type ParameterValue = {
 
 const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u;
 const Q_VALUE = /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/u;
-const splitQuoted = (value: string, separator: string): string[] => {
+const splitQuoted = (value: string, separator: string): { parts: string[]; complete: boolean } => {
   const parts: string[] = [];
   let current = "";
   let quoted = false;
@@ -46,7 +46,7 @@ const splitQuoted = (value: string, separator: string): string[] => {
     current += character;
   }
   parts.push(current);
-  return quoted || escaped ? [] : parts;
+  return { parts, complete: !quoted && !escaped };
 };
 
 const parameterValue = (raw: string): ParameterValue | null => {
@@ -64,7 +64,9 @@ const isJsonApiUriList = (parameter: ParameterValue): boolean => {
 };
 
 const parseMediaRange = (raw: string): MediaRange | null => {
-  const segments = splitQuoted(raw, ";").map((part) => part.trim());
+  const split = splitQuoted(raw, ";");
+  if (!split.complete) return null;
+  const segments = split.parts.map((part) => part.trim());
   const mediaType = segments.shift();
   if (mediaType === undefined || mediaType.length === 0) return null;
 
@@ -82,21 +84,23 @@ const parseMediaRange = (raw: string): MediaRange | null => {
   const representationParameters = new Map<string, ParameterValue>();
   for (const segment of segments) {
     const equals = segment.indexOf("=");
-    if (equals <= 0) return null;
-    const rawName = segment.slice(0, equals);
-    const rawValue = segment.slice(equals + 1);
+    const rawName = equals < 0 ? segment : segment.slice(0, equals);
+    const rawValue = equals < 0 ? "" : segment.slice(equals + 1);
     if (rawName !== rawName.trim() || rawValue !== rawValue.trim()) return null;
     const name = rawName.toLowerCase();
-    const value = parameterValue(rawValue);
-    if (!TOKEN.test(name) || value === null) return null;
+    if (!TOKEN.test(name)) return null;
     if (name === "q") {
-      if (sawQuality || value.quoted || !Q_VALUE.test(value.value)) return null;
+      if (equals <= 0) return null;
+      const value = parameterValue(rawValue);
+      if (sawQuality || value === null || value.quoted || !Q_VALUE.test(value.value)) return null;
       quality = Number(value.value);
       sawQuality = true;
-    } else {
-      if (representationParameters.has(name)) return null;
-      representationParameters.set(name, value);
+      continue;
     }
+    if (equals <= 0) return null;
+    const value = parameterValue(rawValue);
+    if (value === null || representationParameters.has(name)) return null;
+    representationParameters.set(name, value);
   }
 
   return { type, subtype, quality, representationParameters };
@@ -105,8 +109,11 @@ const parseMediaRange = (raw: string): MediaRange | null => {
 const matchingRanges = (headerValue: string, representation: string): MediaRange[] => {
   const [candidateType, candidateSubtype] = representation.toLowerCase().split("/");
   if (candidateType === undefined || candidateSubtype === undefined) return [];
+  const split = splitQuoted(headerValue, ",");
+  // An unterminated quote makes the current member and its remaining commas ambiguous.
+  const parts = split.complete ? split.parts : split.parts.slice(0, -1);
 
-  return splitQuoted(headerValue, ",")
+  return parts
     .map((part) => parseMediaRange(part.trim()))
     .filter((range): range is MediaRange => range !== null)
     .filter(
@@ -120,11 +127,53 @@ const acceptsBySpecificity = (ranges: readonly MediaRange[]): boolean => {
   if (ranges.length === 0) return false;
   const specificity = (range: MediaRange): number => (range.type === "*" ? 0 : range.subtype === "*" ? 1 : 2);
   const mostSpecific = Math.max(...ranges.map(specificity));
-  return ranges.filter((range) => specificity(range) === mostSpecific).some((range) => range.quality > 0);
+  const typeMatches = ranges.filter((range) => specificity(range) === mostSpecific);
+  const parameterCount = Math.max(...typeMatches.map((range) => range.representationParameters.size));
+  return typeMatches
+    .filter((range) => range.representationParameters.size === parameterCount)
+    .some((range) => range.quality > 0);
 };
 
+const jsonCandidateQuality = (headerValue: string, representation: string, withCharset: boolean): number | null => {
+  const ranges = matchingRanges(headerValue, representation).filter((range) => {
+    if (range.representationParameters.size === 0) return true;
+    if (!withCharset || range.representationParameters.size !== 1) return false;
+    return range.representationParameters.get("charset")?.value.toLowerCase() === "utf-8";
+  });
+  if (ranges.length === 0) return null;
+  const specificity = (range: MediaRange): number => (range.type === "*" ? 0 : range.subtype === "*" ? 1 : 2);
+  const mostSpecific = Math.max(...ranges.map(specificity));
+  const typeMatches = ranges.filter((range) => specificity(range) === mostSpecific);
+  const parameterCount = Math.max(...typeMatches.map((range) => range.representationParameters.size));
+  return Math.max(
+    ...typeMatches
+      .filter((range) => range.representationParameters.size === parameterCount)
+      .map((range) => range.quality),
+  );
+};
+
+export const selectJsonContentType = (
+  headerValue: string | null,
+  representation = "application/json",
+): string | null => {
+  if (headerValue === null) return representation;
+  const baseQuality = jsonCandidateQuality(headerValue, representation, false);
+  const charsetQuality = jsonCandidateQuality(headerValue, representation, true);
+  const baseAccepted = baseQuality !== null && baseQuality > 0;
+  const charsetAccepted = charsetQuality !== null && charsetQuality > 0;
+  if (!baseAccepted && !charsetAccepted) return null;
+  return charsetAccepted && (baseQuality === null || charsetQuality > baseQuality)
+    ? `${representation}; charset=utf-8`
+    : representation;
+};
+
+export const selectProblemContentType = (headerValue: string | null): string =>
+  selectJsonContentType(headerValue, "application/problem+json") ?? "application/problem+json";
+
 export const accepts = (headerValue: string | null, representation: string): boolean => {
-  if (headerValue === null || headerValue.trim() === "") return true;
+  const plainJson = representation === "application/json" || representation === "application/problem+json";
+  if (plainJson) return selectJsonContentType(headerValue, representation) !== null;
+  if (headerValue === null) return true;
   return acceptsBySpecificity(
     matchingRanges(headerValue, representation).filter((range) => range.representationParameters.size === 0),
   );
@@ -143,20 +192,16 @@ const supportedJsonApiRange = (range: MediaRange): boolean => {
 };
 
 export const acceptsJsonApi = (headerValue: string | null): boolean => {
-  if (headerValue === null || headerValue.trim() === "") return true;
+  if (headerValue === null) return true;
   const ranges = matchingRanges(headerValue, JSON_API_MEDIA_TYPE);
-  const explicitJsonApiRanges = ranges.filter(
-    (range) => range.type === "application" && range.subtype === "vnd.api+json",
-  );
-  if (explicitJsonApiRanges.length > 0 && explicitJsonApiRanges.every((range) => !supportedJsonApiRange(range))) {
-    return false;
-  }
   return acceptsBySpecificity(ranges.filter(supportedJsonApiRange));
 };
 
 export const isSupportedJsonApiContentType = (headerValue: string | null): boolean => {
   if (headerValue === null) return false;
-  const segments = splitQuoted(headerValue, ";").map((part) => part.trim());
+  const split = splitQuoted(headerValue, ";");
+  if (!split.complete) return false;
+  const segments = split.parts.map((part) => part.trim());
   if (segments.shift()?.toLowerCase() !== JSON_API_MEDIA_TYPE) return false;
 
   const parameters = new Map<string, ParameterValue>();
@@ -182,25 +227,31 @@ export const isSupportedJsonApiContentType = (headerValue: string | null): boole
 export const requireAccept = (
   headerValue: string | null,
   representation: string,
-  advertised = representation,
-): void => {
-  if (!accepts(headerValue, representation)) {
+  _advertised = representation,
+): string => {
+  const selected =
+    representation === "application/json" || representation === "application/problem+json"
+      ? selectJsonContentType(headerValue, representation)
+      : accepts(headerValue, representation)
+        ? representation
+        : null;
+  if (selected === null) {
     throw new AppError({
       status: 406,
       code: "not_acceptable",
-      detail: `Supported response format: ${advertised}`,
       source: { header: "Accept" },
     });
   }
+  return selected;
 };
 
-export const requireJsonApiAccept = (headerValue: string | null): void => {
+export const requireJsonApiAccept = (headerValue: string | null): string => {
   if (!acceptsJsonApi(headerValue)) {
     throw new AppError({
       status: 406,
       code: "not_acceptable",
-      detail: `Supported response format: ${JSON_API_MEDIA_TYPE}`,
       source: { header: "Accept" },
     });
   }
+  return JSON_API_MEDIA_TYPE;
 };

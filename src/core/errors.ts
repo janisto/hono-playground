@@ -1,112 +1,120 @@
 import type { core, ZodError } from "zod";
 
-import { type JsonApiErrorSource, MAX_VALIDATION_ERRORS, type ValidationErrorDetail } from "../models/error.ts";
+import {
+  type JsonApiErrorSource,
+  MAX_ERROR_SOURCE_LENGTH,
+  MAX_VALIDATION_ERRORS,
+  type ValidationErrorDetail,
+} from "../models/error.ts";
 import { JSON_API_MEDIA_TYPE, JSON_API_OBJECT } from "../models/json-api.ts";
+import { scalarLength } from "../models/portable.ts";
 
 export type ErrorCode =
-  | "invalid_cursor"
-  | "invalid_query_parameter"
-  | "invalid_json"
-  | "access_assertion_invalid"
-  | "origin_not_allowed"
+  | "invalid_request"
+  | "unauthorized"
+  | "forbidden"
   | "client_generated_id_unsupported"
+  | "relationships_unsupported"
   | "not_found"
+  | "profile_not_found"
+  | "github_not_found"
   | "method_not_allowed"
   | "not_acceptable"
-  | "resource_type_mismatch"
-  | "resource_identity_mismatch"
-  | "profile_conflict"
+  | "profile_exists"
+  | "profile_resource_mismatch"
   | "payload_too_large"
   | "unsupported_media_type"
   | "validation_failed"
   | "rate_limited"
-  | "rate_limiter_unavailable"
+  | "github_rate_limit"
   | "internal_error"
-  | "jwks_unavailable"
-  | "database_unavailable";
+  | "github_upstream"
+  | "dependency_unavailable"
+  | "github_timeout";
 
 export type OperatorCode =
   | "access_jwks_unavailable"
   | "access_verifier_configuration_invalid"
+  | "github_transport_failure"
   | "profile_database_unavailable"
   | "profile_limiter_unavailable"
   | "profile_repository_failure"
+  | "public_limiter_unavailable"
   | "runtime_configuration_invalid";
 
-type ErrorCatalogEntry = Readonly<{
-  status: number;
-  title: string;
-  safeDetails: readonly string[];
-  fixedHeaders?: Readonly<Record<string, string>>;
-  requiredHeaders?: readonly string[];
-}>;
-
-const catalogEntry = (
-  status: number,
-  title: string,
-  safeDetails: readonly string[],
-  options: Readonly<{
-    fixedHeaders?: Readonly<Record<string, string>>;
-    requiredHeaders?: readonly string[];
-  }> = {},
-): ErrorCatalogEntry =>
-  Object.freeze({
-    status,
-    title,
-    safeDetails: Object.freeze([...safeDetails]),
-    ...(options.fixedHeaders === undefined ? {} : { fixedHeaders: Object.freeze({ ...options.fixedHeaders }) }),
-    ...(options.requiredHeaders === undefined ? {} : { requiredHeaders: Object.freeze([...options.requiredHeaders]) }),
-  });
+type ErrorCatalogEntry = Readonly<{ status: number; title: string; detail: string }>;
 
 export const APPLICATION_ERROR_CATALOG = Object.freeze({
-  invalid_cursor: catalogEntry(400, "Bad Request", ["Invalid cursor"]),
-  invalid_query_parameter: catalogEntry(400, "Bad Request", ["Invalid query parameter"]),
-  invalid_json: catalogEntry(400, "Bad Request", ["Invalid JSON document"]),
-  access_assertion_invalid: catalogEntry(403, "Forbidden", ["Access assertion is missing or invalid"]),
-  origin_not_allowed: catalogEntry(403, "Forbidden", ["Origin not allowed"]),
-  client_generated_id_unsupported: catalogEntry(403, "Forbidden", ["Client-generated profile IDs are not supported"]),
-  not_found: catalogEntry(404, "Not Found", ["Not Found", "Item not found", "Profile not found"]),
-  method_not_allowed: catalogEntry(405, "Method Not Allowed", ["Method Not Allowed"], {
-    requiredHeaders: ["Allow"],
-  }),
-  not_acceptable: catalogEntry(406, "Not Acceptable", [
-    `Supported response format: ${JSON_API_MEDIA_TYPE}`,
-    "Supported response format: application/json",
-    "Supported response format: text/html",
-  ]),
-  resource_type_mismatch: catalogEntry(409, "Conflict", ["Resource type does not match endpoint"]),
-  resource_identity_mismatch: catalogEntry(409, "Conflict", ["Resource ID does not match the current profile"]),
-  profile_conflict: catalogEntry(409, "Conflict", ["Profile already exists"]),
-  payload_too_large: catalogEntry(413, "Content Too Large", ["Request body too large"]),
-  unsupported_media_type: catalogEntry(415, "Unsupported Media Type", [
-    `Content-Type must be ${JSON_API_MEDIA_TYPE} without unsupported extensions`,
-    "Only identity-encoded JSON:API documents are supported",
-  ]),
-  validation_failed: catalogEntry(422, "Unprocessable Content", ["Request document validation failed"]),
-  rate_limited: catalogEntry(429, "Too Many Requests", ["Rate limit exceeded"], {
-    fixedHeaders: { "Retry-After": "60" },
-  }),
-  rate_limiter_unavailable: catalogEntry(503, "Service Unavailable", ["Rate limiter unavailable"], {
-    fixedHeaders: { "Retry-After": "30" },
-  }),
-  internal_error: catalogEntry(500, "Internal Server Error", ["Internal Server Error"]),
-  jwks_unavailable: catalogEntry(503, "Service Unavailable", ["Authentication service unavailable"], {
-    fixedHeaders: { "Retry-After": "30" },
-  }),
-  database_unavailable: catalogEntry(503, "Service Unavailable", ["Database temporarily unavailable"]),
+  invalid_request: { status: 400, title: "Bad Request", detail: "Request is malformed" },
+  unauthorized: { status: 401, title: "Unauthorized", detail: "Authentication is required or invalid" },
+  forbidden: { status: 403, title: "Forbidden", detail: "Access is forbidden" },
+  client_generated_id_unsupported: {
+    status: 403,
+    title: "Forbidden",
+    detail: "Client-generated profile IDs are not supported",
+  },
+  relationships_unsupported: {
+    status: 403,
+    title: "Forbidden",
+    detail: "Profile relationships are not supported",
+  },
+  not_found: { status: 404, title: "Not Found", detail: "Resource not found" },
+  profile_not_found: { status: 404, title: "Not Found", detail: "Profile not found" },
+  github_not_found: { status: 404, title: "Not Found", detail: "GitHub resource not found" },
+  method_not_allowed: { status: 405, title: "Method Not Allowed", detail: "Method not allowed" },
+  not_acceptable: {
+    status: 406,
+    title: "Not Acceptable",
+    detail: "No acceptable response representation is available",
+  },
+  profile_exists: { status: 409, title: "Conflict", detail: "Profile already exists" },
+  profile_resource_mismatch: {
+    status: 409,
+    title: "Conflict",
+    detail: "Profile resource does not match this endpoint",
+  },
+  payload_too_large: { status: 413, title: "Content Too Large", detail: "Request body is too large" },
+  unsupported_media_type: {
+    status: 415,
+    title: "Unsupported Media Type",
+    detail: "Request representation is not supported",
+  },
+  validation_failed: {
+    status: 422,
+    title: "Unprocessable Content",
+    detail: "Request validation failed",
+  },
+  rate_limited: { status: 429, title: "Too Many Requests", detail: "Rate limit exceeded" },
+  github_rate_limit: { status: 429, title: "Too Many Requests", detail: "GitHub rate limit exceeded" },
+  internal_error: { status: 500, title: "Internal Server Error", detail: "Internal server error" },
+  github_upstream: {
+    status: 502,
+    title: "Bad Gateway",
+    detail: "GitHub upstream response is invalid or unavailable",
+  },
+  dependency_unavailable: {
+    status: 503,
+    title: "Service Unavailable",
+    detail: "A required dependency is unavailable",
+  },
+  github_timeout: { status: 504, title: "Gateway Timeout", detail: "GitHub request timed out" },
 }) satisfies Readonly<Record<ErrorCode, ErrorCatalogEntry>>;
 
 type AppErrorOptions = {
-  status: number;
   code: ErrorCode;
-  detail: string;
+  status?: number;
+  detail?: string;
   errors?: ValidationErrorDetail[];
   source?: JsonApiErrorSource;
   headers?: HeadersInit;
   operatorCode?: OperatorCode;
 };
 
-const allowsIssues = (code: ErrorCode): boolean => code === "validation_failed" || code === "invalid_query_parameter";
+const isCanonicalSafeInteger = (value: string | null): boolean => {
+  if (value === null || !/^(?:0|[1-9][0-9]*)$/u.test(value)) return false;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= 0;
+};
 
 export class AppError extends Error {
   readonly status: number;
@@ -119,45 +127,45 @@ export class AppError extends Error {
 
   constructor(options: AppErrorOptions) {
     const catalog = APPLICATION_ERROR_CATALOG[options.code];
-    if (options.status !== catalog.status || !catalog.safeDetails.includes(options.detail)) {
+    if (
+      (options.status !== undefined && options.status !== catalog.status) ||
+      (options.detail !== undefined && options.detail !== catalog.detail)
+    ) {
       throw new TypeError("AppError status and detail must match the application error catalog");
     }
-    if (allowsIssues(options.code)) {
-      if (options.source !== undefined) {
-        throw new TypeError("Validation errors carry sources on their normalized issues");
-      }
-      if (options.errors === undefined || options.errors.length === 0) {
-        throw new TypeError("Validation errors require at least one normalized issue");
-      }
-      if (options.errors.length > MAX_VALIDATION_ERRORS) {
-        throw new TypeError(`Validation errors must not exceed ${MAX_VALIDATION_ERRORS} issues`);
-      }
-    } else if (options.errors !== undefined) {
-      throw new TypeError("This application error must not include normalized issues");
+    if (
+      options.errors !== undefined &&
+      (options.errors.length === 0 || options.errors.length > MAX_VALIDATION_ERRORS)
+    ) {
+      throw new TypeError("AppError issues must contain between 1 and 32 entries");
     }
-
-    const headers = new Headers(catalog.fixedHeaders);
-    const suppliedHeaders = new Headers(options.headers);
-    suppliedHeaders.forEach((value, name) => {
-      headers.set(name, value);
-    });
-    for (const [name, value] of Object.entries(catalog.fixedHeaders ?? {})) {
-      if (headers.get(name) !== value) {
-        throw new TypeError(`AppError header ${name} must match the application error catalog`);
-      }
+    if (options.code === "validation_failed" && options.errors === undefined) {
+      throw new TypeError("validation_failed requires normalized issues");
     }
-    for (const name of catalog.requiredHeaders ?? []) {
-      const value = headers.get(name);
-      if (value === null || value.trim() === "") {
-        throw new TypeError(`AppError requires a non-empty ${name} header`);
-      }
+    if (options.code !== "validation_failed" && options.errors !== undefined) {
+      throw new TypeError("only validation_failed may contain normalized issues");
     }
-
+    const headers = new Headers(options.headers);
+    if (options.code === "method_not_allowed" && !headers.get("Allow")?.trim()) {
+      throw new TypeError("method_not_allowed requires Allow");
+    }
+    if (
+      (options.code === "rate_limited" || options.code === "github_rate_limit") &&
+      !isCanonicalSafeInteger(headers.get("Retry-After"))
+    ) {
+      throw new TypeError("rate-limit errors require a canonical Retry-After");
+    }
+    if (
+      headers.has("X-RateLimit-Reset") &&
+      (options.code !== "github_rate_limit" || !isCanonicalSafeInteger(headers.get("X-RateLimit-Reset")))
+    ) {
+      throw new TypeError("only GitHub rate-limit errors may contain a canonical X-RateLimit-Reset");
+    }
     super(options.code);
     this.name = "AppError";
-    this.status = options.status;
+    this.status = catalog.status;
     this.code = options.code;
-    this.detail = options.detail;
+    this.detail = catalog.detail;
     this.errors = options.errors;
     this.source = options.source;
     this.headers = headers;
@@ -172,9 +180,9 @@ const issueDetail = (issue: core.$ZodIssue): string => {
     case "too_small":
     case "too_big":
     case "custom":
-      return issue.message;
+      return issue.message.slice(0, 200) || "Invalid value";
     case "invalid_format":
-      return issue.format === "email" ? "Invalid email address" : issue.message;
+      return issue.message.slice(0, 200) || "Invalid value";
     case "invalid_value":
       return "Invalid value";
     case "unrecognized_keys":
@@ -184,160 +192,120 @@ const issueDetail = (issue: core.$ZodIssue): string => {
   }
 };
 
-const encodeJsonPointerSegment = (segment: PropertyKey): string =>
+const encodePointerSegment = (segment: PropertyKey): string =>
   String(segment).replaceAll("~", "~0").replaceAll("/", "~1");
 
 const hasOwnPath = (value: unknown, path: readonly PropertyKey[]): boolean => {
   let current = value;
   for (const segment of path) {
-    if (typeof current !== "object" || current === null || !Object.hasOwn(current, segment)) {
-      return false;
-    }
+    if (typeof current !== "object" || current === null || !Object.hasOwn(current, segment)) return false;
     current = Reflect.get(current, segment);
   }
   return true;
 };
 
-const bodySource = (path: readonly PropertyKey[], input?: unknown): ValidationErrorDetail["source"] => {
-  const existingPath = [...path];
-  if (input !== undefined) {
-    while (existingPath.length > 0 && !hasOwnPath(input, existingPath)) {
-      existingPath.pop();
+const KNOWN_JSON_API_LINK_MEMBERS = new Set(["self", "related", "describedby"]);
+const PROFILE_ATTRIBUTE_MEMBERS = new Set([
+  "firstName",
+  "lastName",
+  "contactEmail",
+  "phoneNumber",
+  "marketingOptIn",
+  "termsAccepted",
+]);
+
+const knownBodyPath = (path: readonly PropertyKey[]): PropertyKey[] => {
+  const known: PropertyKey[] = [];
+  for (const segment of path) {
+    const container = known.at(-1);
+    if (container === "links" && !KNOWN_JSON_API_LINK_MEMBERS.has(String(segment))) break;
+    if (container === "meta" || container === "relationships") break;
+    if (
+      container === "attributes" &&
+      !(known.length === 2 && known[0] === "data" && PROFILE_ATTRIBUTE_MEMBERS.has(String(segment)))
+    ) {
+      break;
     }
+    known.push(segment);
   }
-  if (existingPath.length === 0) return undefined;
-  return { pointer: `/${existingPath.map(encodeJsonPointerSegment).join("/")}` };
+  return known;
 };
 
-const querySource = (path: readonly PropertyKey[], fallback?: string): ValidationErrorDetail["source"] => {
-  const parameter = path.length > 0 ? String(path[0]) : fallback;
-  return parameter === undefined ? undefined : { parameter };
+const bodySource = (path: readonly PropertyKey[], input?: unknown): ValidationErrorDetail["source"] => {
+  const existing = knownBodyPath(path);
+  while (existing.length > 0 && input !== undefined && !hasOwnPath(input, existing)) existing.pop();
+  if (existing.length === 0) return undefined;
+  const pointer = `/${existing.map(encodePointerSegment).join("/")}`;
+  return scalarLength(pointer) <= MAX_ERROR_SOURCE_LENGTH ? { pointer } : undefined;
 };
 
 export const validationErrorsFromZod = (
   error: ZodError,
-  target: "body" | "query",
+  target: "body" | "query" | "path",
   input?: unknown,
 ): ValidationErrorDetail[] => {
   const details: ValidationErrorDetail[] = [];
-  let truncated = false;
-  const append = (detail: ValidationErrorDetail): boolean => {
-    if (details.length < MAX_VALIDATION_ERRORS - 1) {
-      details.push(detail);
-      return true;
-    }
-    truncated = true;
-    return false;
+  const append = (detail: ValidationErrorDetail): void => {
+    if (details.length < MAX_VALIDATION_ERRORS - 1) details.push(detail);
   };
-
   for (const issue of error.issues) {
-    if (issue.code === "unrecognized_keys") {
-      for (const key of issue.keys) {
-        const path = [...issue.path, key];
-        const source =
-          target === "body"
-            ? { pointer: `/${path.map(encodeJsonPointerSegment).join("/")}` }
-            : querySource(issue.path, key);
-        if (
-          !append({
-            detail: issueDetail(issue),
-            ...(source === undefined ? {} : { source }),
-          })
-        ) {
-          break;
-        }
-      }
-    } else {
-      const source =
-        target === "body" ? bodySource(issue.path, input) : querySource(issue.path.map((segment) => String(segment)));
-      append({
-        detail: issueDetail(issue),
-        ...(source === undefined ? {} : { source }),
-      });
-    }
-
-    if (truncated) break;
+    const source =
+      target === "body"
+        ? bodySource(issue.path, input)
+        : target === "query" && issue.path[0] !== undefined
+          ? { parameter: String(issue.path[0]) }
+          : undefined;
+    append({ detail: issueDetail(issue), ...(source === undefined ? {} : { source }) });
+    if (details.length === MAX_VALIDATION_ERRORS - 1 && error.issues.length > details.length) break;
   }
-  if (truncated) {
-    details.push({ detail: "Additional validation errors omitted" });
-  }
-  return details;
+  if (error.issues.length > details.length) details.push({ detail: "Additional validation errors omitted" });
+  return details.length === 0 ? [{ detail: "Invalid value" }] : details;
 };
 
-export const validationError = (errors: ValidationErrorDetail[], target: "body" | "query" = "body"): AppError =>
-  target === "query"
-    ? new AppError({
-        status: 400,
-        code: "invalid_query_parameter",
-        detail: "Invalid query parameter",
-        errors,
-      })
-    : new AppError({
-        status: 422,
-        code: "validation_failed",
-        detail: "Request document validation failed",
-        errors,
-      });
+export const zodValidationError = (
+  error: ZodError,
+  target: "body" | "query" | "path" = "body",
+  input?: unknown,
+): AppError => new AppError({ code: "validation_failed", errors: validationErrorsFromZod(error, target, input) });
 
-export const zodValidationError = (error: ZodError, target: "body" | "query" = "body", input?: unknown): AppError =>
-  validationError(validationErrorsFromZod(error, target, input), target);
-
-export const problemResponse = (error: AppError, method = "GET"): Response => {
+export const problemResponse = (
+  error: AppError,
+  method = "GET",
+  contentType = "application/problem+json",
+): Response => {
   const headers = new Headers(error.headers);
-  headers.set("Content-Type", "application/problem+json");
-
+  headers.set("Content-Type", contentType);
   const body = {
     type: "about:blank",
     title: APPLICATION_ERROR_CATALOG[error.code].title,
     status: error.status,
     detail: error.detail,
     code: error.code,
+    ...(error.errors === undefined ? {} : { errors: error.errors }),
   };
-
-  return new Response(method === "HEAD" ? null : JSON.stringify(body), {
-    status: error.status,
-    headers,
-  });
+  return new Response(method === "HEAD" ? null : JSON.stringify(body), { status: error.status, headers });
 };
 
 export const jsonApiErrorResponse = (error: AppError, method = "GET"): Response => {
   const headers = new Headers(error.headers);
   headers.set("Content-Type", JSON_API_MEDIA_TYPE);
-
   const catalog = APPLICATION_ERROR_CATALOG[error.code];
-  const errors = (
-    error.errors ?? [
-      {
-        detail: error.detail,
-        ...(error.source === undefined ? {} : { source: error.source }),
-      },
-    ]
-  ).map((issue) => ({
-    status: String(error.status),
-    code: error.code,
-    title: catalog.title,
-    detail: issue.detail,
-    ...(issue.source === undefined ? {} : { source: issue.source }),
-  }));
-  const body = { jsonapi: JSON_API_OBJECT, errors };
-
-  return new Response(method === "HEAD" ? null : JSON.stringify(body), {
-    status: error.status,
-    headers,
-  });
+  const issues = error.errors ?? [
+    { detail: error.detail, ...(error.source === undefined ? {} : { source: error.source }) },
+  ];
+  const body = {
+    jsonapi: JSON_API_OBJECT,
+    errors: issues.map((issue) => ({
+      status: String(error.status),
+      code: error.code,
+      title: catalog.title,
+      detail: issue.detail,
+      ...(issue.source === undefined ? {} : { source: issue.source }),
+    })),
+  };
+  return new Response(method === "HEAD" ? null : JSON.stringify(body), { status: error.status, headers });
 };
 
-export const invalidJsonError = (): AppError =>
-  new AppError({
-    status: 400,
-    code: "invalid_json",
-    detail: "Invalid JSON document",
-  });
-
+export const invalidJsonError = (): AppError => new AppError({ code: "invalid_request" });
 export const internalError = (operatorCode?: OperatorCode): AppError =>
-  new AppError({
-    status: 500,
-    code: "internal_error",
-    detail: "Internal Server Error",
-    ...(operatorCode === undefined ? {} : { operatorCode }),
-  });
+  new AppError({ code: "internal_error", ...(operatorCode === undefined ? {} : { operatorCode }) });

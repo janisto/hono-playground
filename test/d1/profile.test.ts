@@ -19,7 +19,7 @@ const input = (overrides: Partial<ProfileCreate> = {}): ProfileCreate =>
   ProfileCreateSchema.parse({
     firstName: "Ada",
     lastName: "Lovelace",
-    email: "ADA@example.com ",
+    contactEmail: "ADA@example.com ",
     phoneNumber: " +358401234567 ",
     termsAccepted: true,
     ...overrides,
@@ -62,7 +62,7 @@ describe("D1 profile lifecycle", () => {
       id,
       firstName: "Ada",
       lastName: "Lovelace",
-      email: "ada@example.com",
+      contactEmail: "ADA@example.com",
       phoneNumber: "+358401234567",
       marketingOptIn: false,
       termsAccepted: true,
@@ -79,7 +79,6 @@ describe("D1 profile lifecycle", () => {
       createdAt: created.createdAt,
       updatedAt: new Date("2026-07-22T11:00:00.000Z"),
     });
-    await expect(service.update(id, {})).resolves.toEqual(updated);
     await expect(service.update(id, { firstName: "Grace", marketingOptIn: true })).resolves.toEqual(updated);
     expect(timestamps).toHaveLength(0);
 
@@ -87,10 +86,10 @@ describe("D1 profile lifecycle", () => {
     const missing = await appError(service.get(id));
     expect(missing).toMatchObject({
       status: 404,
-      code: "not_found",
+      code: "profile_not_found",
       detail: "Profile not found",
     });
-    await expect(service.delete(id)).rejects.toMatchObject({ status: 404, code: "not_found" });
+    await expect(service.delete(id)).rejects.toMatchObject({ status: 404, code: "profile_not_found" });
   });
 
   it("serializes concurrent creates into one success, one conflict, and one stored row", async () => {
@@ -110,7 +109,7 @@ describe("D1 profile lifecycle", () => {
     expect(successes).toHaveLength(1);
     expect(failures).toHaveLength(1);
     expect(failures[0]?.reason).toBeInstanceOf(AppError);
-    expect(failures[0]?.reason).toMatchObject({ status: 409, code: "profile_conflict" });
+    expect(failures[0]?.reason).toMatchObject({ status: 409, code: "profile_exists" });
 
     const count = await database
       .prepare("SELECT COUNT(*) AS count FROM profiles WHERE id = ?")
@@ -171,6 +170,17 @@ describe("D1 profile lifecycle", () => {
     await expect(repository.get(patchDeleteId)).resolves.toBeUndefined();
   });
 
+  it("serializes concurrent deletes into one deletion and one missing result", async () => {
+    const id = profileId();
+    const repository = new DrizzleProfileRepository(database);
+    await repository.create(id, input(), new Date("2026-07-22T10:00:00.000Z"));
+
+    const outcomes = await Promise.all([repository.delete(id), repository.delete(id)]);
+
+    expect(outcomes.toSorted()).toEqual([false, true]);
+    await expect(repository.get(id)).resolves.toBeUndefined();
+  });
+
   it("enforces ASCII phone, boolean, and accepted-terms constraints in D1 itself", async () => {
     const insert = (
       id: string | null,
@@ -213,11 +223,11 @@ describe("D1 profile lifecycle", () => {
 
     await expect(service.update(id, { marketingOptIn: true })).rejects.toMatchObject({
       status: 404,
-      code: "not_found",
+      code: "profile_not_found",
     });
     await expect(service.delete(id)).rejects.toMatchObject({
       status: 404,
-      code: "not_found",
+      code: "profile_not_found",
     });
   });
 
@@ -250,7 +260,7 @@ describe("D1 profile lifecycle", () => {
     expect(error).toMatchObject({
       status: 500,
       code: "internal_error",
-      detail: "Internal Server Error",
+      detail: "Internal server error",
     });
     expect(error.message).not.toContain("ADA@EXAMPLE.COM");
   });
@@ -266,7 +276,7 @@ describe("D1 profile lifecycle", () => {
     expect(error).toMatchObject({
       status: 500,
       code: "internal_error",
-      detail: "Internal Server Error",
+      detail: "Internal server error",
     });
   });
 });

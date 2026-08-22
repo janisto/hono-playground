@@ -6,23 +6,22 @@ import type { AppEnvironment } from "./types.ts";
 
 const limitExceeded = (): AppError =>
   new AppError({
-    status: 429,
     code: "rate_limited",
-    detail: "Rate limit exceeded",
     headers: { "Retry-After": "60" },
   });
 
-const unavailable = (): AppError =>
+const unavailable = (operatorCode: "profile_limiter_unavailable" | "public_limiter_unavailable"): AppError =>
   new AppError({
-    status: 503,
-    code: "rate_limiter_unavailable",
-    detail: "Rate limiter unavailable",
-    headers: { "Retry-After": "30" },
-    operatorCode: "profile_limiter_unavailable",
+    code: "dependency_unavailable",
+    operatorCode,
   });
 
-const invoke = async (limiter: RateLimit | undefined, key: string): Promise<void> => {
-  if (limiter === undefined) throw unavailable();
+const invoke = async (
+  limiter: RateLimit | undefined,
+  key: string,
+  operatorCode: "profile_limiter_unavailable" | "public_limiter_unavailable",
+): Promise<void> => {
+  if (limiter === undefined) throw unavailable(operatorCode);
   const result = await limiter.limit({ key });
   if (result.success === false) throw limitExceeded();
   if (result.success !== true) throw new TypeError("Rate limiter returned an invalid result");
@@ -71,16 +70,10 @@ export const enforcePublicRateLimit = async (c: Context<AppEnvironment>): Promis
   const route = c.get("routeMetadata").template;
   const key = await hmacSha256(c.env.RATE_LIMIT_KEY_HMAC_KEY, `public:${route}:${actor}`);
   try {
-    await invoke(c.env.PUBLIC_RATE_LIMITER, key);
+    await invoke(c.env.PUBLIC_RATE_LIMITER, key, "public_limiter_unavailable");
   } catch (error) {
-    if (error instanceof AppError && error.status === 429) throw error;
-    console.error({
-      schema_version: 1,
-      event: "operator.error",
-      level: "error",
-      code: "public_limiter_unavailable",
-      request_id: c.get("requestId"),
-    });
+    if (error instanceof AppError) throw error;
+    throw unavailable("public_limiter_unavailable");
   }
 };
 
@@ -92,9 +85,13 @@ export const enforceProfileRateLimit = async (
   if (c.get("runtimeConfig").rateLimitMode === "none") return;
   const key = await hmacSha256(c.env.RATE_LIMIT_KEY_HMAC_KEY, `profile:${kind}:${subject}`);
   try {
-    await invoke(kind === "read" ? c.env.PROFILE_READ_RATE_LIMITER : c.env.PROFILE_WRITE_RATE_LIMITER, key);
+    await invoke(
+      kind === "read" ? c.env.PROFILE_READ_RATE_LIMITER : c.env.PROFILE_WRITE_RATE_LIMITER,
+      key,
+      "profile_limiter_unavailable",
+    );
   } catch (error) {
     if (error instanceof AppError) throw error;
-    throw unavailable();
+    throw unavailable("profile_limiter_unavailable");
   }
 };

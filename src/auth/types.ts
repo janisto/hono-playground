@@ -32,9 +32,7 @@ export interface AccessVerifierDependencies {
 export class AccessConfigurationError extends AppError {
   constructor() {
     super({
-      status: 500,
       code: "internal_error",
-      detail: "Internal Server Error",
       operatorCode: "access_verifier_configuration_invalid",
     });
     this.name = "AccessConfigurationError";
@@ -44,9 +42,7 @@ export class AccessConfigurationError extends AppError {
 export class InvalidAccessTokenError extends AppError {
   constructor() {
     super({
-      status: 403,
-      code: "access_assertion_invalid",
-      detail: "Access assertion is missing or invalid",
+      code: "forbidden",
       source: { header: "Cf-Access-Jwt-Assertion" },
     });
     this.name = "InvalidAccessTokenError";
@@ -56,9 +52,7 @@ export class InvalidAccessTokenError extends AppError {
 export class AccessJwksUnavailableError extends AppError {
   constructor() {
     super({
-      status: 503,
-      code: "jwks_unavailable",
-      detail: "Authentication service unavailable",
+      code: "dependency_unavailable",
       headers: { "Retry-After": "30" },
       operatorCode: "access_jwks_unavailable",
     });

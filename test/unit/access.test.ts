@@ -102,8 +102,8 @@ const expectAuthenticationFailure = async (result: Promise<unknown>): Promise<In
   }
   expect(error).toMatchObject({
     status: 403,
-    code: "access_assertion_invalid",
-    detail: "Access assertion is missing or invalid",
+    code: "forbidden",
+    detail: "Access is forbidden",
   });
   expect(error.source).toEqual({ header: "Cf-Access-Jwt-Assertion" });
   expect(error.headers.has("WWW-Authenticate")).toBe(false);
@@ -231,11 +231,19 @@ describe("Cloudflare Access JWT claims", () => {
     ["wrong audience", { aud: ["not-the-application"] }],
     ["wrong type", { type: "org" }],
     ["empty subject", { sub: "" }],
-    ["whitespace-only subject", { sub: "   " }],
     ["oversized subject", { sub: "s".repeat(MAX_ACCESS_SUBJECT_LENGTH + 1) }],
-    ["subject outside the profile UTF-16 bound", { sub: "😀".repeat(65) }],
   ])("rejects a token with %s", async (_caseName, overrides) => {
     await expectAuthenticationFailure(localVerifier()(await signToken({ overrides })));
+  });
+
+  it("accepts opaque subjects by Unicode scalar count without trimming", async () => {
+    await expect(localVerifier()(await signToken({ overrides: { sub: "   " } }))).resolves.toMatchObject({
+      sub: "   ",
+    });
+    await expect(localVerifier()(await signToken({ overrides: { sub: "😀".repeat(128) } }))).resolves.toMatchObject({
+      sub: "😀".repeat(128),
+    });
+    await expectAuthenticationFailure(localVerifier()(await signToken({ overrides: { sub: "😀".repeat(129) } })));
   });
 
   it("rejects a service-token assertion instead of using common_name as the owner", async () => {
@@ -342,8 +350,8 @@ describe("remote Cloudflare Access JWKS", () => {
     }
     expect(error).toMatchObject({
       status: 503,
-      code: "jwks_unavailable",
-      detail: "Authentication service unavailable",
+      code: "dependency_unavailable",
+      detail: "A required dependency is unavailable",
       operatorCode: "access_jwks_unavailable",
     });
     expect(error.headers.get("Retry-After")).toBe("30");
@@ -359,7 +367,7 @@ describe("remote Cloudflare Access JWKS", () => {
 
     await expect(verifier(await signToken())).rejects.toMatchObject({
       status: 503,
-      code: "jwks_unavailable",
+      code: "dependency_unavailable",
       headers: expect.any(Headers),
     });
   });

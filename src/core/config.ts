@@ -8,9 +8,7 @@ const REPEATED_SECRET_CHUNK = /^(.{1,32})\1+$/u;
 
 const configurationError = (): AppError =>
   new AppError({
-    status: 500,
     code: "internal_error",
-    detail: "Internal Server Error",
     operatorCode: "runtime_configuration_invalid",
   });
 
@@ -24,17 +22,37 @@ export const parseRuntimeConfig = (bindings: RuntimeBindings, maximumRequestByte
   const rateLimitMode = oneOf(bindings.RATE_LIMIT_MODE, RATE_LIMIT_MODES);
   const maximumRaw = maximumRequestBytesOverride ?? bindings.MAX_REQUEST_SIZE_BYTES ?? 1_000_000;
   const productionLike = environment === "staging" || environment === "production";
+  const publicOriginValue = bindings.PUBLIC_ORIGIN ?? (productionLike ? undefined : "https://hono-playground.dev");
 
   if (!Number.isSafeInteger(maximumRaw) || maximumRaw < 1 || maximumRaw > 10_000_000) {
     throw configurationError();
   }
   if (productionLike && maximumRaw !== 1_000_000) throw configurationError();
   if (productionLike && rateLimitMode === "none") throw configurationError();
+  if (publicOriginValue === undefined) throw configurationError();
+  let publicOrigin: URL;
+  try {
+    publicOrigin = new URL(publicOriginValue);
+  } catch {
+    throw configurationError();
+  }
+  if (
+    publicOrigin.protocol !== "https:" ||
+    publicOrigin.username.length > 0 ||
+    publicOrigin.password.length > 0 ||
+    publicOrigin.pathname !== "/" ||
+    publicOrigin.search.length > 0 ||
+    publicOrigin.hash.length > 0 ||
+    publicOrigin.origin !== publicOriginValue
+  ) {
+    throw configurationError();
+  }
 
   return {
     environment,
     maximumRequestBytes: maximumRaw,
     rateLimitMode,
+    publicOrigin: publicOrigin.origin,
   };
 };
 

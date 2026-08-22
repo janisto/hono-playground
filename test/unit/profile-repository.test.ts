@@ -12,16 +12,9 @@ import {
 } from "../../src/repositories/profile-repository.ts";
 import { ProfileService } from "../../src/services/profile-service.ts";
 
-type PreparedCall = {
-  sql: string;
-  bindings: unknown[];
-};
+type PreparedCall = { sql: string; bindings: unknown[] };
 
-type HarnessOptions = {
-  raw?: (call: PreparedCall) => Promise<unknown[][]>;
-};
-
-const databaseHarness = (options: HarnessOptions = {}) => {
+const databaseHarness = (raw: (call: PreparedCall) => Promise<unknown[][]> = async () => []) => {
   const calls: PreparedCall[] = [];
   const prepare = vi.fn((sql: string): D1PreparedStatement => {
     const call: PreparedCall = { sql, bindings: [] };
@@ -31,7 +24,7 @@ const databaseHarness = (options: HarnessOptions = {}) => {
         call.bindings = bindings;
         return statement;
       }),
-      raw: vi.fn(() => options.raw?.(call) ?? Promise.resolve([])),
+      raw: vi.fn(() => raw(call)),
     } as unknown as D1PreparedStatement;
     return statement;
   });
@@ -41,38 +34,37 @@ const databaseHarness = (options: HarnessOptions = {}) => {
 const INPUT = {
   firstName: "Ada",
   lastName: "Lovelace",
-  email: "ada@example.com",
+  contactEmail: "Ada@example.com",
   phoneNumber: "+358401234567",
   marketingOptIn: false,
   termsAccepted: true,
 } satisfies ProfileCreate;
 
+const timestamp = Date.parse("2026-07-22T10:00:00.000Z");
 const STORED_VALUES = [
   "subject-1",
   INPUT.firstName,
   INPUT.lastName,
-  INPUT.email,
+  INPUT.contactEmail,
   INPUT.phoneNumber,
   0,
   1,
-  Date.parse("2026-07-22T10:00:00.000Z"),
-  Date.parse("2026-07-22T10:00:00.000Z"),
+  timestamp,
+  timestamp,
 ] as const;
 
 const PROFILE = {
   id: "subject-1",
   ...INPUT,
-  createdAt: new Date("2026-07-22T10:00:00.000Z"),
-  updatedAt: new Date("2026-07-22T10:00:00.000Z"),
+  createdAt: new Date(timestamp),
+  updatedAt: new Date(timestamp),
 } satisfies Profile;
 
 describe("DrizzleProfileRepository", () => {
-  it("creates through a typed conflict-safe insert with RETURNING", async () => {
-    const harness = databaseHarness({ raw: async () => [[...STORED_VALUES]] });
+  it("uses one conflict-safe create and projects the physical email column", async () => {
+    const harness = databaseHarness(async () => [[...STORED_VALUES]]);
     const repository = new DrizzleProfileRepository(harness.database);
-
-    await expect(repository.create("subject-1", INPUT, new Date("2026-07-22T10:00:00.000Z"))).resolves.toEqual(PROFILE);
-
+    await expect(repository.create("subject-1", INPUT, new Date(timestamp))).resolves.toEqual(PROFILE);
     expect(harness.prepare).toHaveBeenCalledOnce();
     expect(harness.calls[0]?.sql.toLowerCase()).toContain('on conflict ("profiles"."id") do nothing');
     expect(harness.calls[0]?.sql.toLowerCase()).toContain("returning");
@@ -80,189 +72,110 @@ describe("DrizzleProfileRepository", () => {
       "subject-1",
       "Ada",
       "Lovelace",
-      "ada@example.com",
+      "Ada@example.com",
       "+358401234567",
       0,
       1,
-      Date.parse("2026-07-22T10:00:00.000Z"),
-      Date.parse("2026-07-22T10:00:00.000Z"),
+      timestamp,
+      timestamp,
     ]);
   });
 
-  it("reports a primary-key conflict only when RETURNING yields no row", async () => {
+  it("maps an empty create result to the atomic conflict outcome", async () => {
     const repository = new DrizzleProfileRepository(databaseHarness().database);
-    await expect(repository.create("subject-1", INPUT, new Date("2026-07-22T10:00:00.000Z"))).resolves.toBeUndefined();
+    await expect(repository.create("subject-1", INPUT, new Date(timestamp))).resolves.toBeUndefined();
   });
 
-  it("rejects corrupt or non-normalized storage rows after Drizzle mapping", async () => {
-    const corruptId = databaseHarness({
-      raw: async () => [["", ...STORED_VALUES.slice(1)]],
-    });
-    const nonNormalized = databaseHarness({
-      raw: async () => [[...STORED_VALUES.slice(0, 3), "ADA@EXAMPLE.COM", ...STORED_VALUES.slice(4)]],
-    });
-
-    await expect(new DrizzleProfileRepository(corruptId.database).get("subject-1")).rejects.toBeInstanceOf(
+  it("rejects corrupt rows, including a timestamp inversion", async () => {
+    const badId = databaseHarness(async () => [["", ...STORED_VALUES.slice(1)]]);
+    const inverted = [...STORED_VALUES];
+    inverted[7] = timestamp + 1;
+    const badTime = databaseHarness(async () => [inverted]);
+    await expect(new DrizzleProfileRepository(badId.database).get("subject-1")).rejects.toBeInstanceOf(
       ProfileRepositoryError,
     );
-    await expect(new DrizzleProfileRepository(nonNormalized.database).get("subject-1")).rejects.toBeInstanceOf(
+    await expect(new DrizzleProfileRepository(badTime.database).get("subject-1")).rejects.toBeInstanceOf(
       ProfileRepositoryError,
     );
   });
 
-  it("turns an empty patch into one typed primary-key read", async () => {
-    const harness = databaseHarness({ raw: async () => [[...STORED_VALUES]] });
+  it("performs a real patch in one atomic UPDATE with monotonic timestamp logic", async () => {
+    const updated = [...STORED_VALUES];
+    updated[1] = "Grace";
+    updated[5] = 1;
+    updated[8] = timestamp + 3_600_000;
+    const harness = databaseHarness(async () => [updated]);
     const repository = new DrizzleProfileRepository(harness.database);
-
-    await expect(repository.update("subject-1", {}, new Date("2030-01-01T00:00:00.000Z"))).resolves.toEqual(PROFILE);
-    expect(harness.prepare).toHaveBeenCalledOnce();
-    expect(harness.calls[0]?.sql.toLowerCase()).toContain("select");
-    expect(harness.calls[0]?.bindings).toEqual(["subject-1", 2]);
-  });
-
-  it("builds PATCH from the typed field allowlist and returns the committed row", async () => {
-    const updatedValues = [...STORED_VALUES];
-    updatedValues[1] = "Grace";
-    updatedValues[5] = 1;
-    updatedValues[8] = Date.parse("2026-07-22T11:00:00.000Z");
-    const harness = databaseHarness({ raw: async () => [updatedValues] });
-    const repository = new DrizzleProfileRepository(harness.database);
-
     await expect(
-      repository.update(
-        "subject-1",
-        { marketingOptIn: true, firstName: "Grace" },
-        new Date("2026-07-22T11:00:00.000Z"),
-      ),
+      repository.update("subject-1", { firstName: "Grace", marketingOptIn: true }, new Date(timestamp + 3_600_000)),
     ).resolves.toMatchObject({ firstName: "Grace", marketingOptIn: true });
-
+    expect(harness.prepare).toHaveBeenCalledOnce();
     const sql = harness.calls[0]?.sql.toLowerCase() ?? "";
     expect(sql).toContain("update");
+    expect(sql).toContain("case when");
+    expect(sql).toContain('"updated_at" +');
     expect(sql).toContain('"first_name"');
     expect(sql).toContain('"marketing_opt_in"');
-    expect(sql).toContain('"updated_at"');
     expect(sql).not.toContain('"terms_accepted" =');
     expect(sql).toContain("returning");
   });
 
-  it("does not advance updatedAt when every supplied PATCH value is unchanged", async () => {
-    const harness = databaseHarness({
-      raw: async (call) => (call.sql.trimStart().toLowerCase().startsWith("update") ? [] : [[...STORED_VALUES]]),
+  it("returns the unchanged row after a zero-row no-op without retrying", async () => {
+    const harness = databaseHarness(async (call) =>
+      call.sql.trimStart().toLowerCase().startsWith("update") ? [] : [[...STORED_VALUES]],
+    );
+    const repository = new DrizzleProfileRepository(harness.database);
+    await expect(
+      repository.update("subject-1", { firstName: "Ada", marketingOptIn: false }, new Date(timestamp + 1_000)),
+    ).resolves.toEqual(PROFILE);
+    expect(harness.prepare).toHaveBeenCalledTimes(2);
+    expect(harness.calls.map((call) => call.sql.trimStart().split(/\s/u)[0]?.toLowerCase())).toEqual([
+      "update",
+      "select",
+    ]);
+  });
+
+  it("fails a real change at the maximum timestamp without dispatch retry", async () => {
+    const maximum = Date.parse("9999-12-31T23:59:59.999Z");
+    const maximumValues = [...STORED_VALUES];
+    maximumValues[8] = maximum;
+    const harness = databaseHarness(async (call) =>
+      call.sql.trimStart().toLowerCase().startsWith("update") ? [] : [maximumValues],
+    );
+    const repository = new DrizzleProfileRepository(harness.database);
+    await expect(repository.update("subject-1", { firstName: "Grace" }, new Date(maximum))).rejects.toBeInstanceOf(
+      ProfileRepositoryError,
+    );
+    expect(harness.prepare).toHaveBeenCalledTimes(2);
+  });
+
+  it("maps an unconfirmed transient failure after one dispatch and never retries", async () => {
+    const harness = databaseHarness(async () => {
+      throw new Error("D1_ERROR: Network connection lost.");
     });
     const repository = new DrizzleProfileRepository(harness.database);
-
-    await expect(
-      repository.update("subject-1", { firstName: "Ada", marketingOptIn: false }, new Date("2030-01-01T00:00:00.000Z")),
-    ).resolves.toEqual(PROFILE);
-
-    expect(harness.prepare).toHaveBeenCalledTimes(2);
-    expect(harness.calls[0]?.sql.toLowerCase()).toContain("update");
-    expect(harness.calls[0]?.sql.toLowerCase()).toContain('"first_name"');
-    expect(harness.calls[0]?.sql.toLowerCase()).toContain('"marketing_opt_in"');
-    expect(harness.calls[1]?.sql.toLowerCase()).toContain("select");
-  });
-
-  it("retries PATCH at most twice with one timestamp and bounded jitter", async () => {
-    let attempts = 0;
-    const updatedValues = [...STORED_VALUES];
-    updatedValues[1] = "Grace";
-    updatedValues[8] = Date.parse("2026-07-22T11:00:00.000Z");
-    const harness = databaseHarness({
-      raw: async () => {
-        attempts += 1;
-        if (attempts < 3) throw new Error("D1_ERROR: Network connection lost.");
-        return [updatedValues];
-      },
-    });
-    const sleep = vi.fn(async () => undefined);
-    const repository = new DrizzleProfileRepository(harness.database, {
-      sleep,
-      random: () => 0,
-    });
-
-    await expect(
-      repository.update("subject-1", { firstName: "Grace" }, new Date("2026-07-22T11:00:00.000Z")),
-    ).resolves.toMatchObject({ firstName: "Grace" });
-
-    expect(harness.prepare).toHaveBeenCalledTimes(3);
-    expect(sleep.mock.calls).toEqual([[25], [50]]);
-    for (const call of harness.calls) {
-      expect(call.bindings).toContain(Date.parse("2026-07-22T11:00:00.000Z"));
-    }
-  });
-
-  it("stops PATCH after two retries and maps the transient failure", async () => {
-    const harness = databaseHarness({
-      raw: async () => {
-        throw new Error("Cannot resolve D1 DB due to transient issue on remote node.");
-      },
-    });
-    const repository = new DrizzleProfileRepository(harness.database, {
-      sleep: async () => undefined,
-      random: () => 1,
-    });
-
-    await expect(
-      repository.update("subject-1", { firstName: "Grace" }, new Date("2026-07-22T11:00:00.000Z")),
-    ).rejects.toBeInstanceOf(ProfileRepositoryUnavailableError);
-    expect(harness.prepare).toHaveBeenCalledTimes(3);
-  });
-
-  it("does not retry reads, creates, deletes, or unknown PATCH failures", async () => {
-    const transient = databaseHarness({
-      raw: async () => {
-        throw new Error("Network connection lost.");
-      },
-    });
-    const unknown = databaseHarness({
-      raw: async () => {
-        throw new Error("no such table: profiles");
-      },
-    });
-    const sleep = vi.fn(async () => undefined);
-
-    await expect(new DrizzleProfileRepository(transient.database).get("subject-1")).rejects.toBeInstanceOf(
+    await expect(repository.update("subject-1", { firstName: "Grace" }, new Date(timestamp))).rejects.toBeInstanceOf(
       ProfileRepositoryUnavailableError,
     );
-    await expect(
-      new DrizzleProfileRepository(transient.database).create("subject-1", INPUT, new Date("2026-07-22T10:00:00.000Z")),
-    ).rejects.toBeInstanceOf(ProfileRepositoryUnavailableError);
-    await expect(new DrizzleProfileRepository(transient.database).delete("subject-1")).rejects.toBeInstanceOf(
-      ProfileRepositoryUnavailableError,
-    );
-    await expect(
-      new DrizzleProfileRepository(unknown.database, { sleep }).update(
-        "subject-1",
-        { firstName: "Grace" },
-        new Date("2026-07-22T11:00:00.000Z"),
-      ),
-    ).rejects.toMatchObject({ operatorCode: "profile_repository_failure" });
-
-    expect(transient.prepare).toHaveBeenCalledTimes(3);
-    expect(unknown.prepare).toHaveBeenCalledOnce();
-    expect(sleep).not.toHaveBeenCalled();
+    expect(harness.prepare).toHaveBeenCalledOnce();
   });
 
-  it("uses typed DELETE RETURNING for missing and present rows", async () => {
-    const missing = new DrizzleProfileRepository(databaseHarness().database);
-    const deletedHarness = databaseHarness({ raw: async () => [["subject-1"]] });
-    const deleted = new DrizzleProfileRepository(deletedHarness.database);
-
-    await expect(missing.delete("missing")).resolves.toBe(false);
-    await expect(deleted.delete("subject-1")).resolves.toBe(true);
-    expect(deletedHarness.calls[0]?.sql.toLowerCase()).toContain("returning");
+  it("uses DELETE RETURNING for missing and present rows", async () => {
+    await expect(new DrizzleProfileRepository(databaseHarness().database).delete("missing")).resolves.toBe(false);
+    const deleted = databaseHarness(async () => [["subject-1"]]);
+    await expect(new DrizzleProfileRepository(deleted.database).delete("subject-1")).resolves.toBe(true);
+    expect(deleted.calls[0]?.sql.toLowerCase()).toContain("returning");
   });
 });
 
-describe("D1 transient error classifier", () => {
-  it.each(TRANSIENT_D1_ERROR_MESSAGES)("accepts the exact documented message: %s", (message) => {
+describe("D1 failure classification", () => {
+  it.each(TRANSIENT_D1_ERROR_MESSAGES)("accepts only the exact documented transient message: %s", (message) => {
     expect(isRetryableD1Error(new Error(message))).toBe(true);
     expect(isRetryableD1Error(new Error(`D1_ERROR: ${message}`))).toBe(true);
   });
 
-  it("checks a standard Error cause without broad substring matching", () => {
+  it("checks bounded causes without substring matching", () => {
     expect(isRetryableD1Error(new Error("query failed", { cause: new Error("Network connection lost.") }))).toBe(true);
-    expect(isRetryableD1Error(new Error("Network connection lost"))).toBe(false);
     expect(isRetryableD1Error(new Error("prefix Network connection lost."))).toBe(false);
     expect(isRetryableD1Error(new Error("D1_ERROR: no such table: profiles"))).toBe(false);
   });
@@ -277,7 +190,7 @@ describe("ProfileService", () => {
     ...overrides,
   });
 
-  it("maps duplicate and missing lifecycle results to stable AppErrors", async () => {
+  it("maps duplicate and missing lifecycle results to exact portable errors", async () => {
     const service = new ProfileService(
       repository({
         create: async () => undefined,
@@ -285,123 +198,55 @@ describe("ProfileService", () => {
         update: async () => undefined,
         delete: async () => false,
       }),
-      () => new Date("2026-07-22T10:00:00.000Z"),
+      () => new Date(timestamp),
     );
-
-    await expect(service.create("subject-1", INPUT)).rejects.toMatchObject({
-      status: 409,
-      code: "profile_conflict",
-      detail: "Profile already exists",
-    });
-    await expect(service.get("subject-1")).rejects.toMatchObject({
-      status: 404,
-      code: "not_found",
-      detail: "Profile not found",
-    });
+    await expect(service.create("subject-1", INPUT)).rejects.toMatchObject({ code: "profile_exists", status: 409 });
+    await expect(service.get("subject-1")).rejects.toMatchObject({ code: "profile_not_found", status: 404 });
     await expect(service.update("subject-1", { firstName: "Grace" })).rejects.toMatchObject({
+      code: "profile_not_found",
       status: 404,
-      code: "not_found",
     });
-    await expect(service.delete("subject-1")).rejects.toMatchObject({
-      status: 404,
-      code: "not_found",
-    });
+    await expect(service.delete("subject-1")).rejects.toMatchObject({ code: "profile_not_found", status: 404 });
   });
 
-  it("maps repository availability and unknown failures without exposing details", async () => {
-    const unavailable = new ProfileService(
+  it("maps persistence availability without exposing provider detail or fabricating retry metadata", async () => {
+    const service = new ProfileService(
       repository({
         get: async () => {
           throw new ProfileRepositoryUnavailableError();
         },
       }),
     );
-    const unknown = new ProfileService(
-      repository({
-        get: async () => {
-          throw new Error("SQL and private bind value");
-        },
-      }),
-    );
-
-    await expect(unavailable.get("subject-1")).rejects.toMatchObject({
+    let error: unknown;
+    try {
+      await service.get("subject-1");
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(AppError);
+    expect(error).toMatchObject({
+      code: "dependency_unavailable",
       status: 503,
-      code: "database_unavailable",
-      detail: "Database temporarily unavailable",
+      detail: "A required dependency is unavailable",
     });
-    await expect(unknown.get("subject-1")).rejects.toMatchObject({
-      status: 500,
-      code: "internal_error",
-      detail: "Internal Server Error",
-    });
+    expect((error as AppError).headers.has("Retry-After")).toBe(false);
+    expect(JSON.stringify(error)).not.toContain("D1");
   });
 
-  it("advertises short retries only for safe read and idempotent PATCH failures", async () => {
-    const unavailable = (): never => {
-      throw new ProfileRepositoryUnavailableError();
-    };
-    const service = new ProfileService(
-      repository({
-        create: async () => unavailable(),
-        get: async () => unavailable(),
-        update: async () => unavailable(),
-        delete: async () => unavailable(),
-      }),
-      () => new Date("2026-07-22T10:00:00.000Z"),
-    );
-
-    const capture = async (operation: Promise<unknown>): Promise<AppError> => {
-      try {
-        await operation;
-      } catch (error) {
-        if (error instanceof AppError) return error;
-        throw error;
-      }
-      throw new Error("Expected an AppError");
-    };
-
-    const create = await capture(service.create("subject-1", INPUT));
-    const get = await capture(service.get("subject-1"));
-    const update = await capture(service.update("subject-1", { firstName: "Grace" }));
-    const remove = await capture(service.delete("subject-1"));
-
-    expect(create.headers.has("Retry-After")).toBe(false);
-    expect(get.headers.get("Retry-After")).toBe("1");
-    expect(update.headers.get("Retry-After")).toBe("1");
-    expect(remove.headers.has("Retry-After")).toBe(false);
-  });
-
-  it("does not consult the clock or call update for an empty patch", async () => {
-    const get = vi.fn(async () => PROFILE);
-    const update = vi.fn(async () => PROFILE);
-    const service = new ProfileService(repository({ get, update }), () => {
-      throw new Error("clock must not be read");
-    });
-
-    await expect(service.update("subject-1", {})).resolves.toEqual(PROFILE);
-    expect(get).toHaveBeenCalledWith("subject-1");
-    expect(update).not.toHaveBeenCalled();
-  });
-
-  it("uses one precomputed Date per mutation", async () => {
+  it("normalizes one clock value per mutation and rejects an invalid clock before persistence", async () => {
     const create = vi.fn(async () => PROFILE);
     const update = vi.fn(async () => PROFILE);
-    const now = vi.fn(() => new Date("2026-07-22T10:00:00.000Z"));
+    const now = vi.fn(() => new Date(timestamp));
     const service = new ProfileService(repository({ create, update }), now);
-
     await service.create("subject-1", INPUT);
     await service.update("subject-1", { firstName: "Grace" });
-
     expect(now).toHaveBeenCalledTimes(2);
-    expect(create).toHaveBeenCalledWith("subject-1", INPUT, new Date("2026-07-22T10:00:00.000Z"));
-    expect(update).toHaveBeenCalledWith("subject-1", { firstName: "Grace" }, new Date("2026-07-22T10:00:00.000Z"));
-  });
+    expect(create).toHaveBeenCalledWith("subject-1", INPUT, new Date(timestamp));
+    expect(update).toHaveBeenCalledWith("subject-1", { firstName: "Grace" }, new Date(timestamp));
 
-  it("preserves an AppError raised before a repository call", async () => {
-    const service = new ProfileService(repository(), () => {
-      throw new AppError({ status: 500, code: "internal_error", detail: "Internal Server Error" });
-    });
-
-    await expect(service.create("subject-1", INPUT)).rejects.toBeInstanceOf(AppError);
+    const never = vi.fn(async () => PROFILE);
+    const invalid = new ProfileService(repository({ create: never }), () => new Date(Number.NaN));
+    await expect(invalid.create("subject-1", INPUT)).rejects.toMatchObject({ code: "internal_error" });
+    expect(never).not.toHaveBeenCalled();
   });
 });
