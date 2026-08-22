@@ -277,15 +277,14 @@ describe("representation negotiation", () => {
     expectCommonHeaders(response);
   });
 
-  it.each(['application/json, text/plain;note="unterminated', 'text/plain;note="unterminated, application/json'])(
-    "ignores one malformed range when an acceptable operational range remains: %s",
-    async (accept) => {
-      const response = await request("/health", { headers: { Accept: accept } });
+  it("ignores a malformed trailing range when an acceptable operational range remains", async () => {
+    const response = await request("/health", {
+      headers: { Accept: 'application/json, text/plain;note="unterminated' },
+    });
 
-      expect(response.status).toBe(200);
-      expect(response.headers.get("Content-Type")).toBe("application/json");
-    },
-  );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("application/json");
+  });
 
   it.each([
     undefined,
@@ -323,6 +322,7 @@ describe("representation negotiation", () => {
     `${JSON_API_MEDIA_TYPE};q=1;charset=utf-8`,
     `${JSON_API_MEDIA_TYPE};profile = "https://example.test/profile"`,
     `${JSON_API_MEDIA_TYPE};q =1`,
+    `text/plain;note="x,${JSON_API_MEDIA_TYPE}`,
   ])("returns a JSON:API 406 for an unsupported JSON:API range: %s", async (accept) => {
     const response = await request("/v1/items", { headers: { Accept: accept } });
 

@@ -16,7 +16,7 @@ type ParameterValue = {
 
 const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u;
 const Q_VALUE = /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/u;
-const splitQuoted = (value: string, separator: string): string[] => {
+const splitQuoted = (value: string, separator: string): { parts: string[]; complete: boolean } => {
   const parts: string[] = [];
   let current = "";
   let quoted = false;
@@ -46,7 +46,7 @@ const splitQuoted = (value: string, separator: string): string[] => {
     current += character;
   }
   parts.push(current);
-  return quoted || escaped ? [] : parts;
+  return { parts, complete: !quoted && !escaped };
 };
 
 const parameterValue = (raw: string): ParameterValue | null => {
@@ -64,7 +64,9 @@ const isJsonApiUriList = (parameter: ParameterValue): boolean => {
 };
 
 const parseMediaRange = (raw: string): MediaRange | null => {
-  const segments = splitQuoted(raw, ";").map((part) => part.trim());
+  const split = splitQuoted(raw, ";");
+  if (!split.complete) return null;
+  const segments = split.parts.map((part) => part.trim());
   const mediaType = segments.shift();
   if (mediaType === undefined || mediaType.length === 0) return null;
 
@@ -107,8 +109,9 @@ const parseMediaRange = (raw: string): MediaRange | null => {
 const matchingRanges = (headerValue: string, representation: string): MediaRange[] => {
   const [candidateType, candidateSubtype] = representation.toLowerCase().split("/");
   if (candidateType === undefined || candidateSubtype === undefined) return [];
-  const quotedParts = splitQuoted(headerValue, ",");
-  const parts = quotedParts.length === 0 ? headerValue.split(",") : quotedParts;
+  const split = splitQuoted(headerValue, ",");
+  // An unterminated quote makes the current member and its remaining commas ambiguous.
+  const parts = split.complete ? split.parts : split.parts.slice(0, -1);
 
   return parts
     .map((part) => parseMediaRange(part.trim()))
@@ -196,7 +199,9 @@ export const acceptsJsonApi = (headerValue: string | null): boolean => {
 
 export const isSupportedJsonApiContentType = (headerValue: string | null): boolean => {
   if (headerValue === null) return false;
-  const segments = splitQuoted(headerValue, ";").map((part) => part.trim());
+  const split = splitQuoted(headerValue, ";");
+  if (!split.complete) return false;
+  const segments = split.parts.map((part) => part.trim());
   if (segments.shift()?.toLowerCase() !== JSON_API_MEDIA_TYPE) return false;
 
   const parameters = new Map<string, ParameterValue>();
