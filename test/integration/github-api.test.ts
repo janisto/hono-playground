@@ -554,6 +554,32 @@ describe("GitHub cursor translation", () => {
 });
 
 describe("GitHub controlled failures and OpenAPI agreement", () => {
+  it("normalizes valid provider offsets and rejects malformed provider URLs at the Hono boundary", async () => {
+    const normalized = await request(
+      sequenceFetch(
+        jsonResponse({
+          ...OWNER,
+          created_at: "2011-01-25t20:14:36+01:30",
+          updated_at: "2023-12-31T19:00:00.1000-05:00",
+        }),
+      ),
+      "/v1/github/owners/octocat",
+    );
+    expect(normalized.status).toBe(200);
+    await expect(normalized.json()).resolves.toMatchObject({
+      createdAt: "2011-01-25T18:44:36.000Z",
+      updatedAt: "2024-01-01T00:00:00.100Z",
+    });
+
+    const malformed = await request(
+      sequenceFetch(jsonResponse({ ...OWNER, avatar_url: "https://example.test/%zz" })),
+      "/v1/github/owners/octocat",
+    );
+    expect((await problem(malformed, 502, "github_upstream")).detail).toBe(
+      "GitHub upstream response is invalid or unavailable",
+    );
+  });
+
   it("exposes truthful provider quota fields and fixed safe failures", async () => {
     const quotaFetch = sequenceFetch(
       new Response("provider secret", {

@@ -1,4 +1,5 @@
 const ABSOLUTE_URI_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
+const HTTP_URI_PREFIX = /^https?:\/\//iu;
 const PCT_ENCODED = "%[0-9A-Fa-f]{2}";
 const UNRESERVED = "[A-Za-z0-9._~-]";
 const SUB_DELIMITER = "[!$&'()*+,;=]";
@@ -65,3 +66,18 @@ export const isUriReference = (value: string): boolean => {
 };
 
 export const isAbsoluteUri = (value: string): boolean => ABSOLUTE_URI_SCHEME.test(value) && isUriReference(value);
+
+export const isAbsoluteHttpUri = (value: string): boolean => {
+  if (!HTTP_URI_PREFIX.test(value) || !isAbsoluteUri(value)) return false;
+
+  const authorityStart = value.indexOf("//") + 2;
+  const remainder = value.slice(authorityStart);
+  const authorityEnd = remainder.search(/[/?#]/u);
+  const authority = authorityEnd < 0 ? remainder : remainder.slice(0, authorityEnd);
+  const hostAndPort = authority.slice(authority.lastIndexOf("@") + 1);
+  if (hostAndPort.startsWith("[")) return hostAndPort.indexOf("]") > 1;
+
+  const portStart = hostAndPort.lastIndexOf(":");
+  const host = portStart < 0 ? hostAndPort : hostAndPort.slice(0, portStart);
+  return host.length > 0;
+};

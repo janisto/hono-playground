@@ -1,11 +1,11 @@
 import { z } from "@hono/zod-openapi";
+import { isAbsoluteHttpUri } from "../core/uri.ts";
 import { SafeIntegerSchema, TimestampSchema } from "./portable.ts";
 
-const HTTP_URL_PATTERN = /^https?:\/\//iu;
 const GIT_SHA_PATTERN = "^(?:[0-9a-f]{40}|[0-9a-f]{64})$";
 const HttpUrlSchema = z
-  .url()
-  .refine((value) => HTTP_URL_PATTERN.test(value), { error: "Expected an absolute HTTP(S) URL" })
+  .string()
+  .refine(isAbsoluteHttpUri, { error: "Expected an absolute HTTP(S) URL" })
   .openapi({ format: "uri", pattern: "^[Hh][Tt][Tt][Pp][Ss]?://" });
 const NonEmptyStringSchema = z.string().min(1);
 const NullableNonEmptyStringSchema = NonEmptyStringSchema.nullable();

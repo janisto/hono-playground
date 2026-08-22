@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isAbsoluteUri, isUriReference } from "../../src/core/uri.ts";
+import { isAbsoluteHttpUri, isAbsoluteUri, isUriReference } from "../../src/core/uri.ts";
 
 describe("RFC 3986 URI validation", () => {
   it.each([
@@ -44,4 +44,26 @@ describe("RFC 3986 URI validation", () => {
       expect(isAbsoluteUri(value)).toBe(false);
     },
   );
+
+  it.each([
+    "https://example.test/profile",
+    "HTTP://example.test:8080/profile?view=full#contact",
+    "https://user:password@example.test/profile",
+    "https://[2001:db8::1]/profile",
+    "https://[v1.fe]/profile",
+  ])("accepts the absolute HTTP URI %j", (value) => {
+    expect(isAbsoluteHttpUri(value)).toBe(true);
+  });
+
+  it.each([
+    "ftp://example.test/profile",
+    "https:///profile",
+    "https://user@:443/profile",
+    "https://example.test/profile ",
+    "https://example.test/profile image",
+    "https://example.test/%zz",
+    "https://example.test/\u0000",
+  ])("rejects the malformed or non-HTTP URI %j", (value) => {
+    expect(isAbsoluteHttpUri(value)).toBe(false);
+  });
 });

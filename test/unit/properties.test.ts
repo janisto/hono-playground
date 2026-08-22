@@ -9,6 +9,7 @@ import type { RuntimeBindings } from "../../src/core/types.ts";
 import { ProfileCreateSchema } from "../../src/models/profile.ts";
 import { decodeCursor, encodeCursor, InvalidCursorError } from "../../src/pagination/cursor.ts";
 import { buildItemTarget } from "../../src/pagination/link.ts";
+import { canonicalProviderTimestamp } from "../../src/services/github-upstream.ts";
 
 const TEST_BINDINGS = {
   DB: {} as D1Database,
@@ -106,6 +107,30 @@ describe("bounded portable contract properties", () => {
       { numRuns: 100 },
     );
     expect(accepts("application/json;q=0", "application/json")).toBe(false);
+  });
+
+  it("normalizes RFC 3339 provider offsets without changing the represented instant", () => {
+    fc.assert(
+      fc.property(
+        fc.date({
+          min: new Date("2000-01-02T00:00:00.000Z"),
+          max: new Date("2099-12-30T23:59:59.999Z"),
+          noInvalidDate: true,
+        }),
+        fc.integer({ min: -(23 * 60 + 59), max: 23 * 60 + 59 }),
+        fc.integer({ min: 0, max: 3 }),
+        (instant, offsetMinutes, extraTrailingZeros) => {
+          const local = new Date(instant.getTime() + offsetMinutes * 60_000);
+          const sign = offsetMinutes < 0 ? "-" : "+";
+          const absoluteOffset = Math.abs(offsetMinutes);
+          const offsetHours = String(Math.floor(absoluteOffset / 60)).padStart(2, "0");
+          const offsetRemainder = String(absoluteOffset % 60).padStart(2, "0");
+          const source = `${local.toISOString().slice(0, -1)}${"0".repeat(extraTrailingZeros)}${sign}${offsetHours}:${offsetRemainder}`;
+          expect(canonicalProviderTimestamp(source)).toBe(instant.toISOString());
+        },
+      ),
+      { numRuns: 250 },
+    );
   });
 
   it("uses exact trusted HTTPS-origin equality", () => {
