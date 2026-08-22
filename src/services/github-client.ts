@@ -55,6 +55,7 @@ export type ActivityPage = Readonly<{
 type LinkRelation = "next" | "prev";
 type RelevantLink = Readonly<{ target: string; relations: LinkRelation[] }>;
 type GitHubJsonResult<T> = Readonly<{ data: T; headers: Headers; assertActive: () => void }>;
+type RedirectSuffix = "" | "/repos" | "/activity" | "/languages" | "/tags";
 
 const awaitWithSignal = async <T>(operation: Promise<T>, signal: AbortSignal): Promise<T> => {
   if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
@@ -279,7 +280,7 @@ export class GitHubClient {
 
   async getOwner(owner: string, callerSignal?: AbortSignal): Promise<GitHubOwner> {
     const url = new URL(`/users/${encodeURIComponent(owner)}`, this.#baseUrl);
-    const result = await this.#getJson(url, RawGitHubOwnerSchema, callerSignal);
+    const result = await this.#getJson(url, RawGitHubOwnerSchema, "", callerSignal);
     return this.#project(result, () => this.#owner(result.data));
   }
 
@@ -295,7 +296,7 @@ export class GitHubClient {
     url.searchParams.set("direction", "asc");
     url.searchParams.set("per_page", String(limit));
     if (page !== 1) url.searchParams.set("page", String(page));
-    const result = await this.#getJson(url, RawGitHubRepositoryPageSchema, callerSignal);
+    const result = await this.#getJson(url, RawGitHubRepositoryPageSchema, "/repos", callerSignal);
     return this.#project(result, () => {
       if (result.data.length > limit) throw this.#upstream();
       const links = this.#numberedLinks(result.headers, {
@@ -313,7 +314,7 @@ export class GitHubClient {
   async getRepository(owner: string, repo: string, callerSignal?: AbortSignal): Promise<GitHubRepository> {
     this.#guardRepository(repo);
     const url = new URL(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, this.#baseUrl);
-    const result = await this.#getJson(url, RawGitHubRepositorySchema, callerSignal);
+    const result = await this.#getJson(url, RawGitHubRepositorySchema, "", callerSignal);
     return this.#project(result, () => this.#repository(result.data));
   }
 
@@ -329,7 +330,7 @@ export class GitHubClient {
     url.searchParams.set("direction", "desc");
     url.searchParams.set("per_page", String(limit));
     if (cursor !== undefined) url.searchParams.set(cursor.direction, cursor.value);
-    const result = await this.#getJson(url, RawGitHubActivityPageSchema, callerSignal);
+    const result = await this.#getJson(url, RawGitHubActivityPageSchema, "/activity", callerSignal);
     return this.#project(result, () => {
       if (result.data.length > limit) throw this.#upstream();
       const links = this.#activityLinks(result.headers, url.pathname, limit, cursor);
@@ -341,7 +342,7 @@ export class GitHubClient {
   async listRepositoryLanguages(owner: string, repo: string, callerSignal?: AbortSignal): Promise<GitHubLanguage[]> {
     this.#guardRepository(repo);
     const url = new URL(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/languages`, this.#baseUrl);
-    const result = await this.#getJson(url, RawGitHubLanguagesSchema, callerSignal);
+    const result = await this.#getJson(url, RawGitHubLanguagesSchema, "/languages", callerSignal);
     return this.#project(result, () =>
       Object.entries(result.data)
         .map(([name, bytes]) => ({ name, bytes }))
@@ -360,7 +361,7 @@ export class GitHubClient {
     const url = new URL(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tags`, this.#baseUrl);
     url.searchParams.set("per_page", String(limit));
     if (page !== 1) url.searchParams.set("page", String(page));
-    const result = await this.#getJson(url, RawGitHubTagPageSchema, callerSignal);
+    const result = await this.#getJson(url, RawGitHubTagPageSchema, "/tags", callerSignal);
     return this.#project(result, () => {
       if (result.data.length > limit) throw this.#upstream();
       const links = this.#numberedLinks(result.headers, {
@@ -381,6 +382,7 @@ export class GitHubClient {
   async #getJson<Output>(
     initialUrl: URL,
     schema: z.ZodType<Output>,
+    redirectSuffix: RedirectSuffix,
     callerSignal?: AbortSignal,
   ): Promise<GitHubJsonResult<Output>> {
     const startedAt = this.#deadlineNow();
@@ -391,6 +393,7 @@ export class GitHubClient {
     const response = await this.#requestWithRedirects(
       initialUrl,
       initialUrl,
+      redirectSuffix,
       signal,
       callerSignal,
       deadline,
@@ -446,6 +449,7 @@ export class GitHubClient {
   async #requestWithRedirects(
     initialUrl: URL,
     currentUrl: URL,
+    redirectSuffix: RedirectSuffix,
     signal: AbortSignal,
     callerSignal: AbortSignal | undefined,
     deadline: AbortSignal,
@@ -488,10 +492,11 @@ export class GitHubClient {
     } catch {
       throw this.#upstream();
     }
-    this.#validateRedirect(initialUrl, target);
+    this.#validateRedirect(initialUrl, target, redirectSuffix);
     return this.#requestWithRedirects(
       initialUrl,
       target,
+      redirectSuffix,
       signal,
       callerSignal,
       deadline,
@@ -516,17 +521,8 @@ export class GitHubClient {
     this.#throwIfAborted(callerSignal, deadline, expiresAt);
   }
 
-  #validateRedirect(initial: URL, target: URL): void {
+  #validateRedirect(initial: URL, target: URL, suffix: RedirectSuffix): void {
     if (target.origin !== this.#baseOrigin || target.username || target.password || target.hash) throw this.#upstream();
-    const suffix = initial.pathname.endsWith("/activity")
-      ? "/activity"
-      : initial.pathname.endsWith("/languages")
-        ? "/languages"
-        : initial.pathname.endsWith("/tags")
-          ? "/tags"
-          : initial.pathname.endsWith("/repos")
-            ? "/repos"
-            : "";
     const prefix = initial.pathname.startsWith("/users/") ? "/user/" : "/repositories/";
     if (target.pathname !== initial.pathname) {
       const id = new RegExp(`^${prefix}([0-9]+)${suffix}$`, "u").exec(target.pathname)?.[1];

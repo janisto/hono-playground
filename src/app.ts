@@ -453,6 +453,7 @@ export const createApp = (dependencies: AppDependencies = {}) => {
   });
 
   app.onError((error, c) => {
+    if (c.req.raw.signal.aborted) throw c.req.raw.signal.reason ?? error;
     const normalized =
       error instanceof AppError
         ? error

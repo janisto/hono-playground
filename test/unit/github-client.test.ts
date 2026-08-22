@@ -519,6 +519,7 @@ describe("GitHubClient pagination links", () => {
 describe("GitHubClient redirects, failures, and cancellation", () => {
   it.each([
     ["owner", "/user/1", (client: GitHubClient) => client.getOwner("octocat"), OWNER],
+    ["owner named repos", "/user/1", (client: GitHubClient) => client.getOwner("repos"), { ...OWNER, login: "repos" }],
     [
       "owner repositories",
       "/user/1/repos?type=owner&sort=full_name&direction=asc&per_page=20",
@@ -526,6 +527,12 @@ describe("GitHubClient redirects, failures, and cancellation", () => {
       [SUMMARY],
     ],
     ["repository", "/repositories/2", (client: GitHubClient) => client.getRepository("octocat", "repo"), DETAIL],
+    [
+      "repository named tags",
+      "/repositories/2",
+      (client: GitHubClient) => client.getRepository("octocat", "tags"),
+      { ...DETAIL, name: "tags", full_name: "octocat/tags", html_url: "https://github.com/octocat/tags" },
+    ],
     [
       "activity",
       "/repositories/2/activity?direction=desc&per_page=20",

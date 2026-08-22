@@ -319,6 +319,7 @@ describe("representation negotiation", () => {
     `${JSON_API_MEDIA_TYPE};q=0`,
     `${JSON_API_MEDIA_TYPE};q="0.5"`,
     `${JSON_API_MEDIA_TYPE};q=0, */*;q=1`,
+    `${JSON_API_MEDIA_TYPE};q=1;foo=bar`,
     `${JSON_API_MEDIA_TYPE};q=1;charset=utf-8`,
     `${JSON_API_MEDIA_TYPE};profile = "https://example.test/profile"`,
     `${JSON_API_MEDIA_TYPE};q =1`,

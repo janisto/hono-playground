@@ -612,6 +612,36 @@ describe("GitHub controlled failures and OpenAPI agreement", () => {
     expect(errorSpy.mock.calls.flat()).toContainEqual(expect.objectContaining({ code: "github_transport_failure" }));
   });
 
+  it("propagates caller cancellation through Hono without fabricating a 500 or operator event", async () => {
+    const caller = new AbortController();
+    const reason = new DOMException("caller disconnected", "AbortError");
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const fetch = injectedFetch(
+      async (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          markStarted?.();
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+        }),
+    );
+    const app = createApp({ githubClientOptions: { fetch } });
+    const pending = app.request(
+      new Request(`${ORIGIN}/v1/github/owners/octocat`, { signal: caller.signal }),
+      undefined,
+      TEST_BINDINGS,
+    );
+    await started;
+
+    caller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
   it("generates the exact GitHub operations, statuses, headers, and closed public schemas", async () => {
     const app = createApp();
     const response = await app.request(new Request(`${ORIGIN}/openapi.json`), undefined, TEST_BINDINGS);
