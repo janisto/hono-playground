@@ -21,7 +21,6 @@ minimumReleaseAgeExclude:
   - '@effect/platform-node@4.0.0-beta.107'
   - '@effect/platform-node-shared@4.0.0-beta.107'
   - '@cloudflare/vitest-pool-workers@0.22.0'
-  - '@cloudflare/workers-types@5.20260819.1'
   - alchemy@2.0.0-beta.65
   - drizzle-kit@1.0.0-rc.4
   - drizzle-orm@1.0.0-rc.4
@@ -29,5 +28,4 @@ minimumReleaseAgeExclude:
   - hono@4.13.3
   - ioredis@5.11.1
   - jose@6.2.9
-  - miniflare@5.20260815.0-alpha
   - '@hono/swagger-ui@0.6.1'

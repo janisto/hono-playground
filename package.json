@@ -34,7 +34,7 @@
   },
   "dependencies": {
     "@hono/swagger-ui": "0.6.1",
-    "@hono/zod-openapi": "1.6.0",
+    "@hono/zod-openapi": "1.6.1",
     "drizzle-orm": "1.0.0-rc.4",
     "hono": "4.13.3",
     "jose": "6.2.9",
@@ -43,7 +43,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.9",
     "@cloudflare/vitest-pool-workers": "0.22.0",
-    "@cloudflare/workers-types": "5.20260819.1",
+    "@cloudflare/workers-types": "5.20260821.1",
     "@effect/platform-node": "4.0.0-beta.107",
     "@effect/platform-node-shared": "4.0.0-beta.107",
     "@playwright/test": "1.62.1",
@@ -54,9 +54,9 @@
     "effect": "4.0.0-beta.107",
     "fast-check": "4.9.0",
     "ioredis": "5.11.1",
-    "miniflare": "5.20260815.0-alpha",
+    "miniflare": "5.20260820.0-alpha",
     "typescript": "7.0.2",
-    "vite": "8.2.1",
+    "vite": "8.2.2",
     "vitest": "4.1.11"
   }
 }
