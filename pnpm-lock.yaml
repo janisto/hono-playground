@@ -10,16 +10,16 @@ importers:
     dependencies:
       '@hono/swagger-ui':
         specifier: 0.6.1
-        version: 0.6.1(hono@4.13.3)
+        version: 0.6.1(hono@4.13.5)
       '@hono/zod-openapi':
         specifier: 1.6.1
-        version: 1.6.1(hono@4.13.3)(zod@4.4.3)
+        version: 1.6.1(hono@4.13.5)(zod@4.4.3)
       drizzle-orm:
         specifier: 1.0.0-rc.4
         version: 1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@effect/sql-d1@4.0.0-beta.102(effect@4.0.0-beta.107))(@libsql/client@0.17.4)(effect@4.0.0-beta.107)(mysql2@3.23.3(@types/node@24.13.3))(pg@8.23.0)(zod@4.4.3)
       hono:
-        specifier: 4.13.3
-        version: 4.13.3
+        specifier: 4.13.5
+        version: 4.13.5
       jose:
         specifier: 6.2.9
         version: 6.2.9
@@ -410,9 +410,6 @@ packages:
     engines: {node: '>=16'}
     cpu: [x64]
     os: [win32]
-
-  '@cloudflare/workers-types@5.20260819.1':
-    resolution: {integrity: sha512-nUoWrl+16WfocHgXAARAvpQ7dLMF4tSmTvvgLLg5clYhP2j8CYerZ2KC8agnlWHqOAKp45B3F+LcsjNZrZyiRA==}
 
   '@cloudflare/workers-types@5.20260821.1':
     resolution: {integrity: sha512-jZiTISghTPeytJ7eDt5K1AV7df998xGECMgT8oy838VfFLJLROvdLzDaJb0/Jv4WfxO00keNoWt1d6olL7URRg==}
@@ -2096,8 +2093,8 @@ packages:
     resolution: {integrity: sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ==}
     engines: {node: '>=8'}
 
-  hono@4.13.3:
-    resolution: {integrity: sha512-r8AO2mYHoLxSHkgafNeC/BXyb2vWRxD3jem4Ts+ptav8oTG5FIRifAjuJEmZI4bSvvc2ns0GxmIYiZnHqN3mMw==}
+  hono@4.13.5:
+    resolution: {integrity: sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==}
     engines: {node: '>=16.9.0'}
 
   html-escaper@2.0.2:
@@ -3320,8 +3317,6 @@ snapshots:
   '@cloudflare/workerd-windows-64@1.20260820.1':
     optional: true
 
-  '@cloudflare/workers-types@5.20260819.1': {}
-
   '@cloudflare/workers-types@5.20260821.1': {}
 
   '@cspotcode/source-map-support@0.8.1':
@@ -3423,7 +3418,7 @@ snapshots:
 
   '@effect/sql-d1@4.0.0-beta.102(effect@4.0.0-beta.107)':
     dependencies:
-      '@cloudflare/workers-types': 5.20260819.1
+      '@cloudflare/workers-types': 5.20260821.1
       effect: 4.0.0-beta.107
 
   '@effect/vitest@4.0.0-beta.102(effect@4.0.0-beta.107)(vitest@4.1.11)':
@@ -3603,21 +3598,21 @@ snapshots:
   '@esbuild/win32-x64@0.28.1':
     optional: true
 
-  '@hono/swagger-ui@0.6.1(hono@4.13.3)':
+  '@hono/swagger-ui@0.6.1(hono@4.13.5)':
     dependencies:
-      hono: 4.13.3
+      hono: 4.13.5
 
-  '@hono/zod-openapi@1.6.1(hono@4.13.3)(zod@4.4.3)':
+  '@hono/zod-openapi@1.6.1(hono@4.13.5)(zod@4.4.3)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 9.1.0(zod@4.4.3)
-      '@hono/zod-validator': 0.9.0(hono@4.13.3)(zod@4.4.3)
-      hono: 4.13.3
+      '@hono/zod-validator': 0.9.0(hono@4.13.5)(zod@4.4.3)
+      hono: 4.13.5
       openapi3-ts: 4.6.0
       zod: 4.4.3
 
-  '@hono/zod-validator@0.9.0(hono@4.13.3)(zod@4.4.3)':
+  '@hono/zod-validator@0.9.0(hono@4.13.5)(zod@4.4.3)':
     dependencies:
-      hono: 4.13.3
+      hono: 4.13.5
       zod: 4.4.3
 
   '@img/colour@1.1.0': {}
@@ -4581,7 +4576,7 @@ snapshots:
 
   has-flag@4.0.0: {}
 
-  hono@4.13.3: {}
+  hono@4.13.5: {}
 
   html-escaper@2.0.2: {}
 
