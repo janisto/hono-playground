@@ -34,29 +34,29 @@
   },
   "dependencies": {
     "@hono/swagger-ui": "0.6.1",
-    "@hono/zod-openapi": "1.6.1",
+    "@hono/zod-openapi": "1.6.3",
     "drizzle-orm": "1.0.0-rc.4",
-    "hono": "4.13.3",
-    "jose": "6.2.9",
-    "zod": "4.4.3"
+    "hono": "4.13.11",
+    "jose": "6.2.12",
+    "zod": "4.6.5"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.9",
+    "@biomejs/biome": "2.5.14",
     "@cloudflare/vitest-pool-workers": "0.22.0",
-    "@cloudflare/workers-types": "5.20260821.1",
+    "@cloudflare/workers-types": "5.20260930.1",
     "@effect/platform-node": "4.0.0-beta.107",
     "@effect/platform-node-shared": "4.0.0-beta.107",
-    "@playwright/test": "1.62.1",
-    "@types/node": "24.13.3",
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.19.0",
     "@vitest/coverage-istanbul": "4.1.11",
     "alchemy": "2.0.0-beta.65",
     "drizzle-kit": "1.0.0-rc.4",
     "effect": "4.0.0-beta.107",
-    "fast-check": "4.9.0",
+    "fast-check": "4.10.2",
     "ioredis": "5.11.1",
     "miniflare": "5.20260820.0-alpha",
     "typescript": "7.0.2",
-    "vite": "8.2.2",
+    "vite": "8.3.1",
     "vitest": "4.1.11"
   }
 }
