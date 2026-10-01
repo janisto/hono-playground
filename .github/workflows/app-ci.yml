@@ -39,7 +39,7 @@ jobs:
           fi
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v6.0.10
+        uses: pnpm/action-setup@v6.1.0
         with:
           run_install: false
 
@@ -64,7 +64,7 @@ jobs:
 
       - name: Report coverage summary
         if: ${{ !cancelled() && steps.test-coverage.outcome != 'skipped' }}
-        uses: davelosert/vitest-coverage-report-action@v2.12.2
+        uses: davelosert/vitest-coverage-report-action@v2.13.0
         with:
           comment-on: none
           file-coverage-mode: none
