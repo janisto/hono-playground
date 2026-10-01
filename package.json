@@ -48,15 +48,15 @@
     "@effect/platform-node-shared": "4.0.0-beta.107",
     "@playwright/test": "1.62.1",
     "@types/node": "24.13.3",
-    "@vitest/coverage-istanbul": "4.1.11",
+    "@vitest/coverage-istanbul": "5.0.2",
     "alchemy": "2.0.0-beta.65",
     "drizzle-kit": "1.0.0-rc.4",
     "effect": "4.0.0-beta.107",
     "fast-check": "4.9.0",
-    "ioredis": "5.11.1",
+    "ioredis": "6.0.0",
     "miniflare": "5.20260820.0-alpha",
     "typescript": "7.0.2",
     "vite": "8.2.2",
-    "vitest": "4.1.11"
+    "vitest": "5.0.2"
   }
 }
