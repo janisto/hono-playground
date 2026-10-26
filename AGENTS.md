@@ -18,8 +18,9 @@ human users and contributors. Do not duplicate agent instructions into it.
   explicit approval before removing, merging, or relocating guidance, including
   obsolete rules, completed-task narration, and duplicates.
 - Do not add progress narration, generated banners, emojis, or speculative TODOs.
-- Keep public code, instructions, commits, and PR text self-contained; do not
-  disclose private coordination repositories, paths, revisions, or discussions.
+- Keep public code, instructions, comments, documentation, commits, and PR text
+  self-contained. Do not disclose private coordination repositories, paths,
+  revisions, or discussions.
 
 ## Epistemic honesty and scope discipline
 
@@ -48,29 +49,43 @@ human users and contributors. Do not duplicate agent instructions into it.
 ## Commits and pull requests
 
 - Use [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
-  `type: imperative description`. Add a scope only when
-  it materially improves clarity. Types: `feat`, `fix`, `docs`, `test`, `refactor`,
-  `perf`, `build`, `ci`, `chore`, and `revert`.
+  `type: imperative description`. Add a scope only when it materially improves
+  clarity. Types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`,
+  `ci`, `chore`, and `revert`.
 - Use the same format for PR titles, suitable for the final merge commit. Keep PRs
   focused; describe the problem, resulting behavior, validation, and remaining
   risks.
-- Mark breaking changes with `!` and a `BREAKING CHANGE:` footer.
-- Work on task branches. Before committing, run `just qa` and `git diff --check`.
+- Mark breaking changes with `!` and a `BREAKING CHANGE:` footer explaining the
+  impact.
+- Work on task branches; never commit directly to the default branch.
+- Before committing, always run `just qa` and `git diff --check`.
+- Use one atomic PR when layers would require manual settings changes between
+  merges. A stack must be mergeable as a whole.
 
-## Mandatory skills
+## Skills and validation
+
+### Required guidance
 
 - Use `.agents/skills/edit-agent-instructions/SKILL.md` when reviewing or editing
   root or nested agent instructions.
-- Use `.agents/skills/adversarial-testing/SKILL.md` for every task that
-  plans, creates, modifies, reviews, debugs, or evaluates Vitest,
-  workerd/D1, Playwright, contract, property, or CI test behavior. Apply it
-  alongside any relevant Hono, Cloudflare, or persistence testing guidance.
-- Use `.agents/skills/readme-maintenance/SKILL.md` for every README audit or
-  change. Also use it to assess README impact whenever JSON:API or OpenAPI
-  behavior, Cloudflare or Alchemy configuration, D1 or Drizzle persistence,
-  setup, commands, architecture, deployment, CI, or supported versions
-  change. Edit the README only when the audit finds a stale or missing
-  reader-facing claim.
+- Use `.agents/skills/adversarial-testing/SKILL.md` whenever planning, creating,
+  modifying, reviewing, debugging, or evaluating tests. Apply relevant language,
+  framework, and infrastructure testing guidance alongside it.
+- Use `.agents/skills/readme-maintenance/SKILL.md` for README audits and edits.
+  Assess README impact when API behavior/contracts, persistence, configuration,
+  setup, commands, architecture, tooling, deployment, CI, or supported versions
+  change. Edit the README only for stale or missing reader-facing claims.
+
+### Validation
+
+- Run the narrowest relevant tests first, then `just qa`. Run
+  `pnpm test:e2e` when Worker bundling, OpenAPI, Swagger UI, CSP, or browser
+  behavior changes, and run `pnpm run audit` after dependency changes.
+- Prefer adversarial assertions over snapshots of generated files: exercise
+  malformed and duplicate protocol inputs, dependency failures, raw response
+  bodies and headers, committed migrations in workerd, and observable side
+  effects. Unit and integration tests must fail unexpected outbound network
+  access.
 
 ## GitHub automation
 
@@ -178,7 +193,7 @@ fixed deployment input unless the user explicitly changes it; do not substitute
 Before infrastructure, Alchemy/workerd or Vitest/Miniflare dependency, or Worker
 compatibility-date changes, read [infra/AGENTS.md](infra/AGENTS.md). The date must be
 supported by every pinned execution path. Provider mutations still require the
-explicit authority and target checks under validation and external operations.
+explicit authority and target checks under [External operations](#external-operations).
 
 ## Repository shape
 
@@ -319,11 +334,8 @@ it must not generate them.
 - A `204` response has no body or content type. All other success and error
   media types must match their documented representation exactly.
 
-## Validation and external operations
+## External operations
 
-- Run the narrowest relevant tests first, then `pnpm qa`. Run
-  `pnpm test:e2e` when Worker bundling, OpenAPI, Swagger UI, CSP, or browser
-  behavior changes, and run `pnpm run audit` after dependency changes.
 - Use `just dev` for the Alchemy development loop. It explicitly selects
   `.env.dev`, profile `dev`, and personal stage `dev_$USER`, and serves on
   `http://127.0.0.1:8787`. Use `just plan staging|prod`,
@@ -335,11 +347,6 @@ it must not generate them.
   Cloudflare access; in a sandboxed agent session, acquire those permissions
   before running it instead of treating a sandbox-denied watcher as an
   application failure.
-- Prefer adversarial assertions over snapshots of generated files: exercise
-  malformed and duplicate protocol inputs, dependency failures, raw response
-  bodies and headers, committed migrations in workerd, and observable side
-  effects. Unit and integration tests must fail unexpected outbound network
-  access.
 - A green local suite is not deployment proof. Do not claim Cloudflare
   readiness until the exact revision has been planned, deployed, smoke tested,
   and read back from the live control plane.

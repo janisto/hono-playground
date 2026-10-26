@@ -1,6 +1,8 @@
 # Worker compatibility-date maintenance
 
-The root `AGENTS.md` also applies. Paths below are relative to the repository root.
+Scope: `infra/`. The root `AGENTS.md` also applies.
+Repository paths are root-relative. Run commands from the repository root unless
+another working directory is explicitly stated.
 
 - `infra/config.ts` is the compatibility-date source of truth. Set it to the
   newest date supported by every pinned execution path, not automatically to

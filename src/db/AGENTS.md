@@ -1,6 +1,8 @@
 # D1 schema and Drizzle migrations
 
-The root `AGENTS.md` also applies. Paths below are relative to the repository root.
+Scope: `src/db/`. The root `AGENTS.md` also applies.
+Repository paths are root-relative. Run commands from the repository root unless
+another working directory is explicitly stated.
 
 - SQL identifiers use lower `snake_case`: plural table names, singular column
   names, `id` primary keys, `<resource>_id` foreign keys, and timestamp columns
