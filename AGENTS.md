@@ -1,62 +1,112 @@
 # AGENTS.md
 
-Instructions for coding agents working in this repository.
-
-`README.md` is for human users and contributors: setup, capabilities,
-architecture, operations, and contribution entry points. `AGENTS.md` is for
-coding agents: execution rules, implementation constraints, and validation
-policy. Do not duplicate agent instructions into the README or turn this file
-into human onboarding documentation.
+Instructions for coding agents. Keep execution rules here; `README.md` serves
+human users and contributors. Do not duplicate agent instructions into it.
 
 ## Engineering priorities
 
-- Correctness first, then readability and maintainability, then performance.
-- Inspect the relevant implementation, callers, and existing tests before
-  changing behavior.
-- Prefer the smallest safe change that solves the problem.
-- Reuse existing local patterns and utilities, refactoring them when needed,
-  instead of creating parallel abstractions or adding dependencies.
+- Prioritize correctness, readability, maintainability, then performance.
+- Inspect the implementation, callers, and tests before changing behavior.
+- Prefer the smallest safe change; reuse or refactor local patterns and utilities
+  before adding abstractions or dependencies.
+- Validate review findings against requirements and reproducible behavior.
+  Simplify unnecessary behavior instead of adding machinery to defend it.
 - State the failure mode before architectural, security, persistence, or
   production-impacting changes.
-- Do not declare completion until implementation, validation, and remaining
-  risks are reported.
-- Keep source comments and documentation concise. Do not add progress
-  narration, generated banners, emojis, or speculative TODOs.
+- Report implementation, validation, and remaining risks before completion.
+- Keep instructions, comments, and documentation concise. Explain and obtain
+  explicit approval before removing, merging, or relocating guidance, including
+  obsolete rules, completed-task narration, and duplicates.
+- Do not add progress narration, generated banners, emojis, or speculative TODOs.
+- Keep public code, instructions, comments, documentation, commits, and PR text
+  self-contained. Do not disclose private coordination repositories, paths,
+  revisions, or discussions.
 
-## Pull requests
+## Epistemic honesty and scope discipline
 
-- Format titles as `type[optional scope]: description`. Prefer no scope;
-  include one only when it materially improves clarity.
-- Use `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`,
-  or `revert` as the type. Example: `feat: add response size field`.
-- Keep each pull request focused. In the body, explain why the change is
-  needed, what changed, how it was validated, and any remaining risk.
-- Keep the title suitable for the final squash or merge commit.
+- Report defects, corrupted data, unmet requirements, and unfinished work plainly.
+  Never conceal them in justifications or relabel them as simplifications,
+  provisional scope, or expected limitations. If a problem is deeper than
+  expected, stop at a safe boundary and report the exact failure, affected
+  behavior or records, and remaining work.
+- Counts, checksums, and passing tests show consistency, not semantic correctness.
+  Before claiming JSON:API validation, D1 queries, or Drizzle migrations work,
+  inspect accepted payloads and rows treated as valid using synthetic fixtures
+  or authorized data. Hunt for false positives; report the worst counterexamples,
+  or describe the sample when none were found.
+- Fix the bug class behind cited failures: correct the grammar, validation, query,
+  or logic and audit all affected paths or records within the authorized scope.
+  Do not hardcode cited values into exceptions or blocklists, or patch only named
+  IDs.
+- Do not weaken specifications, `AGENTS.md`, or active plans to excuse defects or
+  shortcuts. Follow current task scope and stop gates. For review-only or
+  report-only work, edit only an explicitly requested report.
+- After the final code, schema, or generator change, replay reviewed migrations
+  against affected local D1 test databases, rebuild affected OpenAPI and Worker
+  artifacts, and rerun relevant checks. Earlier results do not validate later
+  edits.
 
-## Commits
+## Commits and pull requests
 
-- Follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
-- Prefer no scope; include one only when it materially improves clarity. Write
-  a short, imperative description. Example: `fix: preserve request ID`.
-- Mark breaking changes with `!` and explain them in a `BREAKING CHANGE:`
-  footer.
-- Before committing, run `just qa` and `git diff --check`.
+- Use [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
+  `type: imperative description`. Add a scope only when it materially improves
+  clarity. Types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`,
+  `ci`, `chore`, and `revert`.
+- Use the same format for PR titles, suitable for the final merge commit. Keep PRs
+  focused; describe the problem, resulting behavior, validation, and remaining
+  risks.
+- Mark breaking changes with `!` and a `BREAKING CHANGE:` footer explaining the
+  impact.
+- Work on task branches; never commit directly to the default branch.
+- Before committing, always run `just qa` and `git diff --check`.
+- Use one atomic PR when layers would require manual settings changes between
+  merges. A stack must be mergeable as a whole.
 
-## Mandatory skills
+## Skills and validation
 
-- Use `.agents/skills/adversarial-testing/SKILL.md` for every task that
-  plans, creates, modifies, reviews, debugs, or evaluates Vitest,
-  workerd/D1, Playwright, contract, property, or CI test behavior. Apply it
-  alongside any relevant Hono, Cloudflare, or persistence testing guidance.
-- Use `.agents/skills/readme-maintenance/SKILL.md` for every README audit or
-  change. Also use it to assess README impact whenever JSON:API or OpenAPI
-  behavior, Cloudflare or Alchemy configuration, D1 or Drizzle persistence,
-  setup, commands, architecture, deployment, CI, or supported versions
-  change. Edit the README only when the audit finds a stale or missing
-  reader-facing claim.
+### Required guidance
+
+- Use `.agents/skills/edit-agent-instructions/SKILL.md` when reviewing or editing
+  root or nested agent instructions.
+- Use `.agents/skills/adversarial-testing/SKILL.md` whenever planning, creating,
+  modifying, reviewing, debugging, or evaluating tests. Apply relevant language,
+  framework, and infrastructure testing guidance alongside it.
+- Use `.agents/skills/readme-maintenance/SKILL.md` for README audits and edits.
+  Assess README impact when API behavior/contracts, persistence, configuration,
+  setup, commands, architecture, tooling, deployment, CI, or supported versions
+  change. Edit the README only for stale or missing reader-facing claims.
+
+### Validation
+
+- Run the narrowest relevant tests first, then `just qa`. Run
+  `pnpm test:e2e` when Worker bundling, OpenAPI, Swagger UI, CSP, or browser
+  behavior changes, and run `pnpm run audit` after dependency changes.
+- Prefer adversarial assertions over snapshots of generated files: exercise
+  malformed and duplicate protocol inputs, dependency failures, raw response
+  bodies and headers, committed migrations in workerd, and observable side
+  effects. Unit and integration tests must fail unexpected outbound network
+  access.
 
 ## GitHub automation
 
+- Preserve independent pure lint for early feedback. When modernizing workflows,
+  use stable `ci` and `lint` check names and fail CI for any mandatory
+  non-success result. Keep workflow scanners independent of language quality.
+- Before workflow changes, use Chrome to inspect GitHub Settings > Rules >
+  Rulesets, required check names, and GitHub App sources. Preserve existing
+  enforcement until replacements reach trunk. Verify final rulesets and actual
+  PR checks in Chrome; CLI/API evidence supplements this. Report blocked access
+  and never weaken protection to make a PR pass.
+- Use matching local/CI actionlint and offline pedantic zizmor, with one enforcing
+  read-only plain-mode scan and no SARIF or security-event write permissions.
+- Keep Dependabot security alerts and automated security updates disabled, while
+  retaining scheduled updates and native audits. Do not add replacement alert
+  bots or repeat unchanged upstream triage. Keep auto-merge limited to verified
+  Dependabot minor/patch updates behind required checks, without duplicate
+  package filters, state queries, enablement triggers, or revocation machinery.
+- Upgrade Biome deliberately, including patches, with migration, configuration,
+  diagnostics, pins, and native validation. Use all-version Dependabot ignore
+  entries when configuring dependency automation so these changes remain manual.
 - Reference GitHub Actions by explicit full release tags such as
   `owner/action@v1.2.3`, not full commit SHAs or floating major-version tags.
   Dependabot updates those release tags.
@@ -95,9 +145,6 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   repositories, or domain code in Effect without a concrete need.
 - Check current first-party web documentation before changing this
   fast-moving stack.
-- Do not use Context7 for documentation in this repository. Its indexed
-  content may lag the RC and beta libraries used here. Model memory is also not
-  sufficient evidence for current versions or APIs.
 - Keep `alchemy`, `effect`, `drizzle-orm`, and `drizzle-kit` at their exact
   compatible prerelease versions. Upgrade them only after the live registry
   shows a newer accepted-channel release and current docs, peer ranges,
@@ -108,7 +155,8 @@ fixed deployment input unless the user explicitly changes it; do not substitute
 
 - Never use Context7 for this repository. Its indexed documentation can lag
   the release candidates and betas used here. Use current first-party web
-  documentation, registries, release notes, and upstream source.
+  documentation, registries, release notes, and upstream source. Model memory
+  alone is not evidence for current versions or APIs.
 - Start from the exact versions in `package.json`, the package-manager version,
   and the exact GitHub Action tags. Query the live registry using the channel
   this repository accepts: stable `latest`, Drizzle `rc`, and the pinned
@@ -140,39 +188,12 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   model memory, an older tutorial, an old package major's docs, or a guessed
   replacement API.
 
-## Worker compatibility-date maintenance
+## Infrastructure and compatibility dates
 
-- `infra/config.ts` is the compatibility-date source of truth. Set it to the
-  newest date supported by every pinned execution path, not automatically to
-  today's date or the newest date accepted by Cloudflare's hosted edge. With
-  the current lock, Alchemy `2.0.0-beta.65` resolves
-  `@distilled.cloud/cloudflare-runtime@0.13.10` and its
-  `workerd@1.20260704.1`; that local binary accepts compatibility dates only
-  through `2026-07-11`, so the project date is `2026-07-11`.
-- Before changing dependencies or the date, query the accepted live registry
-  channels and current first-party release notes, then run
-  `pnpm why --recursive workerd`. Inspect the exact Alchemy-to-runtime-to-
-  workerd path and the separate Vitest/Miniflare path. A top-level `workerd`
-  release, Workers Types date, or hosted-edge capability does not prove what
-  `alchemy dev` can execute.
-- Review Cloudflare's compatibility-flags history for every date between the
-  current and proposed values. Identify affected APIs and add focused runtime
-  tests before opting into changed behavior. Do not advance the date through
-  dependency automation or as an unrelated cleanup.
-- Upgrade the locked dependency set first, without overrides, package patches,
-  or a custom provider for Alchemy's nested runtime. Select the newest date
-  accepted by the oldest actual runtime in the resulting lock. If that
-  intersection cannot be proved, retain the last verified date and report the
-  upstream blocker.
-- Validate the candidate with the secretless test gates and, only with explicit
-  Cloudflare authority, a personal canary using the repository's canonical
-  `just dev` command. Confirm its resolved selectors are `.env.dev`, profile
-  `dev`, and an exact personal `dev_<name>` stage before launching. A successful
-  provider summary is insufficient: wait for the local port, probe at least
-  `/health` and `/openapi.json`, stop the watcher, and remove the personal stage
-  if it was created only for verification. Do not publish the canary's date,
-  revision, or live-state snapshot in the README, this file, or the deployment
-  runbook.
+Before infrastructure, Alchemy/workerd or Vitest/Miniflare dependency, or Worker
+compatibility-date changes, read [infra/AGENTS.md](infra/AGENTS.md). The date must be
+supported by every pinned execution path. Provider mutations still require the
+explicit authority and target checks under [External operations](#external-operations).
 
 ## Repository shape
 
@@ -219,74 +240,14 @@ fixed deployment input unless the user explicitly changes it; do not substitute
 
 ## D1 schema and Drizzle migrations
 
-- SQL identifiers use lower `snake_case`: plural table names, singular column
-  names, `id` primary keys, `<resource>_id` foreign keys, and timestamp columns
-  such as `created_at`.
-- Define SQLite tables with Drizzle v1 `snakeCase.table`. TypeScript schema keys
-  stay camelCase and Drizzle performs the declared mapping. Do not hand-write
-  duplicate casing conversion code or explicit SQL column aliases unless an
-  external schema forces an exception and the exception is documented.
-- Use `integer({ mode: "boolean" })` for D1 booleans and enforce domain
-  invariants with focused database checks that Drizzle can model.
-- `src/db/schema.ts` is the sole application schema source of truth. Express
-  tables, columns, indexes, foreign keys, and checks through supported Drizzle
-  APIs. Do not encode schema changes by writing SQL or snapshot metadata.
-- Everything under `drizzle/` is Drizzle Kit-owned generated output. Never
-  hand-edit or format `migration.sql`, `snapshot.json`, migration directory
-  names, timestamps, snapshot IDs, `prevIds`, or any other generated metadata.
-  Review generated artifacts read-only.
-- Follow Drizzle's current
-  [code-first generate flow](https://orm.drizzle.team/docs/drizzle-kit-generate)
-  for every model change:
-  1. Change `src/db/schema.ts`.
-  2. Run `pnpm db:preview` and inspect the dry-run SQL.
-  3. If the plan is correct, run
-     `pnpm db:generate describe_schema_change`, replacing the example name with
-     a specific lower-snake-case description. The package command supplies
-     Drizzle's required `--name` option and fails when the name is omitted.
-  4. Review the generated folder without modifying it, run `pnpm db:check`,
-     and replay the committed migration chain in the D1 tests.
-- If the dry run or generated result is wrong, incomplete, destructive beyond
-  intent, or cannot represent a required SQLite feature, do not patch the
-  generated files. Correct the Drizzle model and regenerate, or stop for an
-  explicit dependency or architecture decision. This repository does not use
-  `drizzle-kit generate --custom` to bypass an unsupported model.
-- Drizzle v1 removed `drizzle-kit drop` and made each migration directory the
-  atomic migration unit. A rejected generated directory may be discarded whole
-  only after proving it has never been applied to a persistent stage; never
-  salvage it by editing or renaming its contents. Do not discard committed or
-  shared history autonomously: a pre-deployment baseline regeneration requires
-  explicit user authority and proof that no persistent stage has applied it.
-  Once a migration was or might have been applied, it is immutable. Correct the
-  model and generate a new forward migration.
-- Do not use `drizzle-kit push`; it applies schema differences directly and
-  bypasses this repository's reviewed migration chain. Do not use
-  `--ignore-conflicts`, `pull`, or `up` without an explicit task that justifies
-  that operation. A conflict or format upgrade is not an ordinary model change.
-- `pnpm db:check` verifies generated-history branch consistency and runs
-  Drizzle's non-mutating JSON dry run. It fails when the current model would
-  generate another migration. It does not prove SQL correctness, D1 behavior,
-  deployment success, or that a migration was never applied.
-- CI compares `drizzle/` with the pull-request base or previous `main` revision
-  and rejects modifications, deletions, or renames of existing generated
-  files. New forward migration directories remain allowed.
-- Drizzle Kit's legacy `strict` push-confirmation setting is unrelated to
-  SQLite `STRICT` tables. Do not add SQLite table options that the pinned
-  Drizzle schema and snapshot model cannot represent.
-- Application repositories use Drizzle queries. Raw SQL is limited to tests
-  that verify D1 behavior.
-- Operational data repair or erasure is not a migration. Do not encode it in a
-  Drizzle migration, add an administrative HTTP route, or paste a raw identity
-  into D1 Studio. Follow `docs/cloudflare-production.md`: use the D1 REST API
-  with SQL placeholders and bound `params`, assert the precondition and affected
-  row count, and record only the audit pseudonym rather than the raw subject.
-- `drizzle_migrations` is Alchemy's Wrangler-compatible ledger for the
-  Drizzle-generated SQL files. It is not Drizzle ORM's runtime migrator table.
-  Do not introduce a second migration executor or pass this ledger to one.
-- Deployment must not generate migrations. Drizzle Kit owns explicit
-  generation; Alchemy applies only the committed SQL under `drizzle/` through
-  the D1 resource dependency before uploading the Worker. A D1 migration and
-  Worker upload are ordered but not one distributed transaction.
+Before Drizzle, D1, schema, migration, or deployment changes, read
+[src/db/AGENTS.md](src/db/AGENTS.md), including work outside that directory.
+`src/db/schema.ts` owns the schema; Drizzle Kit owns generated migration files.
+Never hand-edit generated output or rewrite applied or possibly applied history.
+Discarding unapplied committed/shared history requires explicit user authority
+and proof that no persistent stage applied it. Do not use `drizzle-kit push` or
+add a second migration executor. Deployment applies reviewed committed migrations;
+it must not generate them.
 
 ## JSON:API 1.1 contract
 
@@ -373,11 +334,8 @@ fixed deployment input unless the user explicitly changes it; do not substitute
 - A `204` response has no body or content type. All other success and error
   media types must match their documented representation exactly.
 
-## Validation and external operations
+## External operations
 
-- Run the narrowest relevant tests first, then `pnpm qa`. Run
-  `pnpm test:e2e` when Worker bundling, OpenAPI, Swagger UI, CSP, or browser
-  behavior changes, and run `pnpm run audit` after dependency changes.
 - Use `just dev` for the Alchemy development loop. It explicitly selects
   `.env.dev`, profile `dev`, and personal stage `dev_$USER`, and serves on
   `http://127.0.0.1:8787`. Use `just plan staging|prod`,
@@ -389,11 +347,6 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   Cloudflare access; in a sandboxed agent session, acquire those permissions
   before running it instead of treating a sandbox-denied watcher as an
   application failure.
-- Prefer adversarial assertions over snapshots of generated files: exercise
-  malformed and duplicate protocol inputs, dependency failures, raw response
-  bodies and headers, committed migrations in workerd, and observable side
-  effects. Unit and integration tests must fail unexpected outbound network
-  access.
 - A green local suite is not deployment proof. Do not claim Cloudflare
   readiness until the exact revision has been planned, deployed, smoke tested,
   and read back from the live control plane.
