@@ -39,12 +39,12 @@ jobs:
           fi
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v6.0.10
+        uses: pnpm/action-setup@v6.1.0
         with:
           run_install: false
 
       - name: Use pinned Node.js
-        uses: actions/setup-node@v7.0.0
+        uses: actions/setup-node@v7.1.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -64,14 +64,14 @@ jobs:
 
       - name: Report coverage summary
         if: ${{ !cancelled() && steps.test-coverage.outcome != 'skipped' }}
-        uses: davelosert/vitest-coverage-report-action@v2.12.2
+        uses: davelosert/vitest-coverage-report-action@v2.13.1
         with:
           comment-on: none
           file-coverage-mode: none
 
       - name: Upload coverage report
         if: ${{ !cancelled() && steps.test-coverage.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: coverage
           path: coverage
