@@ -202,7 +202,6 @@ then copy the application's exact team domain and audience.
    ```
 
 2. Populate `.env.prod` with the required inputs listed above:
-
    - three positive, account-wide unique rate-limit namespace IDs that are not
      reused by development or staging;
    - `WORKER_DOMAIN=hono-playground.dev`;
@@ -272,20 +271,36 @@ generates migrations. Alchemy applies pending committed SQL before uploading
 the dependent Worker.
 
 Never edit a migration. Never remove one after it may have reached any
-persistent stage. Alchemy's D1 ledger identifies applied migrations by file
-name, not by a stored content hash. CI rejects modifications, deletions, and
-renames of generated files already present in the target branch; add a forward
-migration instead.
+persistent stage. The current provider records migration identities and
+content hashes. CI rejects modifications, deletions, and renames of generated
+files already present in the target branch; add a forward migration instead.
 
-The configured `drizzle_migrations` table is Alchemy's Wrangler-compatible
-ledger for Drizzle-generated files. It is not Drizzle ORM's runtime migrator
-table, and this repository does not use a second migration executor.
+The explicit `drizzle_migrations` table name preserves the existing ledger.
+Alchemy upgrades its legacy column format in place and reconciles the applied
+history with the local migration records. It is not Drizzle ORM's runtime
+migrator table, and this repository does not use a second migration executor.
 
 D1 migration plus ledger insertion are sent together, but the database
 migration and later Worker upload are not atomic. Use an additive/expand-first
 change when a deployed schema must coexist with old and new Worker versions.
 This repository does not preserve compatibility for unpublished API shapes;
 that does not permit unsafe changes to deployed data.
+
+## Toolchain and state upgrades
+
+Alchemy's current Cloudflare state store requires version 8. Its upgrade and
+the D1 bookkeeping conversion are one-way operations. Before the first plan
+or deployment with the upgraded toolchain, preserve the provider-state recovery
+material and a D1 backup, verify the exact profile/account/stage, and coordinate
+the pinned CLI version on every operator machine. A plan can bootstrap remote state; local tests do not validate the
+state-store or ledger conversion.
+
+Preserve the configured migration table and all committed SQL. Review the
+provider's proposed conversion, verify existing applied records against local
+files, and stop on conflicts instead of regenerating or replaying history.
+After the upgrade, do not run an older Alchemy client against the state store;
+an older client can lose its encryption key. Do not treat a code rollback as
+a state-store or migration-ledger downgrade.
 
 ## Staging apply
 
@@ -487,10 +502,10 @@ Repeat the staging process with `just plan prod` and `just deploy prod` from
 the exact approved revision. Freeze concurrent changes, explicitly accept the
 D1/Worker partial-failure boundary, and inspect a second plan after deployment.
 
-Pinned Alchemy `2.0.0-beta.65` ties version-preview URLs to its `url` property
-and ignores a separate `subdomain.previewsEnabled` input. This repository sets
-`url: false`, which disables both direct surfaces in the pinned provider.
-Verify both settings live and reassess this behavior on every Alchemy upgrade.
+The pinned provider exposes independent stable and version-preview URL
+settings through `workersDev`. This repository sets `workersDev: false`,
+which disables both direct surfaces. Verify both settings live and reassess
+this behavior on every Alchemy upgrade.
 
 Complete the deployment verification checklist after the apply.
 

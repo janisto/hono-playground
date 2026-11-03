@@ -9,12 +9,12 @@ Hosted documentation:
 
 ## Stack
 
-- Hono `4.13.3` routes requests and generates OpenAPI 3.1.
-- Alchemy `2.0.0-beta.65` owns Worker development, infrastructure, bindings,
+- Hono `4.13.16` routes requests and generates OpenAPI 3.1.
+- Alchemy `2.0.0-beta.85` owns Worker development, infrastructure, bindings,
   secrets, state, and deployment.
-- Drizzle ORM and Drizzle Kit `1.0.0-rc.4` own database access and migration
+- Drizzle ORM and Drizzle Kit `1.0.0-rc.5` own database access and migration
   generation.
-- Effect `4.0.0-beta.107` is limited to the Alchemy program.
+- Effect `4.1.2` is limited to the Alchemy program.
 - Cloudflare D1 persists profiles; Cloudflare Access authenticates profile
   owners.
 
@@ -36,24 +36,24 @@ for the required privacy validation.
 
 ## API
 
-| Method | Path | Response |
-| --- | --- | --- |
-| `GET` | `/health` | operational JSON |
-| `GET` | `/v1/hello` | default greeting JSON |
-| `POST` | `/v1/hello` | greeting JSON for a validated name |
-| `GET` | `/v1/items` | cursor-paginated JSON:API collection |
-| `POST` | `/v1/profile` | create the Access identity's profile |
-| `GET` | `/v1/profile` | read the current profile |
-| `PATCH` | `/v1/profile` | update the current profile |
-| `DELETE` | `/v1/profile` | empty `204` |
-| `GET` | `/v1/github/owners/{owner}` | GitHub owner projection |
-| `GET` | `/v1/github/owners/{owner}/repos` | cursor-paginated repository projections |
-| `GET` | `/v1/github/repos/{owner}/{repo}` | GitHub repository projection |
-| `GET` | `/v1/github/repos/{owner}/{repo}/activity` | cursor-paginated activity projections |
-| `GET` | `/v1/github/repos/{owner}/{repo}/languages` | sorted GitHub language-byte projections |
-| `GET` | `/v1/github/repos/{owner}/{repo}/tags` | cursor-paginated tag projections |
-| `GET` | `/openapi.json` | OpenAPI `3.1.0` |
-| `GET` | `/api-docs` | Swagger UI |
+| Method   | Path                                        | Response                                |
+| -------- | ------------------------------------------- | --------------------------------------- |
+| `GET`    | `/health`                                   | operational JSON                        |
+| `GET`    | `/v1/hello`                                 | default greeting JSON                   |
+| `POST`   | `/v1/hello`                                 | greeting JSON for a validated name      |
+| `GET`    | `/v1/items`                                 | cursor-paginated JSON:API collection    |
+| `POST`   | `/v1/profile`                               | create the Access identity's profile    |
+| `GET`    | `/v1/profile`                               | read the current profile                |
+| `PATCH`  | `/v1/profile`                               | update the current profile              |
+| `DELETE` | `/v1/profile`                               | empty `204`                             |
+| `GET`    | `/v1/github/owners/{owner}`                 | GitHub owner projection                 |
+| `GET`    | `/v1/github/owners/{owner}/repos`           | cursor-paginated repository projections |
+| `GET`    | `/v1/github/repos/{owner}/{repo}`           | GitHub repository projection            |
+| `GET`    | `/v1/github/repos/{owner}/{repo}/activity`  | cursor-paginated activity projections   |
+| `GET`    | `/v1/github/repos/{owner}/{repo}/languages` | sorted GitHub language-byte projections |
+| `GET`    | `/v1/github/repos/{owner}/{repo}/tags`      | cursor-paginated tag projections        |
+| `GET`    | `/openapi.json`                             | OpenAPI `3.1.0`                         |
+| `GET`    | `/api-docs`                                 | Swagger UI                              |
 
 The Worker Custom Domain routes every path on its hostname to this application.
 Cloudflare Access is deliberately scoped to `/v1/profile` and its descendants,
@@ -83,16 +83,19 @@ Application and JSON:API fields use `camelCase`, such as `createdAt` and
 See [AGENTS.md](AGENTS.md) for the complete repository contract.
 
 Swagger UI is provided by the official Hono middleware and loads the exact
-`swagger-ui-dist@5.32.11` assets from jsDelivr. That avoids a generated asset
+`swagger-ui-dist@5.34.1` assets from jsDelivr. That avoids a generated asset
 pipeline, but makes the documentation UI depend on that CDN. The OpenAPI JSON
 endpoint itself has no CDN dependency, and “Try it out” plus the online
 validator are disabled.
 
 ## Setup
 
-Use the pinned Node 24 and pnpm 11 toolchain:
+Use Node.js 26.13.0 (the latest LTS line) and pnpm 12.16.1, pinned in
+`.node-version` and `package.json`. Node.js 26 does not bundle Corepack:
 
 ```sh
+fnm use --install-if-missing
+npm install --global corepack@0.36.0
 corepack enable
 pnpm install --frozen-lockfile
 cp .env.example .env.dev
@@ -107,7 +110,10 @@ cp .env.example .env.prod
 ```
 
 Install [just](https://just.systems/man/en/packages.html) for thin repository
-command aliases such as `just dev`.
+command aliases such as `just dev`. Local workflow checks also require
+[actionlint 1.7.12](https://github.com/rhysd/actionlint) and
+[uv](https://docs.astral.sh/uv/getting-started/installation/); the quality gate
+runs exactly zizmor 1.32.0 through `uvx`.
 
 Populate each stage environment file with its own three Cloudflare rate-limit
 namespace IDs, exact Access team domain and audience, and two distinct HMAC
@@ -160,8 +166,8 @@ the Worker runs locally in workerd with hot reloading, but D1 and several other
 bindings are real, stage-isolated Cloudflare resources. Development therefore
 requires Cloudflare authentication, can create remote state, and does not
 delete that state when the watcher stops. The source pins compatibility date
-`2026-07-11`, the newest date accepted by the local workerd nested under
-Alchemy `2.0.0-beta.65`; the hosted edge supports newer dates, but selecting
+`2026-11-02`, the newest date accepted by the local workerd nested under
+Alchemy `2.0.0-beta.85`; the hosted edge supports newer dates, but selecting
 one would break this development command. Use the Vitest and Playwright suites
 for secretless local validation. Infrastructure accepts only `prod`,
 `staging`, and Alchemy's personal `dev_<name>` stages; a typo or pull-request
@@ -192,9 +198,12 @@ the model and generate a forward migration. Deployment does not generate
 migrations. Alchemy's D1 resource applies only the committed SQL under
 `drizzle/` before the Worker that depends on that database is uploaded.
 
-`drizzle_migrations` is Alchemy's Wrangler-compatible tracking table for these
-Drizzle-generated files; this application does not use Drizzle ORM's runtime
-migration executor.
+The configured `drizzle_migrations` table preserves the existing migration
+history. The current Alchemy provider upgrades its bookkeeping format in place
+and validates applied files; do not replay already applied SQL or edit those
+files. This application does not use Drizzle ORM's runtime migration executor.
+See the [state upgrade procedure](docs/cloudflare-production.md#toolchain-and-state-upgrades)
+before planning against an existing stage.
 
 That ordering is not a distributed transaction. A successful D1 migration
 remains applied if a later Worker upload fails, so code and migrations must be
@@ -212,12 +221,15 @@ pnpm qa
 pnpm run audit
 ```
 
-`pnpm qa` runs non-mutating formatting and lint checks, strict TypeScript
-checks, Drizzle migration consistency and freshness checks, and coverage. The
-configured workflows run Biome independently, preserve append-only migration
-history plus type, migration, coverage, dependency audit, and
-real-browser documentation gates, publish the coverage artifact, and audit
-GitHub Actions with zizmor.
+`pnpm qa` runs workflow syntax and offline pedantic security scans,
+non-mutating formatting and lint checks, strict TypeScript checks, Drizzle
+migration consistency and freshness checks, coverage, and the dependency audit.
+The required `lint` check runs Biome independently with minimal setup. Required
+`ci` rejects unsuccessful workflow scanners or application checks, including
+migration history, types, audit, coverage, and the real-browser smoke tests.
+Validation artifacts are retained without SARIF uploads or write permissions.
+Validation runs on pushes to main and every pull request, including stack layers;
+there are no scheduled validation runs.
 
 The D1 tests run the committed migrations in workerd and exercise the Drizzle
 repository against the resulting database. The Playwright test bundles the
@@ -225,8 +237,23 @@ Worker and runs it in Miniflare; it verifies that a browser can load Swagger UI
 and fetch the OpenAPI 3.1 document without page, console, request, or HTTP
 failures. The fixture uses the same Worker compatibility date as deployment and
 also exercises JSON:API profile negotiation.
-The pinned Cloudflare Vitest pool brings Wrangler transitively, but Wrangler is
-not a direct dependency or an application development/deployment surface.
+The supported Cloudflare Vitest plugin brings Wrangler transitively, but
+Wrangler is not a direct dependency or an application development/deployment
+surface. Vitest 5 and the plugin share the current Miniflare 5 runtime.
+
+Dependabot checks versions quarterly. Biome is excluded at every version:
+its upgrades are reviewed with configuration and diagnostic changes. Stable
+Effect packages use the ordinary update groups; Alchemy core/provider and
+Drizzle ORM/Kit stay grouped as coupled prerelease tracks. The default one-day
+release quarantine remains, with explicit version exceptions for this reviewed
+runtime upgrade.
+
+Alchemy 2, Drizzle 1, and the required Miniflare 5 runtime currently have no
+stable release on their selected tracks. Other direct packages use stable
+releases. Alchemy's development runtime depends on `capnp-es@0.0.16`, whose
+TypeScript peer range still lists only versions 5/6; pnpm therefore reports a
+peer warning with this repository's TypeScript 7 baseline. No dependency
+override is applied.
 
 ## Plan and deploy
 
@@ -247,7 +274,7 @@ same pairing; `dev` maps to the personal `dev_$USER` stage.
 The first Alchemy operation can bootstrap account state even when the command
 is `plan`. Confirm the Cloudflare account and stage before approving it.
 `staging` and `prod` D1 databases use a retain removal policy. The Worker sets
-Alchemy's `url` property to `false`, which disables its stable `workers.dev`
+Alchemy's `workersDev` property to `false`, which disables its stable `workers.dev`
 URL and version-preview URLs in the pinned provider. Staging requires
 `staging.hono-playground.dev` and production requires `hono-playground.dev`;
 Alchemy attaches that custom hostname

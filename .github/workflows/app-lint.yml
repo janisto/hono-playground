@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
@@ -15,7 +14,7 @@ concurrency:
 
 jobs:
   lint:
-    name: Biome
+    name: lint
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -28,7 +27,7 @@ jobs:
       - name: Set up Biome
         uses: biomejs/setup-biome@v2.7.1
         with:
-          version: "2.5.9"
+          version: "2.6.4"
 
       - name: Run Biome
         run: biome ci .

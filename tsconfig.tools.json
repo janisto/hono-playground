@@ -1,7 +1,7 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["node", "vitest/globals", "@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"]
+    "types": ["node", "vitest/globals", "@cloudflare/workers-types", "@cloudflare/vitest-plugin/types"]
   },
   "include": [
     "src/**/*.ts",

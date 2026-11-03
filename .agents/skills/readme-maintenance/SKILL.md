@@ -1,4 +1,5 @@
 ---
+
 name: readme-maintenance
 description: Audit or update hono-playground README.md when routes, JSON:API contracts, configuration, setup, development commands, architecture, Cloudflare bindings, D1 persistence, observability, deployment, CI, or supported versions change; keep human documentation separate from agent rules.
 ---

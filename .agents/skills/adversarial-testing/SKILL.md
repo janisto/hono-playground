@@ -1,4 +1,5 @@
 ---
+
 name: adversarial-testing
 description: Enforce adversarial, high-signal testing that validates business logic, boundaries, failure recovery, and observable side effects. Use whenever creating, modifying, reviewing, debugging, or planning software tests of any kind, including unit, integration, contract, and end-to-end tests; testing bug fixes or regressions; evaluating mocks, fixtures, or coverage; or identifying missing edge cases and failure paths.
 ---

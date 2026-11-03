@@ -1,5 +1,5 @@
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Alchemy from "alchemy";
-import * as Cloudflare from "alchemy/Cloudflare";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
@@ -41,8 +41,8 @@ const hmacKeyConfig = (name: string) =>
     name,
   );
 
-const accessTeamDomain = Config.string("ACCESS_TEAM_DOMAIN");
-const accessAudience = Config.string("ACCESS_AUD");
+const accessTeamDomain = Config.String("ACCESS_TEAM_DOMAIN");
+const accessAudience = Config.String("ACCESS_AUD");
 const rateLimitHmacKey = hmacKeyConfig("RATE_LIMIT_KEY_HMAC_KEY");
 const auditSubjectHmacKey = hmacKeyConfig("AUDIT_SUBJECT_HMAC_KEY");
 
@@ -52,7 +52,7 @@ const workerProps = Effect.gen(function* () {
   const stagePolicy = deploymentStagePolicy(stage);
   const domain =
     stage === "prod" || stage === "staging"
-      ? deploymentHostname(stage, yield* Config.string("WORKER_DOMAIN"))
+      ? deploymentHostname(stage, yield* Config.String("WORKER_DOMAIN"))
       : undefined;
 
   const namespaceIds = yield* Config.all({
@@ -60,7 +60,7 @@ const workerProps = Effect.gen(function* () {
     profileRead: rateLimitNamespaceConfig("PROFILE_READ_RATE_LIMIT_NAMESPACE_ID"),
     profileWrite: rateLimitNamespaceConfig("PROFILE_WRITE_RATE_LIMIT_NAMESPACE_ID"),
   }).pipe(
-    Config.mapOrFail((values) =>
+    Config.mapEffect((values) =>
       Schema.decodeUnknownEffect(
         Schema.Struct({
           public: RateLimitNamespaceIdSchema,
@@ -80,7 +80,7 @@ const workerProps = Effect.gen(function* () {
     teamDomain: accessTeamDomain,
     audience: accessAudience,
   }).pipe(
-    Config.mapOrFail((values) =>
+    Config.mapEffect((values) =>
       Schema.decodeUnknownEffect(
         Schema.Struct({
           teamDomain: Schema.String,
@@ -105,7 +105,7 @@ const workerProps = Effect.gen(function* () {
     rateLimit: rateLimitHmacKey,
     auditSubject: auditSubjectHmacKey,
   }).pipe(
-    Config.mapOrFail((values) =>
+    Config.mapEffect((values) =>
       Schema.decodeUnknownEffect(
         Schema.Struct({
           rateLimit: Schema.Redacted(HmacKeySchema),
@@ -125,14 +125,13 @@ const workerProps = Effect.gen(function* () {
     name: `hono-playground-db-${stage}`,
     jurisdiction: "eu",
     readReplication: { mode: "disabled" },
-    migrationsDir: "./drizzle",
-    migrationsTable: MIGRATIONS_TABLE,
+    migrations: { dir: "./drizzle", table: MIGRATIONS_TABLE },
   }).pipe(Alchemy.RemovalPolicy.retain(stagePolicy.persistent));
 
   return {
     name: `${WORKER_BASE_NAME}-${stage}`,
     main: "./src/index.ts",
-    url: false,
+    workersDev: false,
     ...(domain === undefined ? {} : { domain }),
     compatibility: {
       date: COMPATIBILITY_DATE,

@@ -37,7 +37,7 @@ describe("Drizzle migration", () => {
     ]);
   });
 
-  it("records full migration paths in the Alchemy-compatible ledger", async () => {
+  it("records full migration paths in the legacy ledger fixture", async () => {
     const columns = await env.DB.prepare(`PRAGMA table_info(${MIGRATIONS_TABLE})`).all<{
       name: string;
     }>();
