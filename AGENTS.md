@@ -176,8 +176,8 @@ fixed deployment input unless the user explicitly changes it; do not substitute
 - Start from the exact versions in `package.json`, the package-manager version,
   and the exact GitHub Action tags. Query the live registry using the channel
   this repository accepts: stable `latest`, Drizzle `rc`, and the pinned
-  Alchemy/Effect beta channel. A newer unrelated major or snapshot is not an
-  applicable update.
+  Alchemy core/provider beta channel. A newer unrelated major or snapshot is
+  not an applicable update.
 - Check the current official documentation and migration or release notes for
   every directly used package before adopting an API. Prefer a versioned page
   or source tag. Record when a page is unversioned, redirects to an older major,
@@ -189,7 +189,7 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   with TypeScript plus the smallest local runtime probe.
 - Verify related packages as a set. In particular, reconcile
   Alchemy/Effect/platform peers, Drizzle ORM/Kit, Hono/Zod OpenAPI/Zod, and
-  Vitest/Cloudflare pool/Vite before changing any member.
+  Vitest/Cloudflare plugin/Vite before changing any member.
 - Distinguish a global latest version from the correct maintained track. For
   example, keep Node type declarations on the Node major selected by
   `engines`, and honor the repository's minimum-release-age policy instead of
@@ -321,6 +321,19 @@ it must not generate them.
   `/api-docs` is only a renderer for that document. Do not add a duplicate
   registry, generated client, standalone schema graph, or asset build pipeline
   without a concrete consumer requirement.
+- Maintain root `llms.txt` as the selective API index and `llms-full.txt` as the
+  complete usage guide. Keep human onboarding in `README.md` and contributor
+  rules here. Update API examples, identity, pagination, side effects, and retry
+  guidance with behavior changes; source documentation is not deployment proof.
+- Serve only those two named files through native `?raw` imports. Keep the public
+  RFC 9727 catalog, guides, and OpenAPI independent of authentication, D1,
+  GitHub, credential refresh, and application limiters. Preserve typed discovery
+  and index links, truthful GET/HEAD metadata, and JSON Problem Details errors.
+  Do not expose the repository directory or duplicate the operation registry.
+- Preserve stable operation IDs. Give each OpenAPI operation a concise purpose
+  summary and accurate scope, ownership, side-effect, and limitation guidance
+  for human and automated consumers. Review the generated document against
+  runtime behavior; do not add prose snapshots or keyword checkers.
 
 ## Other HTTP and observability conventions
 

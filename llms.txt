@@ -1,0 +1,28 @@
+# Hono Playground API
+
+> A Cloudflare Workers reference API. Items and profiles use JSON:API 1.1;
+> health, greetings, and the read-only GitHub API use plain JSON. Profiles
+> belong to the principal verified by Cloudflare Access.
+
+This index covers the application's origin-root paths. Resolve root-relative
+links against the application origin you are using, including when reading
+this file in the repository. Repository source links are separate references.
+This source revision may not yet be deployed; retrieve `/openapi.json` from
+your chosen running origin before using its operations. For local access, the
+[setup instructions](https://github.com/janisto/hono-playground/blob/main/README.md#setup)
+configure Alchemy and `just dev` at http://127.0.0.1:8787; that development loop
+uses remote Cloudflare resources. The complete guide explains secretless tests.
+Neither this index nor the API catalog grants access to protected operations.
+
+## Contract and usage
+
+- [OpenAPI 3.1 contract](/openapi.json): Exact operation IDs, schemas, media types, statuses, and security.
+- [Complete API usage guide](llms-full.txt): Requests, authentication, pagination, profile lifecycle, and recovery after uncertain writes.
+- [API catalog](/.well-known/api-catalog): Public RFC 9727 links to the contract, guides, and health.
+
+## Reference implementation
+
+- [Routes and application](https://github.com/janisto/hono-playground/blob/main/src/app.ts): Native Hono handlers and middleware composition.
+- [Cloudflare Access verification](https://github.com/janisto/hono-playground/blob/main/src/auth/access.ts): Origin assertion validation and ownership.
+- [Profile persistence](https://github.com/janisto/hono-playground/blob/main/src/repositories/profile-repository.ts): Drizzle/D1 writes and conditional updates.
+- [Contributor setup](https://github.com/janisto/hono-playground/blob/main/README.md): Toolchain, local tests, and stage selection.

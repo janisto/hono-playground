@@ -11,6 +11,7 @@ Read `AGENTS.md`, then verify every affected `README.md` claim against the curre
 ## Sources of truth
 
 - application and routes: `src/app.ts`, `src/index.ts`, `src/api/routes.ts`, and route-resolution tests;
+- consumer guides and discovery: `llms.txt`, `llms-full.txt`, `src/docs/discovery.ts`, and real Worker discovery tests;
 - schemas and errors: `src/models/`, `src/core/errors.ts`, `src/core/http-policy.ts`, and contract tests;
 - configuration: `src/core/config.ts`, `infra/`, `alchemy.run.ts`, and `.env.example`;
 - commands: `Justfile` and `package.json`;
@@ -23,7 +24,7 @@ Read `AGENTS.md`, then verify every affected `README.md` claim against the curre
 ## Accuracy
 
 - Require every named path, route, command, default, environment variable, and version to exist.
-- Describe implemented behavior, not aspirational production readiness.
+- Describe implemented behavior, not aspirational production readiness. Keep the API usage guides aligned with the same build and distinguish source content from verified deployment.
 - Keep the project layout concise and mention `.agents/skills/` as portable agent workflows.
 - Keep setup, API usage, architecture, configuration, operations, and contribution entry points in the README.
 - Remove coding-agent directives, exhaustive style rules, and duplicated test policy from the README; link to `AGENTS.md` instead.

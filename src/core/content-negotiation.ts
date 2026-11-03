@@ -107,7 +107,8 @@ const parseMediaRange = (raw: string): MediaRange | null => {
 };
 
 const matchingRanges = (headerValue: string, representation: string): MediaRange[] => {
-  const [candidateType, candidateSubtype] = representation.toLowerCase().split("/");
+  const mediaType = representation.split(";", 1)[0] ?? "";
+  const [candidateType, candidateSubtype] = mediaType.trim().toLowerCase().split("/");
   if (candidateType === undefined || candidateSubtype === undefined) return [];
   const split = splitQuoted(headerValue, ",");
   // An unterminated quote makes the current member and its remaining commas ambiguous.
@@ -134,12 +135,33 @@ const acceptsBySpecificity = (ranges: readonly MediaRange[]): boolean => {
     .some((range) => range.quality > 0);
 };
 
-const jsonCandidateQuality = (headerValue: string, representation: string, withCharset: boolean): number | null => {
-  const ranges = matchingRanges(headerValue, representation).filter((range) => {
-    if (range.representationParameters.size === 0) return true;
-    if (!withCharset || range.representationParameters.size !== 1) return false;
-    return range.representationParameters.get("charset")?.value.toLowerCase() === "utf-8";
+const matchesParameters = (
+  requested: ReadonlyMap<string, ParameterValue>,
+  offered: ReadonlyMap<string, ParameterValue>,
+): boolean =>
+  [...requested].every(([name, actual]) => {
+    const expected = offered.get(name);
+    return (
+      expected !== undefined &&
+      (name === "charset"
+        ? actual.value.toLowerCase() === expected.value.toLowerCase()
+        : actual.value === expected.value)
+    );
   });
+
+const isJsonRepresentation = (representation: string): boolean => {
+  const mediaType = representation.split(";", 1)[0]?.trim().toLowerCase();
+  return mediaType?.endsWith("/json") === true || mediaType?.endsWith("+json") === true;
+};
+
+const jsonCandidateQuality = (headerValue: string, representation: string, withCharset: boolean): number | null => {
+  const parsed = parseMediaRange(representation);
+  if (parsed === null) return null;
+  const offered = new Map(parsed.representationParameters);
+  if (withCharset) offered.set("charset", { value: "utf-8", quoted: false });
+  const ranges = matchingRanges(headerValue, representation).filter((range) =>
+    matchesParameters(range.representationParameters, offered),
+  );
   if (ranges.length === 0) return null;
   const specificity = (range: MediaRange): number => (range.type === "*" ? 0 : range.subtype === "*" ? 1 : 2);
   const mostSpecific = Math.max(...ranges.map(specificity));
@@ -171,11 +193,14 @@ export const selectProblemContentType = (headerValue: string | null): string =>
   selectJsonContentType(headerValue, "application/problem+json") ?? "application/problem+json";
 
 export const accepts = (headerValue: string | null, representation: string): boolean => {
-  const plainJson = representation === "application/json" || representation === "application/problem+json";
-  if (plainJson) return selectJsonContentType(headerValue, representation) !== null;
+  if (isJsonRepresentation(representation)) return selectJsonContentType(headerValue, representation) !== null;
   if (headerValue === null) return true;
+  const offered = parseMediaRange(representation);
+  if (offered === null) return false;
   return acceptsBySpecificity(
-    matchingRanges(headerValue, representation).filter((range) => range.representationParameters.size === 0),
+    matchingRanges(headerValue, representation).filter((range) =>
+      matchesParameters(range.representationParameters, offered.representationParameters),
+    ),
   );
 };
 
@@ -229,12 +254,11 @@ export const requireAccept = (
   representation: string,
   _advertised = representation,
 ): string => {
-  const selected =
-    representation === "application/json" || representation === "application/problem+json"
-      ? selectJsonContentType(headerValue, representation)
-      : accepts(headerValue, representation)
-        ? representation
-        : null;
+  const selected = isJsonRepresentation(representation)
+    ? selectJsonContentType(headerValue, representation)
+    : accepts(headerValue, representation)
+      ? representation
+      : null;
   if (selected === null) {
     throw new AppError({
       status: 406,

@@ -36,24 +36,36 @@ for the required privacy validation.
 
 ## API
 
-| Method   | Path                                        | Response                                |
-| -------- | ------------------------------------------- | --------------------------------------- |
-| `GET`    | `/health`                                   | operational JSON                        |
-| `GET`    | `/v1/hello`                                 | default greeting JSON                   |
-| `POST`   | `/v1/hello`                                 | greeting JSON for a validated name      |
-| `GET`    | `/v1/items`                                 | cursor-paginated JSON:API collection    |
-| `POST`   | `/v1/profile`                               | create the Access identity's profile    |
-| `GET`    | `/v1/profile`                               | read the current profile                |
-| `PATCH`  | `/v1/profile`                               | update the current profile              |
-| `DELETE` | `/v1/profile`                               | empty `204`                             |
-| `GET`    | `/v1/github/owners/{owner}`                 | GitHub owner projection                 |
-| `GET`    | `/v1/github/owners/{owner}/repos`           | cursor-paginated repository projections |
-| `GET`    | `/v1/github/repos/{owner}/{repo}`           | GitHub repository projection            |
-| `GET`    | `/v1/github/repos/{owner}/{repo}/activity`  | cursor-paginated activity projections   |
-| `GET`    | `/v1/github/repos/{owner}/{repo}/languages` | sorted GitHub language-byte projections |
-| `GET`    | `/v1/github/repos/{owner}/{repo}/tags`      | cursor-paginated tag projections        |
-| `GET`    | `/openapi.json`                             | OpenAPI `3.1.0`                         |
-| `GET`    | `/api-docs`                                 | Swagger UI                              |
+| Method        | Path                                        | Response                                |
+| ------------- | ------------------------------------------- | --------------------------------------- |
+| `GET`         | `/health`                                   | operational JSON                        |
+| `GET`         | `/v1/hello`                                 | default greeting JSON                   |
+| `POST`        | `/v1/hello`                                 | greeting JSON for a validated name      |
+| `GET`         | `/v1/items`                                 | cursor-paginated JSON:API collection    |
+| `POST`        | `/v1/profile`                               | create the Access identity's profile    |
+| `GET`         | `/v1/profile`                               | read the current profile                |
+| `PATCH`       | `/v1/profile`                               | update the current profile              |
+| `DELETE`      | `/v1/profile`                               | empty `204`                             |
+| `GET`         | `/v1/github/owners/{owner}`                 | GitHub owner projection                 |
+| `GET`         | `/v1/github/owners/{owner}/repos`           | cursor-paginated repository projections |
+| `GET`         | `/v1/github/repos/{owner}/{repo}`           | GitHub repository projection            |
+| `GET`         | `/v1/github/repos/{owner}/{repo}/activity`  | cursor-paginated activity projections   |
+| `GET`         | `/v1/github/repos/{owner}/{repo}/languages` | sorted GitHub language-byte projections |
+| `GET`         | `/v1/github/repos/{owner}/{repo}/tags`      | cursor-paginated tag projections        |
+| `GET`         | `/openapi.json`                             | OpenAPI `3.1.0`                         |
+| `GET`         | `/api-docs`                                 | Swagger UI                              |
+| `GET`, `HEAD` | `/.well-known/api-catalog`                  | RFC 9727 API catalog                    |
+| `GET`         | `/llms.txt`                                 | concise API usage index                 |
+| `GET`         | `/llms-full.txt`                            | complete API usage guide                |
+
+Start API discovery at `/.well-known/api-catalog` on the running origin. Its
+links identify OpenAPI, the usage guides, and health. Catalog HEAD preserves
+GET metadata without a body. Health also advertises typed catalog and schema
+links; OpenAPI, the catalog, the full guide, and Swagger UI link to the index.
+The root [index](llms.txt) and [complete guide](llms-full.txt) are embedded
+unchanged as UTF-8 text in the same build, without authentication, D1, GitHub,
+or rate-limit bindings. They describe that source revision; use the running
+origin's OpenAPI to establish what is actually deployed.
 
 The Worker Custom Domain routes every path on its hostname to this application.
 Cloudflare Access is deliberately scoped to `/v1/profile` and its descendants,
@@ -236,7 +248,8 @@ repository against the resulting database. The Playwright test bundles the
 Worker and runs it in Miniflare; it verifies that a browser can load Swagger UI
 and fetch the OpenAPI 3.1 document without page, console, request, or HTTP
 failures. The fixture uses the same Worker compatibility date as deployment and
-also exercises JSON:API profile negotiation.
+also exercises JSON:API profile negotiation, catalog GET/HEAD metadata, and
+byte-for-byte guide content through real HTTP, including ignored GET bodies.
 The supported Cloudflare Vitest plugin brings Wrangler transitively, but
 Wrangler is not a direct dependency or an application development/deployment
 surface. Vitest 5 and the plugin share the current Miniflare 5 runtime.

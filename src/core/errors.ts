@@ -283,7 +283,9 @@ export const problemResponse = (
     code: error.code,
     ...(error.errors === undefined ? {} : { errors: error.errors }),
   };
-  return new Response(method === "HEAD" ? null : JSON.stringify(body), { status: error.status, headers });
+  const payload = JSON.stringify(body);
+  headers.set("Content-Length", String(new TextEncoder().encode(payload).byteLength));
+  return new Response(method === "HEAD" ? null : payload, { status: error.status, headers });
 };
 
 export const jsonApiErrorResponse = (error: AppError, method = "GET"): Response => {
