@@ -81,6 +81,9 @@
         "useAwaitThenable": "error",
         "useExhaustiveSwitchCases": "error",
         "useNullishCoalescing": "error"
+      },
+      "complexity": {
+        "useLiteralKeys": "off"
       }
     }
   },

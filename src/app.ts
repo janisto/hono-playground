@@ -35,11 +35,26 @@ import {
 import { httpPolicy } from "./core/http-policy.ts";
 import { lifecycle, runtimeConfiguration } from "./core/lifecycle.ts";
 import { enforceProfileRateLimit } from "./core/rate-limit.ts";
-import { apiDocumentationRoute, isJsonApiRoute, openApiDocumentRoute, resolveRoute } from "./core/routes.ts";
+import {
+  apiCatalogRoute,
+  apiDocumentationRoute,
+  isJsonApiRoute,
+  openApiDocumentRoute,
+  resolveRoute,
+} from "./core/routes.ts";
 import { assertStrictJsonText } from "./core/strict-json.ts";
 import { enterSpan } from "./core/tracing.ts";
 import type { AppEnvironment } from "./core/types.ts";
 import { ITEMS } from "./data/items.ts";
+import {
+  API_CATALOG,
+  CATALOG_LINK,
+  CATALOG_MEDIA_TYPE,
+  GUIDE_MEDIA_TYPE,
+  INDEX_LINK,
+  SCHEMA_LINK,
+  USAGE_GUIDES,
+} from "./docs/discovery.ts";
 import { renderSwaggerUiBody, SWAGGER_UI_VERSION } from "./docs/swagger.ts";
 import {
   GitHubActivityPageSchema,
@@ -258,7 +273,10 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     description: "Cloudflare Access browser session cookie.",
   });
 
-  app.openapi(healthRoute, (c) => c.json(HealthResponseSchema.parse({ status: "healthy" }), 200));
+  app.openapi(healthRoute, (c) => {
+    c.header("Link", `${CATALOG_LINK}, ${SCHEMA_LINK}`, { append: true });
+    return c.json(HealthResponseSchema.parse({ status: "healthy" }), 200);
+  });
   app.openapi(helloGetRoute, (c) => c.json(GreetingSchema.parse({ message: "Hello, World!" }), 200));
   app.openapi(helloPostRoute, (c) => {
     const { name } = c.req.valid("json");
@@ -431,9 +449,30 @@ export const createApp = (dependencies: AppDependencies = {}) => {
     servers: [{ url: "/" }],
   });
 
-  app.get(openApiDocumentRoute.path, (c) => c.json(openApiDocument));
+  app.get(apiCatalogRoute.path, (c) => {
+    c.header("Content-Type", CATALOG_MEDIA_TYPE);
+    c.header("Content-Length", String(new TextEncoder().encode(API_CATALOG).byteLength));
+    c.header("Link", `${CATALOG_LINK}, ${INDEX_LINK}`, { append: true });
+    return c.body(API_CATALOG, 200);
+  });
+  for (const guide of USAGE_GUIDES) {
+    app.get(guide.path, (c) => {
+      c.header("Content-Type", GUIDE_MEDIA_TYPE);
+      c.header("Content-Length", String(new TextEncoder().encode(guide.content).byteLength));
+      if (guide.path === "/llms-full.txt") c.header("Link", INDEX_LINK, { append: true });
+      return c.body(guide.content, 200);
+    });
+  }
+  app.get(openApiDocumentRoute.path, (c) => {
+    c.header("Link", INDEX_LINK, { append: true });
+    return c.json(openApiDocument);
+  });
   app.get(
     apiDocumentationRoute.path,
+    (c, next) => {
+      c.header("Link", INDEX_LINK, { append: true });
+      return next();
+    },
     swaggerUI({
       url: openApiDocumentRoute.path,
       title: "Hono Playground API",

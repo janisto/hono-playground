@@ -32,6 +32,14 @@ export const openApiDocumentRoute = {
 
 export const apiDocumentationRoute = { path: "/api-docs", method: "get", operationId: "getApiDocs" } as const;
 
+export const apiCatalogRoute = {
+  path: "/.well-known/api-catalog",
+  method: "get",
+  operationId: "getApiCatalog",
+} as const;
+export const usageIndexRoute = { path: "/llms.txt", method: "get", operationId: "getUsageIndex" } as const;
+export const usageGuideRoute = { path: "/llms-full.txt", method: "get", operationId: "getUsageGuide" } as const;
+
 const PAGINATION_QUERY = ["limit", "cursor"] as const;
 const ITEM_QUERY = ["page[limit]", "page[cursor]", "filter[category]"] as const;
 
@@ -52,6 +60,9 @@ export const ROUTE_DEFINITIONS = [
   { route: githubRepositoryTagsRoute, kind: "plain-public", queryNames: PAGINATION_QUERY },
   { route: openApiDocumentRoute, kind: "docs" },
   { route: apiDocumentationRoute, kind: "docs" },
+  { route: apiCatalogRoute, kind: "docs" },
+  { route: usageIndexRoute, kind: "docs" },
+  { route: usageGuideRoute, kind: "docs" },
 ] satisfies readonly RouteDefinition[];
 
 type RouteFamily = Readonly<{

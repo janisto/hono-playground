@@ -13,26 +13,25 @@ updates:
     commit-message:
       prefix: "chore(deps)"
     ignore:
+      - dependency-name: "@biomejs/biome"
       - dependency-name: "@types/node"
         update-types:
           - "version-update:semver-major"
     groups:
       locked-prereleases:
         patterns:
-          - "@effect/*"
           - "alchemy"
+          - "@alchemy.run/*"
           - "drizzle-kit"
           - "drizzle-orm"
-          - "effect"
       updates:
         patterns:
           - "*"
         exclude-patterns:
-          - "@effect/*"
           - "alchemy"
+          - "@alchemy.run/*"
           - "drizzle-kit"
           - "drizzle-orm"
-          - "effect"
         update-types:
           - "patch"
           - "minor"
@@ -40,11 +39,10 @@ updates:
         patterns:
           - "*"
         exclude-patterns:
-          - "@effect/*"
           - "alchemy"
+          - "@alchemy.run/*"
           - "drizzle-kit"
           - "drizzle-orm"
-          - "effect"
         update-types:
           - "major"
 

@@ -1,4 +1,5 @@
 ---
+
 name: edit-agent-instructions
 description: Review, compact, align, or edit root and nested AGENTS.md files while preserving repository-specific guidance, approval boundaries, and a recommended 32,768-byte instruction budget.
 ---

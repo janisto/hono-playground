@@ -428,8 +428,8 @@ describe("documentation UI", () => {
 
     expect(response.status).toBe(200);
     expect(html).toContain('<div id="swagger-ui"></div>');
-    expect(html).toContain("swagger-ui-dist@5.32.11/swagger-ui.css");
-    expect(html).toContain("swagger-ui-dist@5.32.11/swagger-ui-bundle.js");
+    expect(html).toContain("swagger-ui-dist@5.34.1/swagger-ui.css");
+    expect(html).toContain("swagger-ui-dist@5.34.1/swagger-ui-bundle.js");
     expect(html).toContain('url: "/openapi.json"');
     expect(html).toContain("supportedSubmitMethods: []");
     expect(html).toContain('validatorUrl: "none"');

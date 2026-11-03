@@ -1,6 +1,6 @@
 export const STACK_NAME = "HonoPlayground";
 // Keep at the newest date supported by every pinned runtime; see AGENTS.md.
-export const COMPATIBILITY_DATE = "2026-07-11";
+export const COMPATIBILITY_DATE = "2026-11-02";
 export const MIGRATIONS_TABLE = "drizzle_migrations";
 export const WORKER_BASE_NAME = "hono-playground";
 

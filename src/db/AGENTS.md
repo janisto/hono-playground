@@ -65,9 +65,11 @@ another working directory is explicitly stated.
   into D1 Studio. Follow `docs/cloudflare-production.md`: use the D1 REST API
   with SQL placeholders and bound `params`, assert the precondition and affected
   row count, and record only the audit pseudonym rather than the raw subject.
-- `drizzle_migrations` is Alchemy's Wrangler-compatible ledger for the
-  Drizzle-generated SQL files. It is not Drizzle ORM's runtime migrator table.
-  Do not introduce a second migration executor or pass this ledger to one.
+- Preserve the explicit `drizzle_migrations` ledger name. The current Alchemy
+  provider upgrades legacy bookkeeping in place and validates applied history
+  against local files. Follow the deployment runbook's one-way state-upgrade
+  procedure before remote use. This is not Drizzle ORM's runtime migrator
+  table; do not introduce a second executor or pass this ledger to one.
 - Deployment must not generate migrations. Drizzle Kit owns explicit
   generation; Alchemy applies only the committed SQL under `drizzle/` through
   the D1 resource dependency before uploading the Worker. A D1 migration and

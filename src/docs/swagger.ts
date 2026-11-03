@@ -1,12 +1,12 @@
-export const SWAGGER_UI_VERSION = "5.32.11";
+export const SWAGGER_UI_VERSION = "5.34.1";
 
 const SWAGGER_UI_CDN_BASE = `https://cdn.jsdelivr.net/npm/swagger-ui-dist@${SWAGGER_UI_VERSION}`;
 const SWAGGER_UI_STYLESHEET_URL = `${SWAGGER_UI_CDN_BASE}/swagger-ui.css`;
 const SWAGGER_UI_BUNDLE_URL = `${SWAGGER_UI_CDN_BASE}/swagger-ui-bundle.js`;
 
 export const SWAGGER_UI_STYLESHEET_INTEGRITY =
-  "sha384-9Q2fpS+xeS4ffJy6CagnwoUl+4ldAYhOs9pgZuEKxypVModhmZFzeMlvVsAjf7uT";
-export const SWAGGER_UI_BUNDLE_INTEGRITY = "sha384-vfl/klfTFrIz5urj0HnhcXLAbzPdRHezizfy+XgFB6GqcKkhlk0lS3bIbyB39NLA";
+  "sha384-4c3vsE5f+trhFyHrFrLM1fFGUn531NIaC7dcqEWIJdoRQJ5CkJbSuSCwXLpaS1KF";
+export const SWAGGER_UI_BUNDLE_INTEGRITY = "sha384-XFYN47VzPiDY6qPtxYKg0nqUeW/upo20xf1j2SUE7gT/i35FJB4cuS/71Iegzk8Z";
 
 export const SWAGGER_UI_BOOTSTRAP = `window.onload = () => {
   window.ui = SwaggerUIBundle({

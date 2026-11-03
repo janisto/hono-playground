@@ -1,0 +1,285 @@
+# Hono Playground API usage guide
+
+This guide describes the checked-out application. It does not establish that
+this revision is deployed. OpenAPI from the chosen running origin describes
+that deployment; stop on a mismatch instead of assuming newer routes exist.
+Root-relative documentation links denote HTTP routes at that chosen origin,
+including when this guide is read in the repository. Relative guide-file links
+also work in the repository. Source references below use public repository URLs.
+
+## Select the origin and discover the contract
+
+Set the origin of the environment you intend to use. Production's configured
+hostname is https://hono-playground.dev; staging uses
+https://staging.hono-playground.dev. Local Alchemy development uses
+http://127.0.0.1:8787 and can create remote, stage-isolated Cloudflare resources.
+After installing the pinned Node.js/pnpm toolchain, the minimal authorized
+local startup is:
+
+```sh
+pnpm install --frozen-lockfile
+cp .env.example .env.dev
+# Configure .env.dev with development-only bindings and Access settings.
+pnpm exec alchemy login --profile dev --env-file .env.dev --configure
+just dev
+```
+
+Follow the [setup prerequisites](https://github.com/janisto/hono-playground/blob/main/README.md#setup)
+for namespace IDs and distinct HMAC keys. Alchemy selects profile dev, .env.dev,
+and personal stage dev_$USER; no separate Firebase emulator or database daemon
+is used. These commands can create cloud resources and require authority for
+the selected Cloudflare account. Use BASE_URL=http://127.0.0.1:8787 afterwards.
+For secretless verification instead, `pnpm test` uses Vitest with local D1 and
+controlled identity fixtures; `pnpm test:e2e` starts its own Miniflare server.
+Neither command needs a Cloudflare login. Synthetic test credentials are not
+accepted by the production verifier. Node.js tooling is separate from the
+Worker runtime.
+
+```sh
+BASE_URL=https://staging.hono-playground.dev
+curl --fail-with-body -sS -i "$BASE_URL/.well-known/api-catalog"
+curl --fail-with-body -sS -I "$BASE_URL/.well-known/api-catalog"
+curl --fail-with-body -sS "$BASE_URL/openapi.json"
+```
+
+Catalog GET returns 200 with
+`application/linkset+json; profile="https://www.rfc-editor.org/info/rfc9727"`:
+
+```json
+{"linkset":[{"anchor":"/","service-desc":[{"href":"/openapi.json","type":"application/json"}],"service-doc":[{"href":"/llms.txt","type":"text/plain"},{"href":"/llms-full.txt","type":"text/plain"}],"status":[{"href":"/health","type":"application/json"}]}]}
+```
+
+Resolve every catalog reference against its retrieval URL. If you download the
+catalog, retain `$BASE_URL/.well-known/api-catalog` as its resolution base;
+the local download filename is not that base. HEAD returns GET metadata with
+no body. The catalog is a set of links, not a second operation registry.
+
+`/llms.txt` is the selective index and `/llms-full.txt` is this complete guide.
+They serve the exact UTF-8 files from the running build as
+`text/plain; charset=utf-8`. `/api-docs` renders `/openapi.json`; the JSON
+contract remains usable independently of the UI's CDN assets. Health advertises
+catalog and schema links. OpenAPI, the full guide, catalog GET/HEAD, and the UI
+advertise the index. Preserve all relevant Link targets, even when two share
+`rel="describedby"`. Discovery needs no authentication, database, GitHub fetch,
+or application rate limiter.
+
+## Operations and effects
+
+Use the exact paths below without adding trailing slashes. OpenAPI supplies
+complete schemas and the exact, stable operation IDs.
+
+| Method and path | Result and effects |
+|---|---|
+| GET /health | Public dependency-free process liveness; plain JSON |
+| GET /v1/hello | Public default greeting; plain JSON; no mutation |
+| POST /v1/hello | Public computed greeting; plain JSON; no persistence |
+| GET /v1/items | Public fixed catalog page; JSON:API; no mutation |
+| POST /v1/profile | Create the Access principal's sole profile; JSON:API; persists data |
+| GET /v1/profile | Read that profile; JSON:API |
+| PATCH /v1/profile | Change supplied mutable attributes; JSON:API; may persist data |
+| DELETE /v1/profile | Delete that profile; empty 204 |
+| GET /v1/github/owners/{owner} | Public GitHub owner projection; plain JSON |
+| GET /v1/github/owners/{owner}/repos | Public repository page; plain JSON |
+| GET /v1/github/repos/{owner}/{repo} | Public repository projection; plain JSON |
+| GET /v1/github/repos/{owner}/{repo}/activity | Public newest-first activity page; plain JSON |
+| GET /v1/github/repos/{owner}/{repo}/languages | Public language byte counts; plain JSON |
+| GET /v1/github/repos/{owner}/{repo}/tags | Public provider-ordered tag page; plain JSON |
+
+## Requests and representations
+
+Health, hello, GitHub, and OpenAPI use `application/json`. JSON-family success
+ranges can request UTF-8 explicitly; unsupported media parameters do not match,
+including parameters after `q`. These routes do not serve CBOR or JSON:API.
+Items and profiles use `application/vnd.api+json`, not ordinary JSON. JSON:API
+profile URI parameters are hints; unsupported extensions do not activate extra
+capabilities. Accept quality weights, specificity, and exclusions apply. A
+success representation excluded by Accept returns 406 before operation work.
+DELETE's bodyless 204 ignores Accept. Use the profiled linkset type for the
+catalog and text/plain for guides. Catalog and guide errors stay JSON Problem
+Details.
+
+Only greeting POST, profile POST, and profile PATCH have request bodies. Send
+one owned Content-Type, omit Content-Encoding or use one identity value, and
+keep content within 1,000,000 bytes. JSON greeting bodies permit only the UTF-8
+charset parameter. JSON:API follows its own media parameter rules. Malformed,
+duplicate-key, trailing, or invalid UTF-8 JSON returns 400; unsupported media
+returns 415; an oversized body returns 413; schema failures return 422.
+Application members are lower camel case. Application objects and profile
+attributes reject unknown fields; JSON:API protocol objects ignore unknown
+members as documented in OpenAPI. Do not guess aliases. Money is integer `amountMinor` in USD cents. Timestamps are canonical
+UTC strings with milliseconds and Z. Omission and null are distinct.
+
+```sh
+curl -sS -i -H 'Accept: application/json' "$BASE_URL/health"
+curl -sS -i -H 'Accept: application/json' "$BASE_URL/v1/hello"
+curl -sS -i -X POST -H 'Accept: application/json' \
+  -H 'Content-Type: application/json' --data '{"name":"Ada"}' \
+  "$BASE_URL/v1/hello"
+```
+
+The responses are 200 with `{"status":"healthy"}`, `{"message":"Hello, World!"}`,
+and `{"message":"Hello, Ada!"}` respectively.
+
+## Pagination
+
+```sh
+curl -sS -i -H 'Accept: application/vnd.api+json' \
+  "$BASE_URL/v1/items?page%5Blimit%5D=2&filter%5Bcategory%5D=electronics"
+```
+
+Items return `jsonapi.version` 1.1, a primary data array of `items` resources,
+top-level navigation links, and `meta.total` for the filtered collection. Each
+resource contains its string id and domain attributes. A representative
+resource is:
+
+```json
+{"type":"items","id":"item-001","attributes":{"name":"Alpha Widget","category":"electronics","price":{"amountMinor":2999,"currency":"USD"},"inStock":true,"createdAt":"2024-01-15T10:30:00.000Z","description":"A versatile electronic widget for everyday use"}}
+```
+
+Follow links.next or
+links.prev unchanged; JSON:API parameters are page[limit], page[cursor], and
+filter[category]. Cursors are opaque and bind the collection, filter, and size.
+Unknown, repeated, malformed, or empty cursor input is an error.
+
+GitHub pages use bare `limit` and `cursor`, RFC 8288 Link headers, and plain JSON.
+Repository, activity, and tag collections are `repos`, `activities`, and `tags`
+with count; languages use `languages`. Follow this API's links without copying
+provider cursors or constructing upstream URLs. The API attaches no server or
+caller credential to GitHub requests, has a ten-second operation deadline and
+a 4 MiB successful-response limit, and performs no automatic upstream retry.
+
+## Authentication and profile lifecycle
+
+Public operations need no account. Profile operations require the environment's
+Cloudflare Access session, normally the CF_Authorization cookie after an
+interactive Access login. Access may deny or redirect before the Worker; that
+edge response is not an application error document. Cloudflare injects the
+origin assertion, which the Worker verifies. Do not substitute a Firebase token,
+forge Cf-Access-Jwt-Assertion, or select another owner. Service-token access
+requires an explicitly configured Access policy; it is not implied here.
+
+For a real Access-protected environment, complete its interactive login and
+use only your authorized session on that exact environment. A session from a
+different audience is invalid. The localhost Worker has no Access login edge;
+for a separately authorized direct request, supply an actual matching Access
+application JWT as Cf-Access-Jwt-Assertion instead of a cookie. The Worker still
+checks its signature, issuer, audience, expiry, and identity claims, and may
+fetch the configured team's public signing keys. There is no anonymous local
+profile mode. For cloud-free profile experiments, use the existing integration
+fixtures with synthetic Access identities and migrated local D1.
+
+Use synthetic profile data and a placeholder for an authorized edge session:
+
+```sh
+ACCESS_SESSION=ACCESS_SESSION_PLACEHOLDER
+curl -sS -i -X POST --cookie "CF_Authorization=$ACCESS_SESSION" \
+  -H 'Accept: application/vnd.api+json' -H 'Content-Type: application/vnd.api+json' \
+  --data '{"data":{"type":"profiles","attributes":{"firstName":"Ada","lastName":"Lovelace","contactEmail":"Ada@example.com","phoneNumber":"+358401234567","termsAccepted":true}}}' \
+  "$BASE_URL/v1/profile"
+```
+
+Creation returns 201, Location `/v1/profile`, and the complete profile document:
+`jsonapi.version` 1.1, links.self `/v1/profile`, and data containing type
+`profiles`, the verified principal's id, attributes, and its own links.self.
+Attributes include the submitted fields, marketingOptIn false by default, and
+equal createdAt/updatedAt timestamps. For example, a synthetic principal
+`example-user` created at a fixed illustrative time receives:
+
+```http
+HTTP/1.1 201 Created
+Content-Type: application/vnd.api+json
+Location: /v1/profile
+Cache-Control: no-store
+```
+
+```json
+{"jsonapi":{"version":"1.1"},"links":{"self":"/v1/profile"},"data":{"type":"profiles","id":"example-user","attributes":{"firstName":"Ada","lastName":"Lovelace","contactEmail":"Ada@example.com","phoneNumber":"+358401234567","marketingOptIn":false,"termsAccepted":true,"createdAt":"2026-11-03T12:00:00.000Z","updatedAt":"2026-11-03T12:00:00.000Z"},"links":{"self":"/v1/profile"}}}
+```
+
+Actual IDs and timestamps come from identity and the server clock. An existing
+profile returns 409
+profile_exists without overwriting it. Client-selected creation IDs are not
+supported. The origin rejects an unsafe browser Origin that is not trusted.
+
+```sh
+curl -sS -i --cookie "CF_Authorization=$ACCESS_SESSION" \
+  -H 'Accept: application/vnd.api+json' "$BASE_URL/v1/profile"
+```
+
+GET returns 200 with the same complete document above until a change, or 404 profile_not_found. Read its
+opaque data.id before constructing PATCH; never put that id in a URL:
+
+```sh
+PROFILE_ID=VERIFIED_DATA_ID_FROM_GET
+node --input-type=module -e '
+  console.log(JSON.stringify({data: {
+    type: "profiles", id: process.argv[1], attributes: {marketingOptIn: true}
+  }}));
+' "$PROFILE_ID" | curl -sS -i -X PATCH --cookie "CF_Authorization=$ACCESS_SESSION" \
+  -H 'Accept: application/vnd.api+json' -H 'Content-Type: application/vnd.api+json' \
+  --data-binary @- "$BASE_URL/v1/profile"
+```
+
+PATCH returns 200 and the complete profile. It preserves createdAt and all
+omitted attributes, advances updatedAt only for a real change, and performs no
+write for an unchanged patch. For the synthetic document above, this example
+changes marketingOptIn to true and updatedAt to a later server timestamp; every
+other value stays unchanged. A type or update-id mismatch returns 409.
+
+```sh
+curl -sS -i -X DELETE --cookie "CF_Authorization=$ACCESS_SESSION" \
+  -H 'Accept: application/vnd.api+json' "$BASE_URL/v1/profile"
+```
+
+Successful deletion has no representation:
+
+```http
+HTTP/1.1 204 No Content
+Cache-Control: no-store
+```
+
+A later GET or DELETE returns
+404. Do not issue another DELETE to reconcile an uncertain outcome if another
+client might have recreated the profile.
+
+## Failures and retry decisions
+
+Items/profile errors use JSON:API: a jsonapi object and errors array with string
+status, stable code, title, safe detail, and at most one source pointer,
+parameter, or header per error. For example:
+
+```json
+{"jsonapi":{"version":"1.1"},"errors":[{"status":"404","code":"profile_not_found","title":"Not Found","detail":"Profile not found"}]}
+```
+
+Plain operations use RFC 9457 JSON Problem Details with type, title, numeric
+status, detail, and code. Both profiles return X-Request-ID for correlation,
+Cache-Control: no-store, and shared security headers. GitHub upstream failures
+are 502 github_upstream, a deadline is 504 github_timeout, and upstream absence
+is 404 github_not_found; no raw upstream diagnostics or credentials are exposed. Use the stable code for decisions. Correct 400, 403,
+406, 413, 415, and 422 inputs or credentials before retrying. A local rate limit
+uses rate_limited; GitHub quota uses github_rate_limit. A required limiter or
+identity dependency failure is 503; the operation does not continue.
+
+| Operation | Recovery after an uncertain result |
+|---|---|
+| GET | Retry a transient failure within a bounded attempt/time budget |
+| POST /v1/hello | Repeating the same valid input has no persisted side effect |
+| POST /v1/profile | Read and reconcile; 409 does not prove the intended creation succeeded |
+| PATCH /v1/profile | Read and reassess; repetition can overwrite intervening changes |
+| DELETE /v1/profile | Repetition has idempotent effects, but may delete a later recreation |
+
+For a bounded GET retry, allow at most three attempts within an overall budget,
+honor usable Retry-After seconds or HTTP dates, and add backoff with jitter when
+appropriate. Stop if the required delay exceeds the remaining budget; never
+shorten the delay. Respect cancellation. A delay hint establishes no replay or
+idempotency guarantee. Do not turn every 503 into a profile-write retry.
+
+## Reference implementation
+
+- [Routing and OpenAPI](https://github.com/janisto/hono-playground/blob/main/src/app.ts)
+- [HTTP policy](https://github.com/janisto/hono-playground/blob/main/src/core/http-policy.ts)
+- [Cloudflare Access](https://github.com/janisto/hono-playground/blob/main/src/auth/access.ts)
+- [Profile persistence](https://github.com/janisto/hono-playground/blob/main/src/repositories/profile-repository.ts)
+- [GitHub transport](https://github.com/janisto/hono-playground/blob/main/src/services/github-client.ts)
+- [Concise index](llms.txt)

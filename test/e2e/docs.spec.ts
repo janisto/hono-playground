@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { URL } from "node:url";
+
 import { expect, test } from "@playwright/test";
 
 const PORTABLE_OPERATIONS = new Map([
@@ -115,4 +118,68 @@ test("serves the portable public contract through a real Worker HTTP boundary", 
   }
   expect(document.openapi).toBe("3.1.0");
   expect(operations).toEqual(PORTABLE_OPERATIONS);
+});
+
+test("discovers bundled guides and catalog through Worker HTTP without runtime services", async ({ request }) => {
+  const catalog = await request.get("/.well-known/api-catalog", { headers: { "Accept-Encoding": "identity" } });
+  expect(catalog.status()).toBe(200);
+  expect(catalog.headers()["content-type"]).toBe(
+    'application/linkset+json; profile="https://www.rfc-editor.org/info/rfc9727"',
+  );
+  expect(catalog.headers()["link"]).toContain('</llms.txt>; rel="describedby"; type="text/plain"');
+  commonHeaders(catalog.headers());
+  expect(catalog.headers()["content-length"]).toBe(String((await catalog.body()).byteLength));
+  await expect(catalog.json()).resolves.toEqual({
+    linkset: [
+      {
+        anchor: "/",
+        "service-desc": [{ href: "/openapi.json", type: "application/json" }],
+        "service-doc": [
+          { href: "/llms.txt", type: "text/plain" },
+          { href: "/llms-full.txt", type: "text/plain" },
+        ],
+        status: [{ href: "/health", type: "application/json" }],
+      },
+    ],
+  });
+  const head = await request.head("/.well-known/api-catalog", { headers: { "Accept-Encoding": "identity" } });
+  expect(head.status()).toBe(200);
+  for (const header of ["content-type", "content-length", "link", "cache-control", "vary"]) {
+    expect(head.headers()[header]).toBe(catalog.headers()[header]);
+  }
+  expect(await head.body()).toHaveLength(0);
+
+  const rejectedHeaders = {
+    Accept: 'application/linkset+json;q=1;profile="https://invalid.example"',
+    "Accept-Encoding": "identity",
+  };
+  const rejectedGet = await request.get("/.well-known/api-catalog", { headers: rejectedHeaders });
+  const rejectedHead = await request.head("/.well-known/api-catalog", { headers: rejectedHeaders });
+  expect(rejectedGet.status()).toBe(406);
+  expect(rejectedHead.status()).toBe(406);
+  expect(rejectedHead.headers()["content-type"]).toBe("application/problem+json");
+  expect(rejectedHead.headers()["content-length"]).toBe(String((await rejectedGet.body()).byteLength));
+  expect(await rejectedHead.body()).toHaveLength(0);
+
+  await Promise.all(
+    ["llms.txt", "llms-full.txt"].map(async (filename) => {
+      const source = await readFile(new URL(`../../${filename}`, import.meta.url));
+      const guide = await request.fetch(`/${filename}`, {
+        method: "GET",
+        headers: {
+          Accept: "text/plain; charset=UTF-8",
+          "Accept-Encoding": "identity",
+          "Content-Type": "application/cbor",
+          "Content-Encoding": "gzip",
+          "Cf-Access-Jwt-Assertion": "invalid",
+        },
+        data: "{broken",
+      });
+      expect(guide.status()).toBe(200);
+      expect(guide.headers()["content-type"]).toBe("text/plain; charset=utf-8");
+      expect(guide.headers()["content-length"]).toBe(String(source.byteLength));
+      commonHeaders(guide.headers());
+      expect(await guide.body()).toEqual(source);
+    }),
+  );
 });

@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.22.0+sha512.1ff870c4c6133dfd88fb2afc46dd13d47f09c9794b438c6fdb47ca98caf3bc16381ee0be93a091b8e3824cf01f889f46d7d9e20910fb0be1ab0fb5baa80dd621",
+  "packageManager": "pnpm@12.16.1",
   "engines": {
-    "node": "24",
-    "pnpm": ">=11 <12"
+    "node": "26",
+    "pnpm": ">=12 <13"
   },
   "scripts": {
     "dev": "alchemy dev",
@@ -30,33 +30,35 @@
     "db:generate": "drizzle-kit generate --name",
     "db:check": "drizzle-kit check && drizzle_status=\"$(drizzle-kit generate --explain --output=json)\" && printf '%s\\n' \"$drizzle_status\" && test \"$drizzle_status\" = '{\"status\":\"no_changes\",\"dialect\":\"sqlite\"}'",
     "test:e2e": "playwright test",
-    "qa": "pnpm check && pnpm typecheck && pnpm db:check && pnpm coverage"
+    "qa": "pnpm workflow:check && pnpm check && pnpm typecheck && pnpm db:check && pnpm coverage && pnpm run audit",
+    "workflow:check": "actionlint && uvx --from zizmor==1.32.0 zizmor --offline --persona=pedantic ."
   },
   "dependencies": {
-    "@hono/swagger-ui": "0.6.1",
-    "@hono/zod-openapi": "1.6.1",
-    "drizzle-orm": "1.0.0-rc.4",
-    "hono": "4.13.3",
-    "jose": "6.2.9",
-    "zod": "4.4.3"
+    "@hono/swagger-ui": "0.6.2",
+    "@hono/zod-openapi": "1.6.3",
+    "drizzle-orm": "1.0.0-rc.5",
+    "hono": "4.13.16",
+    "jose": "6.2.15",
+    "zod": "4.6.7"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.9",
-    "@cloudflare/vitest-pool-workers": "0.22.0",
-    "@cloudflare/workers-types": "5.20260821.1",
-    "@effect/platform-node": "4.0.0-beta.107",
-    "@effect/platform-node-shared": "4.0.0-beta.107",
-    "@playwright/test": "1.62.1",
-    "@types/node": "24.13.3",
-    "@vitest/coverage-istanbul": "4.1.11",
-    "alchemy": "2.0.0-beta.65",
-    "drizzle-kit": "1.0.0-rc.4",
-    "effect": "4.0.0-beta.107",
-    "fast-check": "4.9.0",
-    "ioredis": "5.11.1",
-    "miniflare": "5.20260820.0-alpha",
+    "@biomejs/biome": "2.6.4",
+    "@cloudflare/workers-types": "5.20261103.1",
+    "@effect/platform-node": "4.1.2",
+    "@effect/platform-node-shared": "4.1.2",
+    "@playwright/test": "1.64.1",
+    "@types/node": "26.6.6",
+    "@vitest/coverage-istanbul": "5.1.0",
+    "alchemy": "2.0.0-beta.85",
+    "drizzle-kit": "1.0.0-rc.5",
+    "effect": "4.1.2",
+    "fast-check": "4.10.2",
+    "miniflare": "5.20261103.0-beta",
     "typescript": "7.0.2",
-    "vite": "8.2.2",
-    "vitest": "4.1.11"
+    "vite": "8.3.5",
+    "vitest": "5.1.0",
+    "redis": "6.3.1",
+    "@alchemy.run/cloudflare": "2.0.0-beta.85",
+    "@cloudflare/vitest-plugin": "1.5.1"
   }
 }

@@ -13,6 +13,10 @@ human users and contributors. Do not duplicate agent instructions into it.
   Simplify unnecessary behavior instead of adding machinery to defend it.
 - State the failure mode before architectural, security, persistence, or
   production-impacting changes.
+- Do not add dependency source patches, vendored forks, or runtime monkey-patches.
+  Preserve ordinary installs and dependency updates. Prefer supported native
+  behavior; present uncertain guarantees or maintenance costs before introducing
+  a workaround.
 - Report implementation, validation, and remaining risks before completion.
 - Keep instructions, comments, and documentation concise. Explain and obtain
   explicit approval before removing, merging, or relocating guidance, including
@@ -89,6 +93,10 @@ human users and contributors. Do not duplicate agent instructions into it.
 
 ## GitHub automation
 
+- Do not add or enable extra workflows, jobs, automated tasks, or recurring
+  triggers without explicit maintainer permission. Modernization and alignment
+  do not authorize extra automation. Keep validation on push/PR events and
+  Dependabot version checks quarterly to limit alerts and maintenance.
 - Preserve independent pure lint for early feedback. When modernizing workflows,
   use stable `ci` and `lint` check names and fail CI for any mandatory
   non-success result. Keep workflow scanners independent of language quality.
@@ -145,11 +153,19 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   repositories, or domain code in Effect without a concrete need.
 - Check current first-party web documentation before changing this
   fast-moving stack.
-- Keep `alchemy`, `effect`, `drizzle-orm`, and `drizzle-kit` at their exact
-  compatible prerelease versions. Upgrade them only after the live registry
-  shows a newer accepted-channel release and current docs, peer ranges,
-  generated migration output, and runtime tests prove the new set together.
-  Do not select snapshots or upgrade only one Drizzle package.
+- Prefer stable releases. Pin compatible Alchemy core/provider and Drizzle
+  ORM/Kit versions together; retain their approved prerelease tracks only while
+  the required v2/v1 APIs have no stable release. Effect and its Node platform
+  packages use matching stable releases. Upgrade only after live registry
+  metadata, current docs, peer ranges, generated migration output, and runtime
+  tests prove the new set together. Do not select snapshots or upgrade only
+  one Drizzle package.
+- Use the latest Node.js LTS line and stable TypeScript. `.node-version` and
+  `package.json` own exact runtime and package-manager selections. Keep Node
+  types on the runtime major; Workers compatibility is a separate selection.
+- Verify an adopted protocol's latest upstream revision separately from its
+  SDK version. Before 1.0, select the latest implementable draft and report
+  concrete library blockers. A newer draft does not authorize a new capability.
 
 ## Dependency documentation verification
 
@@ -160,8 +176,8 @@ fixed deployment input unless the user explicitly changes it; do not substitute
 - Start from the exact versions in `package.json`, the package-manager version,
   and the exact GitHub Action tags. Query the live registry using the channel
   this repository accepts: stable `latest`, Drizzle `rc`, and the pinned
-  Alchemy/Effect beta channel. A newer unrelated major or snapshot is not an
-  applicable update.
+  Alchemy core/provider beta channel. A newer unrelated major or snapshot is
+  not an applicable update.
 - Check the current official documentation and migration or release notes for
   every directly used package before adopting an API. Prefer a versioned page
   or source tag. Record when a page is unversioned, redirects to an older major,
@@ -173,7 +189,7 @@ fixed deployment input unless the user explicitly changes it; do not substitute
   with TypeScript plus the smallest local runtime probe.
 - Verify related packages as a set. In particular, reconcile
   Alchemy/Effect/platform peers, Drizzle ORM/Kit, Hono/Zod OpenAPI/Zod, and
-  Vitest/Cloudflare pool/Vite before changing any member.
+  Vitest/Cloudflare plugin/Vite before changing any member.
 - Distinguish a global latest version from the correct maintained track. For
   example, keep Node type declarations on the Node major selected by
   `engines`, and honor the repository's minimum-release-age policy instead of
@@ -215,6 +231,9 @@ explicit authority and target checks under [External operations](#external-opera
 
 ## TypeScript and naming
 
+- Biome's `useLiteralKeys` is disabled because it conflicts with TypeScript's
+  required bracket access for index signatures. Keep the compiler check and
+  reassess the analyzer limitation on Biome upgrades.
 - Use explicit `.ts` extensions for relative imports between TypeScript source
   files. This no-emit project is bundled or executed directly from TypeScript,
   including `alchemy.run.ts`; do not use emitted-JavaScript `.js` specifiers for
@@ -302,6 +321,19 @@ it must not generate them.
   `/api-docs` is only a renderer for that document. Do not add a duplicate
   registry, generated client, standalone schema graph, or asset build pipeline
   without a concrete consumer requirement.
+- Maintain root `llms.txt` as the selective API index and `llms-full.txt` as the
+  complete usage guide. Keep human onboarding in `README.md` and contributor
+  rules here. Update API examples, identity, pagination, side effects, and retry
+  guidance with behavior changes; source documentation is not deployment proof.
+- Serve only those two named files through native `?raw` imports. Keep the public
+  RFC 9727 catalog, guides, and OpenAPI independent of authentication, D1,
+  GitHub, credential refresh, and application limiters. Preserve typed discovery
+  and index links, truthful GET/HEAD metadata, and JSON Problem Details errors.
+  Do not expose the repository directory or duplicate the operation registry.
+- Preserve stable operation IDs. Give each OpenAPI operation a concise purpose
+  summary and accurate scope, ownership, side-effect, and limitation guidance
+  for human and automated consumers. Review the generated document against
+  runtime behavior; do not add prose snapshots or keyword checkers.
 
 ## Other HTTP and observability conventions
 
@@ -357,9 +389,8 @@ it must not generate them.
   environment file, profile, and stage. For `just dev`, those selectors are
   `.env.dev`, profile `dev`, and the explicit `dev_$USER` stage.
 - Treat stable `workers.dev` and version-preview URLs as separate ingress
-  surfaces. The pinned Alchemy beta enables previews with the stable URL and
-  does not honor `subdomain.previewsEnabled`; keep `url: false` so both remain
-  disabled.
+  surfaces. Keep `workersDev: false` so both remain disabled in the selected
+  Alchemy provider; recheck both settings after every provider upgrade.
 - On an Alchemy-managed custom domain, keep the Cloudflare Access application
   scoped to the exact hostname and Path `v1/profile`; that path covers the
   singleton root and descendants. Do not leave Path empty, because that would

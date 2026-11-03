@@ -1,11 +1,20 @@
 import type { MiddlewareHandler } from "hono";
+import { CATALOG_MEDIA_TYPE, GUIDE_MEDIA_TYPE } from "../docs/discovery.ts";
 import { precheckBodyHeaders, precheckDeclaredBodySize } from "./body.ts";
 import { requireAccept, requireJsonApiAccept } from "./content-negotiation.ts";
 import { AppError } from "./errors.ts";
 import { requireTrustedOriginForUnsafeProfile } from "./origin.ts";
 import { parseClosedQuery, validateCursorInput } from "./query.ts";
 import { enforcePublicRateLimit } from "./rate-limit.ts";
-import { apiDocumentationRoute, isJsonApiRoute, isPublicRateLimited, resolveRoute } from "./routes.ts";
+import {
+  apiCatalogRoute,
+  apiDocumentationRoute,
+  isJsonApiRoute,
+  isPublicRateLimited,
+  resolveRoute,
+  usageGuideRoute,
+  usageIndexRoute,
+} from "./routes.ts";
 import type { AppEnvironment } from "./types.ts";
 
 export const httpPolicy = (): MiddlewareHandler<AppEnvironment> => async (c, next) => {
@@ -39,6 +48,13 @@ export const httpPolicy = (): MiddlewareHandler<AppEnvironment> => async (c, nex
     if (isJsonApiRoute(resolution.metadata)) selectedContentType = requireJsonApiAccept(c.req.header("Accept") ?? null);
     else if (resolution.metadata.template === apiDocumentationRoute.path) {
       selectedContentType = requireAccept(c.req.header("Accept") ?? null, "text/html");
+    } else if (resolution.metadata.template === apiCatalogRoute.path) {
+      selectedContentType = requireAccept(c.req.header("Accept") ?? null, CATALOG_MEDIA_TYPE);
+    } else if (
+      resolution.metadata.template === usageIndexRoute.path ||
+      resolution.metadata.template === usageGuideRoute.path
+    ) {
+      selectedContentType = requireAccept(c.req.header("Accept") ?? null, GUIDE_MEDIA_TYPE);
     } else {
       selectedContentType = requireAccept(c.req.header("Accept") ?? null, "application/json");
     }
