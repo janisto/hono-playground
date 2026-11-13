@@ -368,6 +368,10 @@ it must not generate them.
 
 ## External operations
 
+- Use Google Chrome whenever repository work requires a browser, including
+  dashboard checks and authentication. Select Chrome explicitly if a CLI
+  would open the system default browser. Use Safari only when Chrome cannot
+  be used.
 - Use `just dev` for the Alchemy development loop. It explicitly selects
   `.env.dev`, profile `dev`, and personal stage `dev_$USER`, and serves on
   `http://127.0.0.1:8787`. Use `just plan staging|prod`,
